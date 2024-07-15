@@ -3,6 +3,7 @@ use crate::errors::ParseError;
 use crate::instruction::{
     AddressingMode, Encodable, Generic, Instruction, Literal, Node, PString, Scoped,
 };
+use crate::mapping::{Mapping, Segment};
 use crate::opcodes::{INSTRUCTIONS, OPCODES};
 use std::collections::hash_map::Entry;
 use std::io::{self, BufRead, Read};
@@ -15,25 +16,17 @@ pub struct Assembler {
     column: usize,
     offset_address: usize,
     context: Context,
-
-    // TODO: segments instead
-    nodes: Vec<Node>,
-}
-
-impl Default for Assembler {
-    fn default() -> Self {
-        Assembler::new()
-    }
+    mapping: Mapping,
 }
 
 impl Assembler {
-    pub fn new() -> Self {
+    pub fn new(segments: Vec<Segment>) -> Self {
         Self {
             line: 0,
             column: 0,
             offset_address: 0,
             context: Context::new(),
-            nodes: vec![],
+            mapping: Mapping::new(segments),
         }
     }
 
@@ -41,26 +34,56 @@ impl Assembler {
         self.line = 0;
         self.column = 0;
         self.offset_address = 0;
-        self.nodes = vec![];
         self.context = Context::new();
+        self.mapping.reset();
     }
 
-    pub fn to_nodes(&mut self, reader: impl Read) -> Result<&Vec<Node>> {
+    pub fn assemble_nodes(&mut self, reader: impl Read) -> Result<()> {
         self.from_reader(reader)?;
         self.context.reset();
         self.evaluate()?;
 
-        Ok(&self.nodes)
+        Ok(())
     }
 
     pub fn assemble(&mut self, reader: impl Read) -> Result<Vec<&dyn Encodable>> {
         let mut instructions: Vec<&dyn Encodable> = vec![];
 
-        for node in self.to_nodes(reader)? {
-            match node {
-                Node::Instruction(instr) => instructions.push(instr),
-                Node::Literal(lit) => instructions.push(lit),
-                _ => {}
+        self.assemble_nodes(reader)?;
+
+        for segment in &self.mapping.segments {
+            let mut size: usize = 0;
+
+            for node in &self.mapping.nodes[&segment.name] {
+                match node {
+                    Node::Instruction(instr) => {
+                        instructions.push(instr);
+                        size += usize::from(instr.size());
+                    }
+                    Node::Literal(lit) => {
+                        instructions.push(lit);
+                        size += usize::from(lit.size());
+                    }
+                    _ => {}
+                }
+            }
+
+            if size > segment.size {
+                return Err(ParseError {
+                    line: 0,
+                    message: format!(
+                        "segment '{}' expected a size of '{}' bytes but '{}' bytes were produced instead",
+                        segment.name, size, segment.size
+                    ),
+                });
+            }
+            if segment.fill_value.is_none() {
+                continue;
+            }
+
+            while size < segment.size {
+                instructions.push(segment.fill_value.as_ref().unwrap());
+                size += 1;
             }
         }
 
@@ -71,7 +94,7 @@ impl Assembler {
         self.from_byte_reader(reader)?;
 
         let mut instructions: Vec<&dyn Encodable> = vec![];
-        for node in &self.nodes {
+        for node in self.mapping.current() {
             match node {
                 Node::Instruction(instr) => instructions.push(instr),
                 Node::Literal(lit) => instructions.push(lit),
@@ -106,7 +129,7 @@ impl Assembler {
     }
 
     pub fn evaluate(&mut self) -> Result<()> {
-        for node in &mut self.nodes {
+        for node in self.mapping.current_mut() {
             match node {
                 Node::Instruction(instr) => {
                     Self::update_instruction_with_context(instr, &self.context)?
@@ -706,6 +729,7 @@ impl Assembler {
         match id.value.to_lowercase().as_str() {
             ".scope" => self.parse_scope_definition(&id, line),
             ".endscope" => self.parse_scope_end(&id),
+            ".segment" => self.parse_segment_definition(&id, line),
             ".byte" | ".db" => self.parse_literal_bytes(&id, line, false),
             ".word" | ".dw" => self.parse_literal_bytes(&id, line, true),
             _ => {
@@ -714,6 +738,15 @@ impl Assembler {
                 )
             }
         }
+    }
+
+    fn parse_segment_definition(&mut self, id: &PString, line: &str) -> Result<()> {
+        self.skip_whitespace(line);
+
+        let identifier = self.fetch_possibly_quoted_identifier(id, line)?;
+        self.mapping.switch(&identifier)?;
+
+        Ok(())
     }
 
     fn parse_scope_definition(&mut self, id: &PString, line: &str) -> Result<()> {
@@ -726,7 +759,7 @@ impl Assembler {
             ));
         }
         self.context.push(&identifier.value);
-        self.nodes.push(Node::Scoped(Scoped {
+        self.mapping.push(Node::Scoped(Scoped {
             identifier,
             start: true,
         }));
@@ -738,7 +771,7 @@ impl Assembler {
         if !self.context.pop() {
             return Err(id.parser_error("missmatched '.endscope': there is no scope to end"));
         }
-        self.nodes.push(Node::Scoped(Scoped {
+        self.mapping.push(Node::Scoped(Scoped {
             identifier: PString::new(),
             start: false,
         }));
@@ -791,7 +824,7 @@ impl Assembler {
                     // will evaluate each literal as needed (e.g. replacing
                     // values from variables being used in this literal).
                     let string = line.get(self.column..self.column + idx).unwrap_or(" ");
-                    self.nodes.push(Node::Literal(Literal {
+                    self.mapping.push(Node::Literal(Literal {
                         identifier: PString {
                             value: string.to_owned(),
                             line: self.line,
@@ -859,6 +892,29 @@ impl Assembler {
                 },
             }),
         }
+    }
+
+    fn fetch_possibly_quoted_identifier(&mut self, id: &PString, line: &str) -> Result<PString> {
+        let mut identifier = self.fetch_identifier(id, line)?;
+
+        if identifier.value.starts_with('\'') || identifier.value.starts_with('`') {
+            return Err(id.parser_error("use double quotes for the segment identifier instead"));
+        } else if identifier.value.starts_with('"') {
+            identifier.value = match identifier
+                .value
+                .get(1..(identifier.range.end - identifier.range.start - 1))
+            {
+                Some(v) => v.to_string(),
+                None => return Err(id.parser_error("could not fetch quoted identifier")),
+            };
+            if identifier.value.contains('"') {
+                return Err(id.parser_error("do not use double quotes inside of the identifier"));
+            }
+            identifier.range.start += 1;
+            identifier.range.end -= 1;
+        }
+
+        Ok(identifier)
     }
 
     fn parse_statement(&mut self, id: PString, line: &str) -> Result<()> {
@@ -1089,7 +1145,7 @@ impl Assembler {
         instr.left = node.left;
         instr.right = node.right;
 
-        self.nodes.push(Node::Instruction(instr));
+        self.mapping.push(Node::Instruction(instr));
         Ok(())
     }
 
@@ -1118,7 +1174,7 @@ impl Assembler {
                         }
                         bs[i as usize] = buf[0];
                     }
-                    self.nodes.push(Node::Instruction(Instruction {
+                    self.mapping.push(Node::Instruction(Instruction {
                         mnemonic: PString::from(&v.mnemonic),
                         opcode: v.opcode,
                         size: v.size,

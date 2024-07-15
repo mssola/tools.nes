@@ -268,10 +268,50 @@ impl Encodable for Literal {
     }
 }
 
+#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
+pub struct Fill {
+    pub value: u8,
+}
+
+impl Encodable for Fill {
+    fn size(&self) -> u8 {
+        1
+    }
+
+    fn to_hex(&self) -> Vec<String> {
+        let mut ret = vec![];
+        ret.push(format!("{:02X}", self.value));
+
+        ret
+    }
+
+    fn to_bytes(&self) -> [u8; 3] {
+        [self.value, 0, 0]
+    }
+
+    fn to_human(&self) -> String {
+        format!("${:02X}", self.value)
+    }
+
+    fn to_verbose(&self) -> String {
+        format!("{:#?}", self)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Node {
     Generic(Generic),
     Instruction(Instruction),
     Scoped(Scoped),
     Literal(Literal),
+    Fill(Fill),
+}
+
+impl Node {
+    pub fn is_encodeable(&self) -> bool {
+        matches!(
+            self,
+            &Node::Instruction(_) | &Node::Literal(_) | &Node::Fill(_)
+        )
+    }
 }

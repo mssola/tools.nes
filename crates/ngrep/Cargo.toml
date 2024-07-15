@@ -1,0 +1,8 @@
+[package]
+name = "ngrep"
+version = "0.0.1"
+authors = ["Miquel Sabaté Solà <mikisabate@gmail.com>"]
+edition = "2021"
+
+[dependencies]
+xixanta.workspace = true

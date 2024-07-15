@@ -124,6 +124,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ncount"
+version = "0.0.1"
+dependencies = [
+ "xixanta",
+]
+
+[[package]]
+name = "ngrep"
+version = "0.0.1"
+dependencies = [
+ "xixanta",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.81"
 source = "registry+https://github.com/rust-lang/crates.io-index"

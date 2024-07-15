@@ -2,6 +2,7 @@
 name = "nasm"
 version = "0.1.0"
 edition = "2021"
+authors = ["Miquel Sabaté Solà <mikisabate@gmail.com>"]
 
 [dependencies]
 anyhow = "1.0.82"

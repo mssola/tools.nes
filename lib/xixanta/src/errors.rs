@@ -1,5 +1,6 @@
 use std::fmt;
 
+// TODO: global error
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParseError {
     pub line: usize,

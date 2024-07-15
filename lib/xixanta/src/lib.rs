@@ -7,4 +7,5 @@ pub mod assembler;
 mod context;
 mod errors;
 pub mod instruction;
+pub mod mapping;
 mod opcodes;
