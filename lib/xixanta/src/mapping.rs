@@ -16,7 +16,7 @@ pub struct Segment {
 pub struct Mapping {
     pub segments: Vec<Segment>,
     pub nodes: HashMap<String, Vec<Node>>,
-    current: String,
+    pub current: String,
 }
 
 impl Mapping {

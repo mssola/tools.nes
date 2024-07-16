@@ -20,7 +20,6 @@ pub struct Entry {
 }
 
 lazy_static! {
-    // TODO
     pub static ref INSTRUCTIONS: HashMap<String, HashMap<AddressingMode, ShortEntry>> = {
         let mut instrs = HashMap::new();
 
@@ -57,9 +56,20 @@ lazy_static! {
         asl.insert(AddressingMode::IndexedX, ShortEntry{ cycles: 7, size: 3, opcode: 0x1E, affected_on_page: false });
         instrs.insert(String::from("asl"), asl);
 
-        // BCC: TODO
-        // BCS: TODO
-        // BEQ: TODO
+        // bcc
+        let mut bcc = HashMap::new();
+        bcc.insert(AddressingMode::RelativeOrZeropage, ShortEntry{ cycles: 2, size: 2, opcode: 0x90, affected_on_page: true });
+        instrs.insert(String::from("bcc"), bcc);
+
+        // bcs
+        let mut bcs = HashMap::new();
+        bcs.insert(AddressingMode::RelativeOrZeropage, ShortEntry{ cycles: 2, size: 2, opcode: 0xB0, affected_on_page: true });
+        instrs.insert(String::from("bcs"), bcs);
+
+        // beq
+        let mut beq = HashMap::new();
+        beq.insert(AddressingMode::RelativeOrZeropage, ShortEntry{ cycles: 2, size: 2, opcode: 0xF0, affected_on_page: true });
+        instrs.insert(String::from("beq"), beq);
 
         // bit
         let mut bit = HashMap::new();
@@ -67,17 +77,35 @@ lazy_static! {
         bit.insert(AddressingMode::Absolute, ShortEntry{ cycles: 4, size: 3, opcode: 0x2C, affected_on_page: false });
         instrs.insert(String::from("bit"), bit);
 
-        // BMI: TODO
-        // BNE: TODO
-        // BPL: TODO
+        // bmi
+        let mut bmi = HashMap::new();
+        bmi.insert(AddressingMode::RelativeOrZeropage, ShortEntry{ cycles: 2, size: 2, opcode: 0x30, affected_on_page: true });
+        instrs.insert(String::from("bmi"), bmi);
+
+        // bne
+        let mut bne = HashMap::new();
+        bne.insert(AddressingMode::RelativeOrZeropage, ShortEntry{ cycles: 2, size: 2, opcode: 0xD0, affected_on_page: true });
+        instrs.insert(String::from("bne"), bne);
+
+        // bpl
+        let mut bpl = HashMap::new();
+        bpl.insert(AddressingMode::RelativeOrZeropage, ShortEntry{ cycles: 2, size: 2, opcode: 0x10, affected_on_page: true });
+        instrs.insert(String::from("bpl"), bpl);
 
         // brk
         let mut brk = HashMap::new();
         brk.insert(AddressingMode::Implied, ShortEntry{ cycles: 7, size: 1, opcode: 0x00, affected_on_page: false });
         instrs.insert(String::from("brk"), brk);
 
-        // BVC: TODO
-        // BVS: TODO
+        // bvc
+        let mut bvc = HashMap::new();
+        bvc.insert(AddressingMode::RelativeOrZeropage, ShortEntry{ cycles: 2, size: 2, opcode: 0x50, affected_on_page: true });
+        instrs.insert(String::from("bvc"), bvc);
+
+        // bvs
+        let mut bvs = HashMap::new();
+        bvs.insert(AddressingMode::RelativeOrZeropage, ShortEntry{ cycles: 2, size: 2, opcode: 0x70, affected_on_page: true });
+        instrs.insert(String::from("bvs"), bvs);
 
         // clc
         let mut clc = HashMap::new();
@@ -403,23 +431,36 @@ lazy_static! {
         opcodes.insert(0x0E, Entry { mode: AddressingMode::Absolute, mnemonic: String::from("asl"), cycles: 6, size: 3, opcode: 0x0E, affected_on_page: false });
         opcodes.insert(0x1E, Entry { mode: AddressingMode::IndexedX, mnemonic: String::from("asl"), cycles: 7, size: 3, opcode: 0x1E, affected_on_page: false });
 
-        // BCC
-        // BCS
-        // BEQ
+        // bcc
+        opcodes.insert(0x90, Entry { mode: AddressingMode::RelativeOrZeropage, mnemonic: String::from("bcc"), cycles: 2, size: 2, opcode: 0x90, affected_on_page: false });
+
+        // bcs
+        opcodes.insert(0xB0, Entry { mode: AddressingMode::RelativeOrZeropage, mnemonic: String::from("bcs"), cycles: 2, size: 2, opcode: 0xB0, affected_on_page: false });
+
+        // beq
+        opcodes.insert(0xF0, Entry { mode: AddressingMode::RelativeOrZeropage, mnemonic: String::from("beq"), cycles: 2, size: 2, opcode: 0xF0, affected_on_page: true });
 
         // bit
         opcodes.insert(0x24, Entry { mode: AddressingMode::RelativeOrZeropage, mnemonic: String::from("bit"), cycles: 3, size: 2, opcode: 0x24, affected_on_page: false });
         opcodes.insert(0x2C, Entry { mode: AddressingMode::Absolute, mnemonic: String::from("bit"), cycles: 4, size: 3, opcode: 0x2C, affected_on_page: false });
 
-        // BMI
-        // BNE
-        // BPL
+        // bmi
+        opcodes.insert(0x30, Entry { mode: AddressingMode::RelativeOrZeropage, mnemonic: String::from("bmi"), cycles: 2, size: 2, opcode: 0x30, affected_on_page: false });
+
+        // bne
+        opcodes.insert(0xD0, Entry { mode: AddressingMode::RelativeOrZeropage, mnemonic: String::from("bne"), cycles: 2, size: 2, opcode: 0xD0, affected_on_page: false });
+
+        // bpl
+        opcodes.insert(0x10, Entry { mode: AddressingMode::RelativeOrZeropage, mnemonic: String::from("bpl"), cycles: 2, size: 2, opcode: 0x10, affected_on_page: false });
 
         // brk
         opcodes.insert(0x00, Entry { mode: AddressingMode::Implied, mnemonic: String::from("brk"), cycles: 7, size: 1, opcode: 0x00, affected_on_page: false });
 
-        // BVC
-        // BVS
+        // bvc
+        opcodes.insert(0x50, Entry { mode: AddressingMode::RelativeOrZeropage, mnemonic: String::from("bvc"), cycles: 2, size: 2, opcode: 0x50, affected_on_page: false });
+
+        // bvs
+        opcodes.insert(0x70, Entry { mode: AddressingMode::RelativeOrZeropage, mnemonic: String::from("bvs"), cycles: 2, size: 2, opcode: 0x70, affected_on_page: false });
 
         // clc
         opcodes.insert(0x18, Entry { mode: AddressingMode::Implied, mnemonic: String::from("clc"), cycles: 2, size: 1, opcode: 0x18, affected_on_page: false });

@@ -35,8 +35,8 @@ fn main() -> Result<()> {
     // TODO: provide a handier way for this.
     let mut assembler = Assembler::new(vec![Segment {
         name: String::from("CODE"),
-        start: 0x00,
-        size: 0x10000,
+        start: 0x1000,
+        size: 10,
         fill_value: Some(Fill { value: 0x00 }),
     }]);
 

@@ -4,9 +4,16 @@ use std::collections::HashMap;
 const GLOBAL_CONTEXT: &str = "Global";
 
 #[derive(Debug)]
+pub struct PValue {
+    pub node: PString,
+    pub value: usize,
+    pub label: bool,
+}
+
+#[derive(Debug)]
 pub struct Context {
     stack: Vec<String>,
-    map: HashMap<String, HashMap<String, PString>>,
+    map: HashMap<String, HashMap<String, PValue>>,
 }
 
 impl Default for Context {
@@ -27,18 +34,18 @@ impl Context {
         self.stack = vec![];
     }
 
-    pub fn find(&self, name: &str) -> Option<&HashMap<String, PString>> {
+    pub fn find(&self, name: &str) -> Option<&HashMap<String, PValue>> {
         self.map.get(name)
     }
 
-    pub fn current(&self) -> Option<&HashMap<String, PString>> {
+    pub fn current(&self) -> Option<&HashMap<String, PValue>> {
         match self.stack.last() {
             Some(name) => self.map.get(name),
             None => self.map.get(GLOBAL_CONTEXT),
         }
     }
 
-    pub fn current_mut(&mut self) -> Option<&mut HashMap<String, PString>> {
+    pub fn current_mut(&mut self) -> Option<&mut HashMap<String, PValue>> {
         match self.stack.last() {
             Some(name) => self.map.get_mut(name),
             None => self.map.get_mut(GLOBAL_CONTEXT),

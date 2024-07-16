@@ -1,11 +1,12 @@
-use crate::context::Context;
+use crate::context::{Context, PValue};
 use crate::errors::ParseError;
 use crate::instruction::{
-    AddressingMode, Encodable, Generic, Instruction, Literal, Node, PString, Scoped,
+    AddressingMode, Encodable, Fill, Generic, Instruction, Label, Literal, Node, PString, Scoped,
 };
 use crate::mapping::{Mapping, Segment};
 use crate::opcodes::{INSTRUCTIONS, OPCODES};
 use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::io::{self, BufRead, Read};
 use std::ops::Range;
 
@@ -14,9 +15,9 @@ type Result<T> = std::result::Result<T, ParseError>;
 pub struct Assembler {
     line: usize,
     column: usize,
-    offset_address: usize,
     context: Context,
     mapping: Mapping,
+    offsets: HashMap<String, usize>,
 }
 
 impl Assembler {
@@ -24,16 +25,15 @@ impl Assembler {
         Self {
             line: 0,
             column: 0,
-            offset_address: 0,
             context: Context::new(),
             mapping: Mapping::new(segments),
+            offsets: HashMap::new(),
         }
     }
 
     pub fn reset(&mut self) {
         self.line = 0;
         self.column = 0;
-        self.offset_address = 0;
         self.context = Context::new();
         self.mapping.reset();
     }
@@ -42,6 +42,7 @@ impl Assembler {
         self.from_reader(reader)?;
         self.context.reset();
         self.evaluate()?;
+        self.resolve_labels()?;
 
         Ok(())
     }
@@ -51,8 +52,17 @@ impl Assembler {
 
         self.assemble_nodes(reader)?;
 
+        let mut idx: usize = 0;
         for segment in &self.mapping.segments {
             let mut size: usize = 0;
+
+            while idx < segment.start.into() {
+                match &segment.fill_value {
+                    Some(fill) => instructions.push(fill),
+                    None => instructions.push(&Fill { value: 0x00 }),
+                }
+                idx += 1;
+            }
 
             for node in &self.mapping.nodes[&segment.name] {
                 match node {
@@ -77,6 +87,7 @@ impl Assembler {
                     ),
                 });
             }
+            idx += size;
             if segment.fill_value.is_none() {
                 continue;
             }
@@ -84,6 +95,7 @@ impl Assembler {
             while size < segment.size {
                 instructions.push(segment.fill_value.as_ref().unwrap());
                 size += 1;
+                idx += 1;
             }
         }
 
@@ -129,22 +141,99 @@ impl Assembler {
     }
 
     pub fn evaluate(&mut self) -> Result<()> {
-        for node in self.mapping.current_mut() {
-            match node {
-                Node::Instruction(instr) => {
-                    Self::update_instruction_with_context(instr, &self.context)?
-                }
-                Node::Scoped(scope) => {
-                    if scope.start {
-                        self.context.push(&scope.identifier.value);
-                    } else {
-                        _ = self.context.pop();
+        for segment in &self.mapping.segments {
+            for node in self.mapping.nodes.get_mut(&segment.name).unwrap() {
+                match node {
+                    Node::Instruction(instr) => {
+                        Self::update_instruction_with_context(instr, &self.context)?;
+                        instr.address = segment.start;
+
+                        self.offsets
+                            .entry(segment.name.clone())
+                            .and_modify(|value| {
+                                instr.address += *value as u16;
+                                *value += usize::from(instr.size())
+                            })
+                            .or_insert(instr.size().into());
                     }
+                    Node::Scoped(scope) => {
+                        if scope.start {
+                            self.context.push(&scope.identifier.value);
+                        } else {
+                            _ = self.context.pop();
+                        }
+                    }
+                    Node::Literal(literal) => {
+                        Self::update_literal_with_context(literal, &self.context)?;
+                        self.offsets
+                            .entry(segment.name.clone())
+                            .and_modify(|value| *value += usize::from(literal.size()))
+                            .or_insert(literal.size().into());
+                    }
+                    Node::Label(label) => {
+                        let address =
+                            usize::from(segment.start) + self.offsets.get(&segment.name).unwrap();
+
+                        self.context
+                            .current_mut()
+                            .unwrap()
+                            .entry(label.value.clone())
+                            .and_modify(|e| e.value = address);
+                    }
+                    _ => {}
                 }
-                Node::Literal(literal) => {
-                    Self::update_literal_with_context(literal, &self.context)?
+            }
+        }
+
+        Ok(())
+    }
+
+    // TODO: oh boy...
+    pub fn resolve_labels(&mut self) -> Result<()> {
+        for segment in &self.mapping.segments {
+            for node in self.mapping.nodes.get_mut(&segment.name).unwrap() {
+                match node {
+                    Node::Instruction(instr) => {
+                        if !instr.resolved {
+                            match &instr.left {
+                                Some(pstring) => {
+                                    match self.context.current().unwrap().get(&pstring.value) {
+                                        Some(entry) => {
+                                            if instr.mode == AddressingMode::Absolute {
+                                                let bytes = entry.value.to_le_bytes();
+                                                instr.bytes = [bytes[0], bytes[1]];
+                                            } else {
+                                                let diff: isize = entry.value as isize
+                                                    - (instr.address as isize + 2);
+                                                if diff < -128 || diff > 127 {
+                                                    return Err(instr.mnemonic.parser_error(
+                                                        format!("relative addressing out of range")
+                                                            .as_str(),
+                                                    ));
+                                                }
+                                                let bytes = diff.to_le_bytes();
+                                                instr.bytes = [bytes[0], 0];
+                                            }
+                                        }
+                                        None => {
+                                            return Err(instr.mnemonic.parser_error(
+                                                format!("label '{}' not found", pstring.value)
+                                                    .as_str(),
+                                            ))
+                                        }
+                                    }
+                                }
+                                None => {
+                                    return Err(instr.mnemonic.parser_error(
+                                        format!("there is no label for the given jump instruction")
+                                            .as_str(),
+                                    ))
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
         }
 
@@ -204,7 +293,16 @@ impl Assembler {
         if left.value.to_lowercase() == "a" {
             instr.mode = AddressingMode::Implied;
         } else {
-            let nleft = Self::replace_variable(left, context)?;
+            let (nleft, resolved) = Self::replace_variable(left, context)?;
+            // TODO
+            instr.resolved = resolved;
+            if !resolved {
+                if instr.mnemonic.value == "jmp" {
+                    instr.mode = AddressingMode::Absolute;
+                } else {
+                    instr.mode = AddressingMode::RelativeOrZeropage;
+                }
+            }
 
             if nleft.value.starts_with('$') {
                 // This is an address. At this point we should assume that the
@@ -327,13 +425,15 @@ impl Assembler {
                         ).as_str(),
                     ));
                 }
-                return Err(instr.mnemonic.parser_error(
-                    format!(
-                        "unknown addressing mode for instruction '{}'",
-                        instr.mnemonic.value
-                    )
-                    .as_str(),
-                ));
+                // TODO:
+                // instr.mode = AddressingMode::Absolute;
+                // return Err(instr.mnemonic.parser_error(
+                //     format!(
+                //         "unknown addressing mode for instruction '{}'",
+                //         instr.mnemonic.value
+                //     )
+                //     .as_str(),
+                // ));
             }
         }
 
@@ -342,7 +442,7 @@ impl Assembler {
 
     fn update_literal_with_context(literal: &mut Literal, context: &Context) -> Result<()> {
         // Evaluate any possible variable being used inside of this literal.
-        let evaled = Self::replace_variable(&literal.identifier, context)?;
+        let (evaled, _) = Self::replace_variable(&literal.identifier, context)?;
 
         // Parse the numeric value after a possible variable has been replaced.
         let two_bytes_allowed = literal.size == 2;
@@ -450,8 +550,12 @@ impl Assembler {
         }
     }
 
-    fn replace_variable(node: &PString, context: &Context) -> Result<PString> {
-        match node.value.find(|c: char| c.is_alphabetic() || c == '_') {
+    // TODO: returns if resolved
+    fn replace_variable(node: &PString, context: &Context) -> Result<(PString, bool)> {
+        match node
+            .value
+            .find(|c: char| c.is_alphabetic() || c == '_' || c == '@')
+        {
             Some(idx) => {
                 // Before doing any replacement, let's check the character
                 // before the one that was found. In this case, if it was a
@@ -461,7 +565,7 @@ impl Assembler {
                 if idx > 0 {
                     let prev = node.value.chars().nth(idx - 1).unwrap_or(' ');
                     if prev.is_ascii_digit() {
-                        return Ok(node.clone());
+                        return Ok((node.clone(), true));
                     }
                 }
 
@@ -492,7 +596,7 @@ impl Assembler {
                         // end and hence string == ""), or this is just the regular
                         // X or Y index, just return early.
                         match string.to_lowercase().as_str() {
-                            "x" | "y" | "" => return Ok(node.clone()),
+                            "x" | "y" | "" => return Ok((node.clone(), true)),
                             _ => {}
                         }
 
@@ -500,16 +604,25 @@ impl Assembler {
                         // the current scope.
                         match hash.get(string) {
                             Some(var) => {
+                                // If this is just a memory address (e.g.
+                                // label), then just return it as is.
+                                if var.label {
+                                    return Ok((node.clone(), false));
+                                }
+
                                 let value = String::from(node.value.get(..idx).unwrap_or(""))
-                                    + var.value.as_str();
-                                Ok(PString {
-                                    value: value.clone() + tail,
-                                    line: node.line,
-                                    range: Range {
-                                        start: node.range.start,
-                                        end: node.range.start + value.len(),
+                                    + var.node.value.as_str();
+                                Ok((
+                                    PString {
+                                        value: value.clone() + tail,
+                                        line: node.line,
+                                        range: Range {
+                                            start: node.range.start,
+                                            end: node.range.start + value.len(),
+                                        },
                                     },
-                                })
+                                    true,
+                                ))
                             }
                             None => {
                                 // If a variable could not be found, check that
@@ -517,7 +630,7 @@ impl Assembler {
                                 // 'AA'). If that's the case, then just return
                                 // its value.
                                 if Self::parse_hex_from(string, node, true, false, false).is_ok() {
-                                    return Ok(node.clone());
+                                    return Ok((node.clone(), true));
                                 }
 
                                 // We've tried hard to not assume the programmer
@@ -534,7 +647,7 @@ impl Assembler {
                     }
                 }
             }
-            None => Ok(node.clone()),
+            None => Ok((node.clone(), true)),
         }
     }
 
@@ -918,16 +1031,57 @@ impl Assembler {
     }
 
     fn parse_statement(&mut self, id: PString, line: &str) -> Result<()> {
-        if line.chars().nth(self.column).unwrap_or(' ') == ':' {
+        if id.value.chars().nth(self.column - 1).unwrap_or(' ') == ':' {
             self.parse_label(id, line)
         } else {
             self.parse_assignment(id, line)
         }
     }
 
-    fn parse_label(&mut self, _id: PString, _line: &str) -> Result<()> {
-        // TODO:
+    fn parse_label(&mut self, id: PString, _line: &str) -> Result<()> {
+        let name = &id.value.as_str()[..id.value.len() - 1].to_string();
 
+        // Forbid weird scenarios.
+        if name.contains("::") {
+            return Err(id.parser_error(
+                format!(
+                    "the label '{}' is scoped: do not declare variables this way",
+                    id.value
+                )
+                .as_str(),
+            ));
+        }
+
+        // Insert the given label into the context.
+        if let Some(entry) = self.context.current_mut() {
+            match entry.entry(name.clone()) {
+                Entry::Occupied(e) => {
+                    return Err(ParseError {
+                        line: self.line,
+                        message: format!(
+                        "label '{}' already exists for this context: it was previously defined in line {}",
+                        id.value, e.get().node.line),
+                    })
+                }
+                Entry::Vacant(e) => e.insert(PValue {
+                    node: PString {
+                    value: name.clone(),
+                    line: self.line,
+                    range: Range {
+                        start: id.range.start,
+                        end: id.range.end,
+                    },
+                    },
+                    value: 0,
+                    label: true,
+                }),
+            };
+        }
+
+        // And add the node so it's picked up later.
+        self.mapping.push(Node::Label(Label {
+            value: name.to_string(),
+        }));
         Ok(())
     }
 
@@ -990,16 +1144,20 @@ impl Assembler {
                         line: self.line,
                         message: format!(
                         "variable '{}' is being re-assigned: it was previously defined in line {}",
-                        id.value, e.get().clone().line),
+                        id.value, e.get().node.line),
                     })
                 }
-                Entry::Vacant(e) => e.insert(PString {
-                    value: l,
-                    line: self.line,
-                    range: Range {
-                        start: id.range.start,
-                        end: line.len(),
+                Entry::Vacant(e) => e.insert(PValue {
+                    node: PString {
+                        value: l,
+                        line: self.line,
+                        range: Range {
+                            start: id.range.start,
+                            end: line.len(),
+                        },
                     },
+                    value: 0,
+                    label: false,
                 }),
             };
         }
@@ -1184,6 +1342,8 @@ impl Assembler {
                         mode: v.mode.to_owned(),
                         cycles: v.cycles,
                         affected_on_page: v.affected_on_page,
+                        address: 0, // TODO
+                        resolved: true,
                     }))
                 }
 

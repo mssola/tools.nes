@@ -112,8 +112,10 @@ pub struct Instruction {
     pub left: Option<PString>,
     pub right: Option<PString>,
     pub mode: AddressingMode,
-    pub cycles: u8,
-    pub affected_on_page: bool,
+    pub cycles: u8, // NOTE: relative addressing makes this runtime-dependant (if branch is taken, then +1 cycle to the base cycle here).
+    pub affected_on_page: bool, // TODO: needed?
+    pub address: u16,
+    pub resolved: bool,
 }
 
 impl Instruction {
@@ -128,6 +130,8 @@ impl Instruction {
             mode: AddressingMode::Unknown,
             cycles: 0,
             affected_on_page: false,
+            address: 0,
+            resolved: true,
         }
     }
 
@@ -142,6 +146,8 @@ impl Instruction {
             mode: AddressingMode::Unknown,
             cycles: 0,
             affected_on_page: false,
+            address: 0,
+            resolved: true,
         }
     }
 }
@@ -299,12 +305,18 @@ impl Encodable for Fill {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct Label {
+    pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Node {
     Generic(Generic),
     Instruction(Instruction),
     Scoped(Scoped),
     Literal(Literal),
     Fill(Fill),
+    Label(Label),
 }
 
 impl Node {
