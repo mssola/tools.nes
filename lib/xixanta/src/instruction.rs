@@ -237,6 +237,7 @@ pub struct Literal {
     pub identifier: PString,
     pub bytes: [u8; 2],
     pub size: u8,
+    pub resolved: bool,
 }
 
 impl Encodable for Literal {

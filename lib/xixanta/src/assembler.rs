@@ -10,6 +10,10 @@ use std::collections::HashMap;
 use std::io::{self, BufRead, Read};
 use std::ops::Range;
 
+// TODO: warning on empty segments
+
+// TODO: proc's, labels, and scopes can be merged dramatically.
+
 type Result<T> = std::result::Result<T, ParseError>;
 
 pub struct Assembler {
@@ -22,12 +26,17 @@ pub struct Assembler {
 
 impl Assembler {
     pub fn new(segments: Vec<Segment>) -> Self {
+        let mut offsets = HashMap::new();
+        for segment in &segments {
+            offsets.insert(segment.name.clone(), 0);
+        }
+
         Self {
             line: 0,
             column: 0,
             context: Context::new(),
             mapping: Mapping::new(segments),
-            offsets: HashMap::new(),
+            offsets,
         }
     }
 
@@ -36,6 +45,11 @@ impl Assembler {
         self.column = 0;
         self.context = Context::new();
         self.mapping.reset();
+
+        self.offsets = HashMap::new();
+        for segment in &self.mapping.segments {
+            self.offsets.insert(segment.name.clone(), 0);
+        }
     }
 
     pub fn assemble_nodes(&mut self, reader: impl Read) -> Result<()> {
@@ -57,7 +71,7 @@ impl Assembler {
             let mut size: usize = 0;
 
             while idx < segment.start.into() {
-                match &segment.fill_value {
+                match &segment.fill {
                     Some(fill) => instructions.push(fill),
                     None => instructions.push(&Fill { value: 0x00 }),
                 }
@@ -88,12 +102,12 @@ impl Assembler {
                 });
             }
             idx += size;
-            if segment.fill_value.is_none() {
+            if segment.fill.is_none() {
                 continue;
             }
 
             while size < segment.size {
-                instructions.push(segment.fill_value.as_ref().unwrap());
+                instructions.push(segment.fill.as_ref().unwrap());
                 size += 1;
                 idx += 1;
             }
@@ -227,6 +241,30 @@ impl Assembler {
                                     return Err(instr.mnemonic.parser_error(
                                         format!("there is no label for the given jump instruction")
                                             .as_str(),
+                                    ))
+                                }
+                            }
+                        }
+                    }
+                    Node::Literal(literal) => {
+                        if !literal.resolved {
+                            match self
+                                .context
+                                .current()
+                                .unwrap()
+                                .get(&literal.identifier.value)
+                            {
+                                Some(entry) => {
+                                    let bytes = entry.value.to_le_bytes();
+                                    literal.bytes = [bytes[0], bytes[1]];
+                                }
+                                None => {
+                                    return Err(literal.identifier.parser_error(
+                                        format!(
+                                        "'{}' is neither a known variable or label at this scope",
+                                        literal.identifier.value
+                                    )
+                                        .as_str(),
                                     ))
                                 }
                             }
@@ -441,8 +479,21 @@ impl Assembler {
     }
 
     fn update_literal_with_context(literal: &mut Literal, context: &Context) -> Result<()> {
+        // If it has already been set, skip it.
+        // TODO: add a proper `is_set` thingie to it instead of this hack.
+        if literal.bytes[0] != 0 || literal.bytes[1] != 0 {
+            return Ok(());
+        }
+
         // Evaluate any possible variable being used inside of this literal.
-        let (evaled, _) = Self::replace_variable(&literal.identifier, context)?;
+        let (evaled, resolved) = Self::replace_variable(&literal.identifier, context)?;
+
+        // It may happen that the literal is just a label that is to be resolved
+        // in the future. If so, let's leave early.
+        literal.resolved = resolved;
+        if !resolved {
+            return Ok(());
+        }
 
         // Parse the numeric value after a possible variable has been replaced.
         let two_bytes_allowed = literal.size == 2;
@@ -673,7 +724,16 @@ impl Assembler {
             string.len()
         };
 
+        // TODO: re-visit this "exactly_two_byes bs"
         match len {
+            1 => {
+                if exactly_two_bytes {
+                    return Err(node.parser_error("expecting a full 16-bit address"));
+                }
+                let i = Self::char_to_hex(node, chars.next())? * 16;
+
+                Ok([i, 0])
+            }
             2 => {
                 if exactly_two_bytes {
                     return Err(node.parser_error("expecting a full 16-bit address"));
@@ -682,6 +742,18 @@ impl Assembler {
                 i += Self::char_to_hex(node, chars.next())?;
 
                 Ok([i, 0])
+            }
+            3 => {
+                if !two_bytes_allowed {
+                    return Err(node.parser_error("only one byte of data is allowed here"));
+                }
+
+                let hi = Self::char_to_hex(node, chars.next())? * 16;
+
+                let mut lo = Self::char_to_hex(node, chars.next())? * 16;
+                lo += Self::char_to_hex(node, chars.next())?;
+
+                Ok([lo, hi])
             }
             4 => {
                 if !two_bytes_allowed {
@@ -698,7 +770,7 @@ impl Assembler {
             }
             _ => {
                 if two_bytes_allowed {
-                    Err(node.parser_error("expecting a number of 2/4 hexadecimal digits"))
+                    Err(node.parser_error("expecting a number of 1 to 4 hexadecimal digits"))
                 } else if exactly_two_bytes {
                     Err(node.parser_error("expecting a number of 4 hexadecimal digits"))
                 } else {
@@ -836,7 +908,6 @@ impl Assembler {
     }
 
     // TODO:
-    //   - functions
     //   - macros
     fn parse_control(&mut self, id: PString, line: &str) -> Result<()> {
         match id.value.to_lowercase().as_str() {
@@ -844,13 +915,83 @@ impl Assembler {
             ".endscope" => self.parse_scope_end(&id),
             ".segment" => self.parse_segment_definition(&id, line),
             ".byte" | ".db" => self.parse_literal_bytes(&id, line, false),
-            ".word" | ".dw" => self.parse_literal_bytes(&id, line, true),
+            ".word" | ".dw" | ".addr" => self.parse_literal_bytes(&id, line, true),
+            ".proc" => self.parse_proc_definition(&id, line),
+            ".endproc" => self.parse_proc_end(&id),
             _ => {
                 return Err(
                     id.parser_error(format!("unknown control statement '{}'", id.value).as_str())
                 )
             }
         }
+    }
+
+    fn parse_proc_definition(&mut self, id: &PString, line: &str) -> Result<()> {
+        self.skip_whitespace(line);
+
+        let identifier = self.fetch_identifier(id, line)?;
+        if identifier.is_reserved() {
+            return Err(identifier.parser_error(
+                format!(
+                    "cannot use reserved name '{}' for proc name",
+                    identifier.value
+                )
+                .as_str(),
+            ));
+        }
+
+        // Insert the given identifier into the context.
+        if let Some(entry) = self.context.current_mut() {
+            match entry.entry(identifier.value.clone()) {
+                Entry::Occupied(e) => {
+                    return Err(ParseError {
+                        line: self.line,
+                        message: format!(
+                        "proc '{}' already exists for this context: it was previously defined in line {}",
+                        id.value, e.get().node.line),
+                    })
+                }
+                Entry::Vacant(e) => e.insert(PValue {
+                    node: PString {
+                    value: identifier.value.clone(),
+                    line: self.line,
+                    range: Range {
+                        start: id.range.start,
+                        end: id.range.end,
+                    },
+                    },
+                    value: 0,
+                    label: true,
+                }),
+            };
+        }
+
+        // And add the node so it's picked up later.
+        self.mapping.push(Node::Label(Label {
+            value: identifier.value.to_string(),
+        }));
+
+        // TODO: lol
+        self.context.push_stack(&identifier.value);
+
+        self.mapping.push(Node::Scoped(Scoped {
+            identifier: identifier.clone(),
+            start: true,
+        }));
+
+        Ok(())
+    }
+
+    fn parse_proc_end(&mut self, id: &PString) -> Result<()> {
+        if !self.context.pop() {
+            return Err(id.parser_error("missmatched '.endproc': there is no proc to end"));
+        }
+        self.mapping.push(Node::Scoped(Scoped {
+            identifier: PString::new(),
+            start: false,
+        }));
+
+        Ok(())
     }
 
     fn parse_segment_definition(&mut self, id: &PString, line: &str) -> Result<()> {
@@ -915,11 +1056,25 @@ impl Assembler {
                         ','
                     };
 
-                    let idx = line
+                    // Find the index of the needle. If it cannot be found, try
+                    // to find the first whitespace (e.g. to ditch out inline
+                    // comments or other artifacts). If neither of these are
+                    // found, it will simply return the end of the string.
+                    //
+                    // TODO: instead of ditching out what's right of the first
+                    // whitespace, try to error out on weird scenarios.
+                    let needle_idx = line
                         .get(self.column..)
                         .unwrap_or("")
-                        .find(|c: char| c == needle)
-                        .unwrap_or(line.len() - self.column);
+                        .find(|c: char| c == needle);
+                    let idx = match needle_idx {
+                        Some(v) => v,
+                        None => line
+                            .get(self.column..)
+                            .unwrap_or("")
+                            .find(|c: char| c.is_whitespace())
+                            .unwrap_or(line.len() - self.column),
+                    };
 
                     // If this is the last character, the needle was a quote and
                     // the last char is not the needle, then it means that the
@@ -932,11 +1087,20 @@ impl Assembler {
                         }
                     }
 
+                    // Now we have our string. Before pushing it, though, there
+                    // is a special case for alphabetic literals that need to be
+                    // translated.
+                    let string = line.get(self.column..self.column + idx).unwrap_or(" ");
+                    let mut bytes: [u8; 2] = [0, 0];
+                    if string.len() == 1 && string.chars().nth(0).unwrap().is_ascii_alphabetic() {
+                        let v = Vec::from(string);
+                        bytes[0] = v[0];
+                    }
+
                     // NOTE: for now we push an incomplete literal. We need the
                     // first pass to fill the context and then a second pass
                     // will evaluate each literal as needed (e.g. replacing
                     // values from variables being used in this literal).
-                    let string = line.get(self.column..self.column + idx).unwrap_or(" ");
                     self.mapping.push(Node::Literal(Literal {
                         identifier: PString {
                             value: string.to_owned(),
@@ -947,7 +1111,8 @@ impl Assembler {
                             },
                         },
                         size: if two_bytes_allowed { 2 } else { 1 },
-                        bytes: [0, 0],
+                        bytes,
+                        resolved: true,
                     }));
 
                     self.column += idx;

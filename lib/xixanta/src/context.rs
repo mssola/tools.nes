@@ -62,6 +62,15 @@ impl Context {
         self.map.entry(name).or_default();
     }
 
+    pub fn push_stack(&mut self, identifier: &String) {
+        let name = match self.stack.last() {
+            Some(n) => n.to_owned() + &String::from("::") + identifier,
+            None => identifier.to_string(),
+        };
+
+        self.stack.push(name.clone());
+    }
+
     pub fn pop(&mut self) -> bool {
         if self.stack.is_empty() {
             return false;

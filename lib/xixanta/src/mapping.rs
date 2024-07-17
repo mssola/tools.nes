@@ -4,12 +4,41 @@ use std::collections::HashMap;
 use crate::errors::ParseError;
 type Result<T> = std::result::Result<T, ParseError>;
 
+lazy_static! {
+    pub static ref NROM: Vec<Segment> = vec![
+        Segment {
+            name: String::from("HEADER"),
+            start: 0x0000,
+            size: 0x0010,
+            fill: Some(Fill { value: 0x00 }),
+        },
+        Segment {
+            name: String::from("VECTORS"),
+            start: 0xFFFA,
+            size: 0x0006,
+            fill: Some(Fill { value: 0x00 }),
+        },
+        Segment {
+            name: String::from("CODE"),
+            start: 0x8000,
+            size: 0x7FFA,
+            fill: Some(Fill { value: 0x00 }),
+        },
+        Segment {
+            name: String::from("CHARS"),
+            start: 0x0000,
+            size: 0x2000,
+            fill: Some(Fill { value: 0x00 }),
+        }
+    ];
+}
+
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Segment {
     pub name: String,
     pub start: u16,
     pub size: usize,
-    pub fill_value: Option<Fill>,
+    pub fill: Option<Fill>,
 }
 
 #[derive(Debug)]
@@ -21,7 +50,7 @@ pub struct Mapping {
 
 impl Mapping {
     pub fn new(mut segments: Vec<Segment>) -> Self {
-        segments.sort_by(|a, b| b.start.cmp(&a.start));
+        segments.sort_by(|a, b| a.start.cmp(&b.start));
 
         let mut nodes = HashMap::new();
         for segment in segments.iter() {

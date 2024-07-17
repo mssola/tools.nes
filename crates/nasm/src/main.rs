@@ -3,8 +3,7 @@ use clap::Parser as ClapParser;
 use std::fs::File;
 use std::io::{self, Read, Write};
 use xixanta::assembler::Assembler;
-use xixanta::instruction::Fill;
-use xixanta::mapping::Segment;
+use xixanta::mapping::NROM;
 
 /// Assembler for the 6502 microprocessor that targets the NES.
 #[derive(ClapParser, Debug)]
@@ -32,13 +31,7 @@ struct Args {
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    // TODO: provide a handier way for this.
-    let mut assembler = Assembler::new(vec![Segment {
-        name: String::from("CODE"),
-        start: 0x1000,
-        size: 10,
-        fill_value: Some(Fill { value: 0x00 }),
-    }]);
+    let mut assembler = Assembler::new(NROM.to_vec());
 
     // Select the input stream.
     let input: Box<dyn Read> = match args.file {
