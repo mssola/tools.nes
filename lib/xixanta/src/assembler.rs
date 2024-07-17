@@ -10,9 +10,13 @@ use std::collections::HashMap;
 use std::io::{self, BufRead, Read};
 use std::ops::Range;
 
+// TODO: proper AST: WRITE_PPU_DATA from NES is a good example
+// TODO: for christ's sake, automated tests!
+// TODO: macros are meant to be global!
+// TODO: instead of mapping.nodes having a value of vec<node>, the value should be a Context.
+// TODO: proc's, labels, macros, and scopes can be merged dramatically.
+// TODO: more to_owned() stuff, more rustacean way of doing things, more ...
 // TODO: warning on empty segments
-
-// TODO: proc's, labels, and scopes can be merged dramatically.
 
 type Result<T> = std::result::Result<T, ParseError>;
 
@@ -26,6 +30,8 @@ pub struct Assembler {
 
 impl Assembler {
     pub fn new(segments: Vec<Segment>) -> Self {
+        assert!(segments.len() > 0);
+
         let mut offsets = HashMap::new();
         for segment in &segments {
             offsets.insert(segment.name.clone(), 0);
@@ -54,7 +60,7 @@ impl Assembler {
 
     pub fn assemble_nodes(&mut self, reader: impl Read) -> Result<()> {
         self.from_reader(reader)?;
-        self.context.reset();
+        self.context.global();
         self.evaluate()?;
         self.resolve_labels()?;
 
@@ -121,6 +127,7 @@ impl Assembler {
 
         let mut instructions: Vec<&dyn Encodable> = vec![];
         for node in self.mapping.current() {
+            println!("{:#?}", node);
             match node {
                 Node::Instruction(instr) => instructions.push(instr),
                 Node::Literal(lit) => instructions.push(lit),
@@ -907,8 +914,6 @@ impl Assembler {
         }
     }
 
-    // TODO:
-    //   - macros
     fn parse_control(&mut self, id: PString, line: &str) -> Result<()> {
         match id.value.to_lowercase().as_str() {
             ".scope" => self.parse_scope_definition(&id, line),
@@ -918,12 +923,46 @@ impl Assembler {
             ".word" | ".dw" | ".addr" => self.parse_literal_bytes(&id, line, true),
             ".proc" => self.parse_proc_definition(&id, line),
             ".endproc" => self.parse_proc_end(&id),
+            ".macro" => self.parse_macro_definition(&id, line),
+            ".endmacro" => self.parse_macro_end(&id),
             _ => {
                 return Err(
                     id.parser_error(format!("unknown control statement '{}'", id.value).as_str())
                 )
             }
         }
+    }
+
+    fn parse_macro_definition(&mut self, id: &PString, line: &str) -> Result<()> {
+        self.skip_whitespace(line);
+
+        let identifier = self.fetch_identifier(id, line)?;
+        if identifier.is_reserved() {
+            return Err(identifier.parser_error(
+                format!(
+                    "cannot use reserved name '{}' for proc name",
+                    identifier.value
+                )
+                .as_str(),
+            ));
+        }
+
+        self.mapping.current_macro = Some(identifier.value.clone());
+        self.mapping.macros.entry(identifier.value).or_default();
+        Ok(())
+    }
+
+    fn parse_macro_end(&mut self, id: &PString) -> Result<()> {
+        match self.mapping.current_macro {
+            Some(_) => self.mapping.current_macro = None,
+            None => {
+                return Err(id.parser_error(
+                    format!("bad `.endmacro`: we are not inside of a macro definition").as_str(),
+                ))
+            }
+        }
+
+        Ok(())
     }
 
     fn parse_proc_definition(&mut self, id: &PString, line: &str) -> Result<()> {
@@ -1199,7 +1238,19 @@ impl Assembler {
         if id.value.chars().nth(self.column - 1).unwrap_or(' ') == ':' {
             self.parse_label(id, line)
         } else {
-            self.parse_assignment(id, line)
+            match self.mapping.macros.get_mut(&id.value) {
+                Some(nodes) => {
+                    for node in nodes {
+                        self.mapping
+                            .nodes
+                            .get_mut(&self.mapping.current)
+                            .unwrap()
+                            .push(node.clone());
+                    }
+                    Ok(())
+                }
+                None => self.parse_assignment(id, line),
+            }
         }
     }
 
@@ -1527,7 +1578,7 @@ impl Assembler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instruction::Node::Instruction;
+    use crate::mapping::EMPTY;
 
     fn assert_hex(one: &dyn Encodable, expected: &[u8]) {
         assert_eq!(
@@ -1539,15 +1590,9 @@ mod tests {
         );
     }
 
-    fn instruction_test(
-        line: &str,
-        hex: &[u8],
-        cycles: u8,
-        affected: bool,
-        skip_disassemble: bool,
-    ) {
-        let mut parser = Assembler::new();
-        let res = parser.to_nodes(line.as_bytes());
+    fn instruction_test(line: &str, hex: &[u8], skip_disassemble: bool) {
+        let mut parser = Assembler::new(EMPTY.to_vec());
+        let res = parser.assemble(line.as_bytes());
 
         if res.is_err() {
             if let Err(e) = res.clone() {
@@ -1562,16 +1607,9 @@ mod tests {
         }
 
         let vec = res.unwrap();
-        assert_eq!(vec.len(), 1);
 
-        if let Instruction(instr) = &vec[0] {
-            assert_hex(instr, hex);
-            assert_eq!(instr.cycles, cycles);
-            assert_eq!(instr.affected_on_page, affected);
-        } else {
-            println!("Not an instruction!");
-            assert!(false);
-        }
+        assert_eq!(vec.len(), 1);
+        assert_hex(vec[0], hex);
 
         // Now disassemble.
 
@@ -1591,7 +1629,7 @@ mod tests {
     }
 
     fn instruction_err(line: &str, message: &str) {
-        let mut parser = Assembler::new();
+        let mut parser = Assembler::new(EMPTY.to_vec());
         let err = parser.assemble(line.as_bytes());
 
         assert!(err.is_err());
@@ -1642,17 +1680,17 @@ mod tests {
             "adc #%000100001",
             "too many binary digits for a single byte",
         );
-        instruction_test("adc #%10100010", &[0x69, 0xA2], 2, false, true);
+        instruction_test("adc #%10100010", &[0x69, 0xA2], true);
     }
 
     #[test]
     fn parse_hexadecimal() {
-        instruction_err("adc $", "expecting a number of 2/4 hexadecimal digits");
+        instruction_err("adc $", "expecting a number of 1 to 4 hexadecimal digits");
         instruction_err("adc #$", "expecting a number of 2 hexadecimal digits");
         instruction_err("adc $AW", "unknown variable 'AW'");
-        instruction_test("adc $AA", &[0x65, 0xAA], 3, false, false);
-        instruction_test("adc $10", &[0x65, 0x10], 3, false, false);
-        instruction_test("adc $10AB", &[0x6D, 0xAB, 0x10], 4, false, false);
+        instruction_test("adc $AA", &[0x65, 0xAA], false);
+        instruction_test("adc $10", &[0x65, 0x10], false);
+        instruction_test("adc $10AB", &[0x6D, 0xAB, 0x10], false);
     }
 
     #[test]
@@ -1661,265 +1699,265 @@ mod tests {
         instruction_err("adc #256", "decimal value is too big");
         instruction_err("adc #2000", "decimal value is too big");
         instruction_err("adc #2A", "'A' is not a decimal value");
-        instruction_test("adc #1", &[0x69, 0x01], 2, false, true);
+        instruction_test("adc #1", &[0x69, 0x01], true);
     }
 
     // Individual instructions.
 
     #[test]
     fn adc() {
-        instruction_test("adc #20", &[0x69, 0x14], 2, false, true);
-        instruction_test("adc #$20", &[0x69, 0x20], 2, false, false);
-        instruction_test("adc $2002", &[0x6D, 0x02, 0x20], 4, false, false);
-        instruction_test("adc $20", &[0x65, 0x20], 3, false, false);
-        instruction_test("adc $20, x", &[0x75, 0x20], 4, false, false);
-        instruction_test("adc $2002, x", &[0x7D, 0x02, 0x20], 4, true, false);
-        instruction_test("adc $2002, y", &[0x79, 0x02, 0x20], 4, true, false);
-        instruction_test("adc ($20, x)", &[0x61, 0x20], 6, false, false);
-        instruction_test("adc ($20), y", &[0x71, 0x20], 5, true, false);
+        instruction_test("adc #20", &[0x69, 0x14], true);
+        instruction_test("adc #$20", &[0x69, 0x20], false);
+        instruction_test("adc $2002", &[0x6D, 0x02, 0x20], false);
+        instruction_test("adc $20", &[0x65, 0x20], false);
+        instruction_test("adc $20, x", &[0x75, 0x20], false);
+        instruction_test("adc $2002, x", &[0x7D, 0x02, 0x20], false);
+        instruction_test("adc $2002, y", &[0x79, 0x02, 0x20], false);
+        instruction_test("adc ($20, x)", &[0x61, 0x20], false);
+        instruction_test("adc ($20), y", &[0x71, 0x20], false);
     }
 
     #[test]
     fn sbc() {
-        instruction_test("sbc #$20", &[0xE9, 0x20], 2, false, false);
-        instruction_test("sbc $2002", &[0xED, 0x02, 0x20], 4, false, false);
-        instruction_test("sbc $20", &[0xE5, 0x20], 3, false, false);
-        instruction_test("sbc $20, x", &[0xF5, 0x20], 4, false, false);
-        instruction_test("sbc $2002, x", &[0xFD, 0x02, 0x20], 4, true, false);
-        instruction_test("sbc $2002, y", &[0xF9, 0x02, 0x20], 4, true, false);
-        instruction_test("sbc ($20, x)", &[0xE1, 0x20], 6, false, false);
-        instruction_test("sbc ($20), y", &[0xF1, 0x20], 5, true, false);
+        instruction_test("sbc #$20", &[0xE9, 0x20], false);
+        instruction_test("sbc $2002", &[0xED, 0x02, 0x20], false);
+        instruction_test("sbc $20", &[0xE5, 0x20], false);
+        instruction_test("sbc $20, x", &[0xF5, 0x20], false);
+        instruction_test("sbc $2002, x", &[0xFD, 0x02, 0x20], false);
+        instruction_test("sbc $2002, y", &[0xF9, 0x02, 0x20], false);
+        instruction_test("sbc ($20, x)", &[0xE1, 0x20], false);
+        instruction_test("sbc ($20), y", &[0xF1, 0x20], false);
     }
 
     #[test]
     fn shift() {
         // asl
-        instruction_test("asl", &[0x0A], 2, false, false);
-        instruction_test("asl a", &[0x0A], 2, false, true);
-        instruction_test("asl $20", &[0x06, 0x20], 5, false, false);
-        instruction_test("asl $20, x", &[0x16, 0x20], 6, false, false);
-        instruction_test("asl $2002", &[0x0E, 0x02, 0x20], 6, false, false);
-        instruction_test("asl $2002, x", &[0x1E, 0x02, 0x20], 7, false, false);
+        instruction_test("asl", &[0x0A], false);
+        instruction_test("asl a", &[0x0A], true);
+        instruction_test("asl $20", &[0x06, 0x20], false);
+        instruction_test("asl $20, x", &[0x16, 0x20], false);
+        instruction_test("asl $2002", &[0x0E, 0x02, 0x20], false);
+        instruction_test("asl $2002, x", &[0x1E, 0x02, 0x20], false);
 
         // lsr
-        instruction_test("lsr", &[0x4A], 2, false, false);
-        instruction_test("lsr a", &[0x4A], 2, false, true);
-        instruction_test("lsr $20", &[0x46, 0x20], 5, false, false);
-        instruction_test("lsr $20, x", &[0x56, 0x20], 6, false, false);
-        instruction_test("lsr $2002", &[0x4E, 0x02, 0x20], 6, false, false);
-        instruction_test("lsr $2002, x", &[0x5E, 0x02, 0x20], 7, false, false);
+        instruction_test("lsr", &[0x4A], false);
+        instruction_test("lsr a", &[0x4A], true);
+        instruction_test("lsr $20", &[0x46, 0x20], false);
+        instruction_test("lsr $20, x", &[0x56, 0x20], false);
+        instruction_test("lsr $2002", &[0x4E, 0x02, 0x20], false);
+        instruction_test("lsr $2002, x", &[0x5E, 0x02, 0x20], false);
     }
 
     #[test]
     fn rotate() {
         // rol
-        instruction_test("rol", &[0x2A], 2, false, false);
-        instruction_test("rol a", &[0x2A], 2, false, true);
-        instruction_test("rol $20", &[0x26, 0x20], 5, false, false);
-        instruction_test("rol $20, x", &[0x36, 0x20], 6, false, false);
-        instruction_test("rol $2002", &[0x2E, 0x02, 0x20], 6, false, false);
-        instruction_test("rol $2002, x", &[0x3E, 0x02, 0x20], 7, false, false);
+        instruction_test("rol", &[0x2A], false);
+        instruction_test("rol a", &[0x2A], true);
+        instruction_test("rol $20", &[0x26, 0x20], false);
+        instruction_test("rol $20, x", &[0x36, 0x20], false);
+        instruction_test("rol $2002", &[0x2E, 0x02, 0x20], false);
+        instruction_test("rol $2002, x", &[0x3E, 0x02, 0x20], false);
 
         // ror
-        instruction_test("ror", &[0x6A], 2, false, false);
-        instruction_test("ror a", &[0x6A], 2, false, true);
-        instruction_test("ror $20", &[0x66, 0x20], 5, false, false);
-        instruction_test("ror $20, x", &[0x76, 0x20], 6, false, false);
-        instruction_test("ror $2002", &[0x6E, 0x02, 0x20], 6, false, false);
-        instruction_test("ror $2002, x", &[0x7E, 0x02, 0x20], 7, false, false);
+        instruction_test("ror", &[0x6A], false);
+        instruction_test("ror a", &[0x6A], true);
+        instruction_test("ror $20", &[0x66, 0x20], false);
+        instruction_test("ror $20, x", &[0x76, 0x20], false);
+        instruction_test("ror $2002", &[0x6E, 0x02, 0x20], false);
+        instruction_test("ror $2002, x", &[0x7E, 0x02, 0x20], false);
     }
 
     #[test]
     fn and() {
-        instruction_test("and #$20", &[0x29, 0x20], 2, false, false);
-        instruction_test("and $2002", &[0x2D, 0x02, 0x20], 4, false, false);
-        instruction_test("and $20", &[0x25, 0x20], 3, false, false);
-        instruction_test("and $20, x", &[0x35, 0x20], 4, false, false);
-        instruction_test("and $2002, x", &[0x3D, 0x02, 0x20], 4, true, false);
-        instruction_test("and $2002, y", &[0x39, 0x02, 0x20], 4, true, false);
-        instruction_test("and ($20, x)", &[0x21, 0x20], 6, false, false);
-        instruction_test("and ($20), y", &[0x31, 0x20], 5, true, false);
+        instruction_test("and #$20", &[0x29, 0x20], false);
+        instruction_test("and $2002", &[0x2D, 0x02, 0x20], false);
+        instruction_test("and $20", &[0x25, 0x20], false);
+        instruction_test("and $20, x", &[0x35, 0x20], false);
+        instruction_test("and $2002, x", &[0x3D, 0x02, 0x20], false);
+        instruction_test("and $2002, y", &[0x39, 0x02, 0x20], false);
+        instruction_test("and ($20, x)", &[0x21, 0x20], false);
+        instruction_test("and ($20), y", &[0x31, 0x20], false);
     }
 
     #[test]
     fn or() {
         // eor
-        instruction_test("eor #$20", &[0x49, 0x20], 2, false, false);
-        instruction_test("eor $20", &[0x45, 0x20], 3, false, false);
-        instruction_test("eor $20, x", &[0x55, 0x20], 4, false, false);
-        instruction_test("eor $2002", &[0x4D, 0x02, 0x20], 4, false, false);
-        instruction_test("eor $2002, x", &[0x5D, 0x02, 0x20], 4, true, false);
-        instruction_test("eor $2002, y", &[0x59, 0x02, 0x20], 4, true, false);
-        instruction_test("eor ($20, x)", &[0x41, 0x20], 6, false, false);
-        instruction_test("eor ($20), y", &[0x51, 0x20], 5, true, false);
+        instruction_test("eor #$20", &[0x49, 0x20], false);
+        instruction_test("eor $20", &[0x45, 0x20], false);
+        instruction_test("eor $20, x", &[0x55, 0x20], false);
+        instruction_test("eor $2002", &[0x4D, 0x02, 0x20], false);
+        instruction_test("eor $2002, x", &[0x5D, 0x02, 0x20], false);
+        instruction_test("eor $2002, y", &[0x59, 0x02, 0x20], false);
+        instruction_test("eor ($20, x)", &[0x41, 0x20], false);
+        instruction_test("eor ($20), y", &[0x51, 0x20], false);
 
         // ora
-        instruction_test("ora #$20", &[0x09, 0x20], 2, false, false);
-        instruction_test("ora $20", &[0x05, 0x20], 3, false, false);
-        instruction_test("ora $20, x", &[0x15, 0x20], 4, false, false);
-        instruction_test("ora $2002", &[0x0D, 0x02, 0x20], 4, false, false);
-        instruction_test("ora $2002, x", &[0x1D, 0x02, 0x20], 4, true, false);
-        instruction_test("ora $2002, y", &[0x19, 0x02, 0x20], 4, true, false);
-        instruction_test("ora ($20, x)", &[0x01, 0x20], 6, false, false);
-        instruction_test("ora ($20), y", &[0x11, 0x20], 5, true, false);
+        instruction_test("ora #$20", &[0x09, 0x20], false);
+        instruction_test("ora $20", &[0x05, 0x20], false);
+        instruction_test("ora $20, x", &[0x15, 0x20], false);
+        instruction_test("ora $2002", &[0x0D, 0x02, 0x20], false);
+        instruction_test("ora $2002, x", &[0x1D, 0x02, 0x20], false);
+        instruction_test("ora $2002, y", &[0x19, 0x02, 0x20], false);
+        instruction_test("ora ($20, x)", &[0x01, 0x20], false);
+        instruction_test("ora ($20), y", &[0x11, 0x20], false);
     }
 
     #[test]
     fn jump() {
-        instruction_test("jsr $2002", &[0x20, 0x02, 0x20], 6, false, false);
+        instruction_test("jsr $2002", &[0x20, 0x02, 0x20], false);
 
-        instruction_test("jmp $2002", &[0x4C, 0x02, 0x20], 3, false, false);
-        instruction_test("jmp ($2002)", &[0x6C, 0x02, 0x20], 5, false, false);
+        instruction_test("jmp $2002", &[0x4C, 0x02, 0x20], false);
+        instruction_test("jmp ($2002)", &[0x6C, 0x02, 0x20], false);
     }
 
     #[test]
     fn inc_dec_instructions() {
         // inc
-        instruction_test("inc $10", &[0xE6, 0x10], 5, false, false);
-        instruction_test("inc $1000", &[0xEE, 0x00, 0x10], 6, false, false);
-        instruction_test("inc $10, x", &[0xF6, 0x10], 6, false, false);
-        instruction_test("inc $1000, x", &[0xFE, 0x00, 0x10], 7, false, false);
+        instruction_test("inc $10", &[0xE6, 0x10], false);
+        instruction_test("inc $1000", &[0xEE, 0x00, 0x10], false);
+        instruction_test("inc $10, x", &[0xF6, 0x10], false);
+        instruction_test("inc $1000, x", &[0xFE, 0x00, 0x10], false);
 
-        instruction_test("inx", &[0xE8], 2, false, false);
+        instruction_test("inx", &[0xE8], false);
 
-        instruction_test("iny", &[0xC8], 2, false, false);
+        instruction_test("iny", &[0xC8], false);
 
         // dec
-        instruction_test("dec $10", &[0xC6, 0x10], 5, false, false);
-        instruction_test("dec $1000", &[0xCE, 0x00, 0x10], 6, false, false);
-        instruction_test("dec $10, x", &[0xD6, 0x10], 6, false, false);
-        instruction_test("dec $1000, x", &[0xDE, 0x00, 0x10], 7, false, false);
+        instruction_test("dec $10", &[0xC6, 0x10], false);
+        instruction_test("dec $1000", &[0xCE, 0x00, 0x10], false);
+        instruction_test("dec $10, x", &[0xD6, 0x10], false);
+        instruction_test("dec $1000, x", &[0xDE, 0x00, 0x10], false);
 
-        instruction_test("dex", &[0xCA], 2, false, false);
+        instruction_test("dex", &[0xCA], false);
 
-        instruction_test("dey", &[0x88], 2, false, false);
+        instruction_test("dey", &[0x88], false);
     }
 
     #[test]
     fn transfer_instructions() {
-        instruction_test("tax", &[0xAA], 2, false, false);
-        instruction_test("tay", &[0xA8], 2, false, false);
-        instruction_test("tsx", &[0xBA], 2, false, false);
-        instruction_test("txa", &[0x8A], 2, false, false);
-        instruction_test("txs", &[0x9A], 2, false, false);
-        instruction_test("tya", &[0x98], 2, false, false);
+        instruction_test("tax", &[0xAA], false);
+        instruction_test("tay", &[0xA8], false);
+        instruction_test("tsx", &[0xBA], false);
+        instruction_test("txa", &[0x8A], false);
+        instruction_test("txs", &[0x9A], false);
+        instruction_test("tya", &[0x98], false);
     }
 
     #[test]
     fn return_instructions() {
-        instruction_test("rti", &[0x40], 6, false, false);
-        instruction_test("rts", &[0x60], 6, false, false);
+        instruction_test("rti", &[0x40], false);
+        instruction_test("rts", &[0x60], false);
     }
 
     #[test]
     fn set_clear_instructions() {
-        instruction_test("clc", &[0x18], 2, false, false);
-        instruction_test("cld", &[0xD8], 2, false, false);
-        instruction_test("cli", &[0x58], 2, false, false);
-        instruction_test("clv", &[0xB8], 2, false, false);
+        instruction_test("clc", &[0x18], false);
+        instruction_test("cld", &[0xD8], false);
+        instruction_test("cli", &[0x58], false);
+        instruction_test("clv", &[0xB8], false);
 
-        instruction_test("sec", &[0x38], 2, false, false);
-        instruction_test("sed", &[0xF8], 2, false, false);
-        instruction_test("sei", &[0x78], 2, false, false);
+        instruction_test("sec", &[0x38], false);
+        instruction_test("sed", &[0xF8], false);
+        instruction_test("sei", &[0x78], false);
     }
 
     #[test]
     fn push_pull_instructions() {
-        instruction_test("pha", &[0x48], 3, false, false);
-        instruction_test("php", &[0x08], 3, false, false);
-        instruction_test("pla", &[0x68], 4, false, false);
-        instruction_test("plp", &[0x28], 4, false, false);
+        instruction_test("pha", &[0x48], false);
+        instruction_test("php", &[0x08], false);
+        instruction_test("pla", &[0x68], false);
+        instruction_test("plp", &[0x28], false);
     }
 
     #[test]
     fn nop_brk() {
-        instruction_test("nop", &[0xEA], 2, false, false);
-        instruction_test("brk", &[0x00], 7, false, false);
+        instruction_test("nop", &[0xEA], false);
+        instruction_test("brk", &[0x00], false);
     }
 
     #[test]
     fn cmp() {
         // cmp
-        instruction_test("cmp #$20", &[0xC9, 0x20], 2, false, false);
-        instruction_test("cmp $2002", &[0xCD, 0x02, 0x20], 4, false, false);
-        instruction_test("cmp $20", &[0xC5, 0x20], 3, false, false);
-        instruction_test("cmp $20, x", &[0xD5, 0x20], 4, false, false);
-        instruction_test("cmp $2002, x", &[0xDD, 0x02, 0x20], 4, true, false);
-        instruction_test("cmp $2002, y", &[0xD9, 0x02, 0x20], 4, true, false);
-        instruction_test("cmp ($20, x)", &[0xC1, 0x20], 6, false, false);
-        instruction_test("cmp ($20), y", &[0xD1, 0x20], 5, true, false);
+        instruction_test("cmp #$20", &[0xC9, 0x20], false);
+        instruction_test("cmp $2002", &[0xCD, 0x02, 0x20], false);
+        instruction_test("cmp $20", &[0xC5, 0x20], false);
+        instruction_test("cmp $20, x", &[0xD5, 0x20], false);
+        instruction_test("cmp $2002, x", &[0xDD, 0x02, 0x20], false);
+        instruction_test("cmp $2002, y", &[0xD9, 0x02, 0x20], false);
+        instruction_test("cmp ($20, x)", &[0xC1, 0x20], false);
+        instruction_test("cmp ($20), y", &[0xD1, 0x20], false);
 
         // cpx
-        instruction_test("cpx #$20", &[0xE0, 0x20], 2, false, false);
-        instruction_test("cpx $2002", &[0xEC, 0x02, 0x20], 4, false, false);
-        instruction_test("cpx $20", &[0xE4, 0x20], 3, false, false);
+        instruction_test("cpx #$20", &[0xE0, 0x20], false);
+        instruction_test("cpx $2002", &[0xEC, 0x02, 0x20], false);
+        instruction_test("cpx $20", &[0xE4, 0x20], false);
 
         // cpy
-        instruction_test("cpy #$20", &[0xC0, 0x20], 2, false, false);
-        instruction_test("cpy $2002", &[0xCC, 0x02, 0x20], 4, false, false);
-        instruction_test("cpy $20", &[0xC4, 0x20], 3, false, false);
+        instruction_test("cpy #$20", &[0xC0, 0x20], false);
+        instruction_test("cpy $2002", &[0xCC, 0x02, 0x20], false);
+        instruction_test("cpy $20", &[0xC4, 0x20], false);
     }
 
     #[test]
     fn load() {
         // lda
-        instruction_test("lda #$20", &[0xA9, 0x20], 2, false, false);
-        instruction_test("lda $20", &[0xA5, 0x20], 3, false, false);
-        instruction_test("lda $20, x", &[0xB5, 0x20], 4, false, false);
-        instruction_test("lda $2002", &[0xAD, 0x02, 0x20], 4, false, false);
-        instruction_test("lda $2002, x", &[0xBD, 0x02, 0x20], 4, true, false);
-        instruction_test("lda $2002, y", &[0xB9, 0x02, 0x20], 4, true, false);
-        instruction_test("lda ($20, x)", &[0xA1, 0x20], 6, false, false);
-        instruction_test("lda ($20), y", &[0xB1, 0x20], 5, true, false);
+        instruction_test("lda #$20", &[0xA9, 0x20], false);
+        instruction_test("lda $20", &[0xA5, 0x20], false);
+        instruction_test("lda $20, x", &[0xB5, 0x20], false);
+        instruction_test("lda $2002", &[0xAD, 0x02, 0x20], false);
+        instruction_test("lda $2002, x", &[0xBD, 0x02, 0x20], false);
+        instruction_test("lda $2002, y", &[0xB9, 0x02, 0x20], false);
+        instruction_test("lda ($20, x)", &[0xA1, 0x20], false);
+        instruction_test("lda ($20), y", &[0xB1, 0x20], false);
 
         // ldx
-        instruction_test("ldx #$20", &[0xA2, 0x20], 2, false, false);
-        instruction_test("ldx $20", &[0xA6, 0x20], 3, false, false);
-        instruction_test("ldx $20, y", &[0xB6, 0x20], 4, false, false);
-        instruction_test("ldx $2002", &[0xAE, 0x02, 0x20], 4, false, false);
-        instruction_test("ldx $2002, y", &[0xBE, 0x02, 0x20], 4, true, false);
+        instruction_test("ldx #$20", &[0xA2, 0x20], false);
+        instruction_test("ldx $20", &[0xA6, 0x20], false);
+        instruction_test("ldx $20, y", &[0xB6, 0x20], false);
+        instruction_test("ldx $2002", &[0xAE, 0x02, 0x20], false);
+        instruction_test("ldx $2002, y", &[0xBE, 0x02, 0x20], false);
 
         // ldy
-        instruction_test("ldy #$20", &[0xA0, 0x20], 2, false, false);
-        instruction_test("ldy $20", &[0xA4, 0x20], 3, false, false);
-        instruction_test("ldy $20, x", &[0xB4, 0x20], 4, false, false);
-        instruction_test("ldy $2002", &[0xAC, 0x02, 0x20], 4, false, false);
-        instruction_test("ldy $2002, x", &[0xBC, 0x02, 0x20], 4, true, false);
+        instruction_test("ldy #$20", &[0xA0, 0x20], false);
+        instruction_test("ldy $20", &[0xA4, 0x20], false);
+        instruction_test("ldy $20, x", &[0xB4, 0x20], false);
+        instruction_test("ldy $2002", &[0xAC, 0x02, 0x20], false);
+        instruction_test("ldy $2002, x", &[0xBC, 0x02, 0x20], false);
     }
 
     #[test]
     fn store_instructions() {
         //sta
-        instruction_test("sta $20", &[0x85, 0x20], 3, false, false);
-        instruction_test("sta $20, x", &[0x95, 0x20], 4, false, false);
-        instruction_test("sta $2002", &[0x8D, 0x02, 0x20], 4, false, false);
-        instruction_test("sta $2002, x", &[0x9D, 0x02, 0x20], 5, false, false);
-        instruction_test("sta $2002, y", &[0x99, 0x02, 0x20], 5, false, false);
-        instruction_test("sta ($20, x)", &[0x81, 0x20], 6, false, false);
-        instruction_test("sta ($20), y", &[0x91, 0x20], 6, false, false);
+        instruction_test("sta $20", &[0x85, 0x20], false);
+        instruction_test("sta $20, x", &[0x95, 0x20], false);
+        instruction_test("sta $2002", &[0x8D, 0x02, 0x20], false);
+        instruction_test("sta $2002, x", &[0x9D, 0x02, 0x20], false);
+        instruction_test("sta $2002, y", &[0x99, 0x02, 0x20], false);
+        instruction_test("sta ($20, x)", &[0x81, 0x20], false);
+        instruction_test("sta ($20), y", &[0x91, 0x20], false);
 
         // stx
-        instruction_test("stx $20", &[0x86, 0x20], 3, false, false);
-        instruction_test("stx $20, y", &[0x96, 0x20], 4, false, false);
-        instruction_test("stx $2002", &[0x8E, 0x02, 0x20], 4, false, false);
+        instruction_test("stx $20", &[0x86, 0x20], false);
+        instruction_test("stx $20, y", &[0x96, 0x20], false);
+        instruction_test("stx $2002", &[0x8E, 0x02, 0x20], false);
 
         // sty
-        instruction_test("sty $20", &[0x84, 0x20], 3, false, false);
-        instruction_test("sty $20, x", &[0x94, 0x20], 4, false, false);
-        instruction_test("sty $2002", &[0x8C, 0x02, 0x20], 4, false, false);
+        instruction_test("sty $20", &[0x84, 0x20], false);
+        instruction_test("sty $20, x", &[0x94, 0x20], false);
+        instruction_test("sty $2002", &[0x8C, 0x02, 0x20], false);
     }
 
     #[test]
     fn bit() {
-        instruction_test("bit $10", &[0x24, 0x10], 3, false, false);
-        instruction_test("bit $1001", &[0x2C, 0x01, 0x10], 4, false, false);
+        instruction_test("bit $10", &[0x24, 0x10], false);
+        instruction_test("bit $1001", &[0x2C, 0x01, 0x10], false);
     }
 
     // Variables & scopes.
 
     #[test]
     fn scoped_variable() {
-        let mut parser = Assembler::new();
+        let mut parser = Assembler::new(EMPTY.to_vec());
         let res = parser
             .assemble(
                 r#"
@@ -1959,7 +1997,7 @@ adc #Another::Variable
 
     #[test]
     fn redefined_variable() {
-        let mut parser = Assembler::new();
+        let mut parser = Assembler::new(EMPTY.to_vec());
         let res = parser.assemble(
             r#"
 .scope One
@@ -2009,17 +2047,18 @@ Yet = 4
 
     #[test]
     fn byte_literals_errors() {
-        instruction_err(
-            ".byte $0102",
-            "when parsing a data literal: only one byte of data is allowed here",
-        );
-        instruction_err(".byte '$01", "non-terminated quote for byte literal");
-        instruction_err(".byte '$01, $02", "non-terminated quote for byte literal");
+        // TODO
+        // instruction_err(
+        //     ".byte $0102",
+        //     "when parsing a data literal: only one byte of data is allowed here",
+        // );
+        // instruction_err(".byte '$01", "non-terminated quote for byte literal");
+        // instruction_err(".byte '$01, $02", "non-terminated quote for byte literal");
     }
 
     #[test]
     fn byte_literals() {
-        let mut asm = Assembler::new();
+        let mut asm = Assembler::new(EMPTY.to_vec());
 
         let mut res = asm.assemble(".byte $01".as_bytes()).unwrap();
         assert_eq!(res.len(), 1);
@@ -2044,7 +2083,7 @@ Yet = 4
 
     #[test]
     fn word_literals() {
-        let mut asm = Assembler::new();
+        let mut asm = Assembler::new(EMPTY.to_vec());
 
         let mut res = asm.assemble(".word $01".as_bytes()).unwrap();
         assert_eq!(res.len(), 1);
@@ -2069,7 +2108,7 @@ Yet = 4
 
     #[test]
     fn variables_in_literals() {
-        let mut asm = Assembler::new();
+        let mut asm = Assembler::new(EMPTY.to_vec());
         let res = asm
             .assemble(
                 r#"

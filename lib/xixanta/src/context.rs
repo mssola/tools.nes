@@ -30,7 +30,7 @@ impl Context {
         }
     }
 
-    pub fn reset(&mut self) {
+    pub fn global(&mut self) {
         self.stack = vec![];
     }
 

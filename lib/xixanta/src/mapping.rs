@@ -5,6 +5,12 @@ use crate::errors::ParseError;
 type Result<T> = std::result::Result<T, ParseError>;
 
 lazy_static! {
+    pub static ref EMPTY: Vec<Segment> = vec![Segment {
+        name: String::from("CODE"),
+        start: 0x0000,
+        size: 0xFFFF,
+        fill: None,
+    }];
     pub static ref NROM: Vec<Segment> = vec![
         Segment {
             name: String::from("HEADER"),
@@ -46,6 +52,8 @@ pub struct Mapping {
     pub segments: Vec<Segment>,
     pub nodes: HashMap<String, Vec<Node>>,
     pub current: String,
+    pub macros: HashMap<String, Vec<Node>>,
+    pub current_macro: Option<String>,
 }
 
 impl Mapping {
@@ -63,11 +71,21 @@ impl Mapping {
             segments,
             nodes,
             current: current_segment.to_string(),
+            macros: HashMap::new(),
+            current_macro: None,
         }
     }
 
     pub fn reset(&mut self) {
-        // TODO
+        self.nodes = HashMap::new();
+        for segment in self.segments.iter() {
+            self.nodes.insert(segment.name.clone(), vec![]);
+        }
+
+        self.current = self.segments.first().unwrap().name.clone();
+
+        self.macros = HashMap::new();
+        self.current_macro = None;
     }
 
     pub fn switch(&mut self, id: &PString) -> Result<()> {
@@ -90,6 +108,9 @@ impl Mapping {
     }
 
     pub fn push(&mut self, node: Node) {
-        self.nodes.get_mut(&self.current).unwrap().push(node);
+        match &self.current_macro {
+            Some(m) => self.macros.get_mut(m).unwrap().push(node),
+            None => self.nodes.get_mut(&self.current).unwrap().push(node),
+        }
     }
 }
