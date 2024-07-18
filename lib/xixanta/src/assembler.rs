@@ -914,7 +914,34 @@ impl Assembler {
         }
     }
 
-    fn parse_control(&mut self, id: PString, line: &str) -> Result<()> {
+    fn parse_control(&mut self, mut id: PString, line: &str) -> Result<()> {
+        self.skip_whitespace(line);
+
+        // Try to handle arguments passed to the control statement.
+        let mut args: Vec<String> = vec![];
+        if let Some(open) = line.find(|c: char| c == '(') {
+            match line.find(|c: char| c == ')') {
+                Some(close) => {
+                    id.value = id
+                        .value
+                        .get(..open)
+                        .unwrap_or(id.value.as_str())
+                        .to_string();
+                    id.range.end = open;
+
+                    args = line
+                        .get(open + 1..close)
+                        .unwrap_or(" ")
+                        .split(',')
+                        .map(|w| w.trim().to_string())
+                        .collect::<Vec<_>>();
+                }
+                None => {
+                    return Err(id.parser_error(format!("open parenthesis on macro call").as_str()))
+                }
+            }
+        }
+
         match id.value.to_lowercase().as_str() {
             ".scope" => self.parse_scope_definition(&id, line),
             ".endscope" => self.parse_scope_end(&id),
@@ -925,12 +952,30 @@ impl Assembler {
             ".endproc" => self.parse_proc_end(&id),
             ".macro" => self.parse_macro_definition(&id, line),
             ".endmacro" => self.parse_macro_end(&id),
+            ".hibyte" => self.parse_hi_lo_byte(&id, &args, true),
+            ".lobyte" => self.parse_hi_lo_byte(&id, &args, false),
             _ => {
                 return Err(
                     id.parser_error(format!("unknown control statement '{}'", id.value).as_str())
                 )
             }
         }
+    }
+
+    fn parse_hi_lo_byte(&mut self, id: &PString, args: &Vec<String>, hi: bool) -> Result<()> {
+        if args.len() > 1 {
+            return Err(id.parser_error(
+                format!(
+                    "only 1 argument was expected, but {} were passed",
+                    args.len()
+                )
+                .as_str(),
+            ));
+        }
+
+        println!("{:#?} -- {:#?} -- {}", id, args, hi);
+
+        Ok(())
     }
 
     fn parse_macro_definition(&mut self, id: &PString, line: &str) -> Result<()> {
