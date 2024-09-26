@@ -1,10 +1,12 @@
 use std::fmt;
 
 // TODO: global error
+// TODO: more errors, the `parse` thing is a hack!
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParseError {
     pub line: usize,
     pub message: String,
+    pub parse: bool,
 }
 
 impl std::error::Error for ParseError {}
@@ -15,6 +17,7 @@ impl From<std::io::Error> for ParseError {
         ParseError {
             line: 0,
             message: err.to_string(),
+            parse: true,
         }
     }
 }

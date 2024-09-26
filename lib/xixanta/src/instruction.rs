@@ -32,17 +32,99 @@ impl PString {
         ParseError {
             line: self.line,
             message: String::from(message),
+            parse: true,
         }
     }
 
-    pub fn is_reserved(&self) -> bool {
-        matches!(self.value.to_lowercase().as_str(), "x" | "y" | "a")
+    pub fn is_valid(&self) -> bool {
+        !(self.value.is_empty() || self.range.is_empty())
+    }
+
+    pub fn is_valid_identifier(&self) -> Result<(), String> {
+        if self.value.trim().is_empty() {
+            return Err(format!("empty identifier"));
+        }
+
+        // You cannot assign into a name which is reserved.
+        if matches!(self.value.to_lowercase().as_str(), "x" | "y" | "a") {
+            return Err(format!("cannot use reserved name '{}'", self.value));
+        }
+
+        // You cannot assign into scoped names: declare them into their
+        // respective scopes instead.
+        if self.value.contains("::") {
+            return Err(format!(
+                "the name '{}' is scoped: do not declare things this way",
+                self.value
+            ));
+        }
+
+        // Let's gather info from the variable name which is relevant to later
+        // checks.
+        let mut alpha_seen = false;
+        let mut valid_hex = match self.value.len() {
+            1 | 2 | 3 | 4 => true,
+            _ => false,
+        };
+        for c in self.value.to_lowercase().chars() {
+            if c == '_' {
+                valid_hex = false;
+            } else {
+                if c.is_alphabetic() {
+                    alpha_seen = true;
+                    if c > 'f' && c <= 'z' {
+                        valid_hex = false;
+                    }
+                }
+            }
+        }
+
+        // We need at least one alphabetic character. Otherwise it might be
+        // confusing with numbers.
+        if !alpha_seen {
+            return Err(format!(
+                "name '{}' requires at least one alphabetic character",
+                self.value
+            ));
+        }
+
+        // To avoid problems down the line, you cannot assign into names which
+        // are proper hexadecimal values.
+        if valid_hex {
+            return Err(format!(
+                "cannot use names which are valid hexadecimal values such as '{}'",
+                self.value
+            ));
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Bundle {
+    pub bytes: [u8; 3],
+    pub size: u8,
+    pub address: usize,
+    pub cycles: u8,
+    pub affected_on_page: bool,
+}
+
+impl Bundle {
+    pub fn new() -> Self {
+        Self {
+            bytes: [0, 0, 0],
+            size: 0,
+            address: 0,
+            cycles: 0,
+            affected_on_page: false,
+        }
     }
 }
 
 #[derive(Eq, Hash, PartialEq, Debug, Clone)]
 pub enum AddressingMode {
-    Unknown,
+    Unknown, // TODO: is this really used?
     Implied,
     Immediate,
     Absolute,
@@ -222,8 +304,8 @@ impl Encodable for Instruction {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Generic {
     pub identifier: PString,
-    pub left: Option<PString>,
-    pub right: Option<PString>,
+    pub left: Option<Box<Node>>,
+    pub right: Option<Box<Node>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -326,5 +408,44 @@ impl Node {
             self,
             &Node::Instruction(_) | &Node::Literal(_) | &Node::Fill(_)
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn is_err(line: &str, message: &str) {
+        let pstring = PString {
+            value: line.to_string(),
+            line: 0,
+            range: Range::default(),
+        };
+        let ret = pstring.is_valid_identifier();
+
+        assert!(ret.is_err());
+        if let Err(e) = ret {
+            assert_eq!(e, message);
+        }
+    }
+
+    #[test]
+    fn bad_variable_names() {
+        is_err("a", "cannot use reserved name 'a'");
+        is_err("X", "cannot use reserved name 'X'");
+
+        is_err(
+            "AA",
+            "cannot use names which are valid hexadecimal values such as 'AA'",
+        );
+
+        is_err("11", "name '11' requires at least one alphabetic character");
+
+        is_err("__", "name '__' requires at least one alphabetic character");
+
+        is_err(
+            "Scope::Variable",
+            "the name 'Scope::Variable' is scoped: do not declare things this way",
+        );
     }
 }

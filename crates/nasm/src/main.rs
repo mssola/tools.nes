@@ -55,24 +55,17 @@ fn main() -> Result<()> {
 
     // After the parse operation, just print the results.
     if args.disassemble {
-        let instructions = assembler.disassemble(input)?;
+        // let instructions = assembler.disassemble(input)?;
 
-        for instr in instructions {
-            output.write_all(instr.to_human().as_bytes())?;
-            output.write_all("\n".as_bytes())?;
-        }
+        // for instr in instructions {
+        //     output.write_all(instr.to_human().as_bytes())?;
+        //     output.write_all("\n".as_bytes())?;
+        // }
     } else {
-        let instructions = assembler.assemble(input)?;
-
-        for instr in instructions {
-            let bs = instr.to_bytes();
-
-            if instr.size() == 1 {
-                output.write_all(&[bs[0]])?;
-            } else if instr.size() == 2 {
-                output.write_all(&[bs[0], bs[1]])?;
-            } else {
-                output.write_all(&[bs[0], bs[1], bs[2]])?;
+        let bundles = assembler.assemble(input)?;
+        for b in bundles {
+            for i in 0..b.size {
+                output.write_all(&[b.bytes[i as usize]])?;
             }
         }
     }

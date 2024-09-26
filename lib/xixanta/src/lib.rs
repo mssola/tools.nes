@@ -9,3 +9,4 @@ mod errors;
 pub mod instruction;
 pub mod mapping;
 mod opcodes;
+pub mod parser;

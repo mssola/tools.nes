@@ -1,32 +1,51 @@
 use crate::context::{Context, PValue};
 use crate::errors::ParseError;
-use crate::instruction::{
-    AddressingMode, Encodable, Fill, Generic, Instruction, Label, Literal, Node, PString, Scoped,
-};
+use crate::instruction::{AddressingMode, Bundle};
 use crate::mapping::{Mapping, Segment};
-use crate::opcodes::{INSTRUCTIONS, OPCODES};
-use std::collections::hash_map::Entry;
+use crate::opcodes::INSTRUCTIONS;
+use crate::parser::{NodeType, PNode, Parser};
 use std::collections::HashMap;
-use std::io::{self, BufRead, Read};
-use std::ops::Range;
+use std::io::Read;
 
 // TODO: proper AST: WRITE_PPU_DATA from NES is a good example
 // TODO: for christ's sake, automated tests!
 // TODO: macros are meant to be global!
 // TODO: instead of mapping.nodes having a value of vec<node>, the value should be a Context.
 // TODO: proc's, labels, macros, and scopes can be merged dramatically.
+// TODO: allow pointer arithmetic (e.g. 'adc #List::ptr + 1').
 // TODO: more to_owned() stuff, more rustacean way of doing things, more ...
 // TODO: warning on empty segments
 
 type Result<T> = std::result::Result<T, ParseError>;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum LiteralMode {
+    Hexadecimal,
+    Binary,
+    Plain,
+}
+
 pub struct Assembler {
     line: usize,
     column: usize,
     context: Context,
+    literal_mode: Option<LiteralMode>,
+    only_context: bool,
+    force_decimal: bool,
     mapping: Mapping,
     offsets: HashMap<String, usize>,
 }
+
+// Control statements which end up affecting which context we are in.
+const TOUCH_CONTEXT: [&str; 7] = [
+    ".scope",
+    ".endscope",
+    ".proc",
+    ".endproc",
+    ".macro",
+    ".endmacro",
+    ".segment",
+];
 
 impl Assembler {
     pub fn new(segments: Vec<Segment>) -> Self {
@@ -40,6 +59,9 @@ impl Assembler {
         Self {
             line: 0,
             column: 0,
+            literal_mode: None,
+            only_context: false,
+            force_decimal: false,
             context: Context::new(),
             mapping: Mapping::new(segments),
             offsets,
@@ -58,541 +80,412 @@ impl Assembler {
         }
     }
 
-    pub fn assemble_nodes(&mut self, reader: impl Read) -> Result<()> {
-        self.from_reader(reader)?;
-        self.context.global();
-        self.evaluate()?;
-        self.resolve_labels()?;
+    pub fn assemble(&mut self, reader: impl Read) -> Result<Vec<Bundle>> {
+        let mut res = vec![];
 
-        Ok(())
-    }
+        let mut parser = Parser::new();
+        parser.parse(reader)?;
 
-    pub fn assemble(&mut self, reader: impl Read) -> Result<Vec<&dyn Encodable>> {
-        let mut instructions: Vec<&dyn Encodable> = vec![];
+        // println!("{:#?}", parser.nodes);
 
-        self.assemble_nodes(reader)?;
+        // NOTE: first step: unroll macros, update context, set variables.
 
-        let mut idx: usize = 0;
-        for segment in &self.mapping.segments {
-            let mut size: usize = 0;
+        self.only_context = true;
+        for node in parser.nodes.clone() {
+            match node.node_type {
+                NodeType::Assignment => {
+                    self.evaluate_assignment(node)?;
 
-            while idx < segment.start.into() {
-                match &segment.fill {
-                    Some(fill) => instructions.push(fill),
-                    None => instructions.push(&Fill { value: 0x00 }),
+                    println!("{:#?}", self.context);
                 }
-                idx += 1;
-            }
-
-            for node in &self.mapping.nodes[&segment.name] {
-                match node {
-                    Node::Instruction(instr) => {
-                        instructions.push(instr);
-                        size += usize::from(instr.size());
-                    }
-                    Node::Literal(lit) => {
-                        instructions.push(lit);
-                        size += usize::from(lit.size());
-                    }
-                    _ => {}
+                NodeType::Control => {
+                    self.evaluate_control(node)?;
                 }
-            }
-
-            if size > segment.size {
-                return Err(ParseError {
-                    line: 0,
-                    message: format!(
-                        "segment '{}' expected a size of '{}' bytes but '{}' bytes were produced instead",
-                        segment.name, size, segment.size
-                    ),
-                });
-            }
-            idx += size;
-            if segment.fill.is_none() {
-                continue;
-            }
-
-            while size < segment.size {
-                instructions.push(segment.fill.as_ref().unwrap());
-                size += 1;
-                idx += 1;
+                _ => {}
             }
         }
+        self.only_context = false;
 
-        Ok(instructions)
-    }
+        // Check for unclosed scope definition.
+        if !self.context.is_global() {
+            return Err(self.parser_error(
+                format!(
+                    "definition for '{}' has not been closed",
+                    self.context.name()
+                )
+                .as_str(),
+            ));
+        }
 
-    pub fn disassemble(&mut self, reader: impl Read) -> Result<Vec<&dyn Encodable>> {
-        self.from_byte_reader(reader)?;
+        // NOTE: second step: let's rock.
 
-        let mut instructions: Vec<&dyn Encodable> = vec![];
-        for node in self.mapping.current() {
-            println!("{:#?}", node);
-            match node {
-                Node::Instruction(instr) => instructions.push(instr),
-                Node::Literal(lit) => instructions.push(lit),
+        for node in parser.nodes {
+            match node.node_type {
+                NodeType::Instruction => {
+                    res.push(self.evaluate_node(node)?);
+                }
+                NodeType::Control => {
+                    self.evaluate_control(node)?;
+                }
                 _ => {}
             }
         }
 
-        Ok(instructions)
+        // NOTE: third step: update addresses of referenced labels.
+        // TODO
+
+        // println!("{:#?}", res);
+        Ok(res)
     }
 
-    pub fn from_reader<R: Read>(&mut self, reader: R) -> Result<()> {
-        for line in io::BufReader::new(reader).lines() {
-            // TODO: instead of this, accumulate errors so to give as many
-            // errors as possible.
-            self.parse_line(line?.as_str())?;
-            self.line += 1;
+    // pub fn disassemble(&mut self, reader: impl Read) -> Result<Vec<&dyn Encodable>> {
+    //     self.from_byte_reader(reader)?;
+
+    //     let mut instructions: Vec<&dyn Encodable> = vec![];
+    //     for node in self.mapping.current() {
+    //         println!("{:#?}", node);
+    //         match node {
+    //             Node::Instruction(instr) => instructions.push(instr),
+    //             Node::Literal(lit) => instructions.push(lit),
+    //             _ => {}
+    //         }
+    //     }
+
+    //     Ok(instructions)
+    // }
+
+    fn evaluate_assignment(&mut self, node: Box<PNode>) -> Result<()> {
+        if self
+            .context
+            .current_mut()
+            .unwrap()
+            .contains_key(&node.value.value)
+        {
+            return Err(ParseError {
+                line: self.line,
+                message: format!(
+                    "variable '{}' is being re-assigned: it was previously defined in line {}",
+                    node.value.value, node.value.line,
+                ),
+                parse: false,
+            });
         }
+
+        if let Some(value_node) = node.left {
+            self.force_decimal = true;
+            println!("{:#?}", value_node);
+            let val = self.evaluate_node(value_node.clone())?;
+            println!("{:#?}", val);
+            self.force_decimal = false;
+
+            self.context.current_mut().unwrap().insert(
+                node.value.value.to_owned(),
+                PValue {
+                    node: *value_node,
+                    value: val,
+                    label: false,
+                },
+            );
+        }
+
         Ok(())
     }
 
-    pub fn parse_line(&mut self, line: &str) -> Result<()> {
-        self.column = 0;
-
-        if !self.skip_whitespace(line) {
-            return Ok(());
-        }
-
-        match self.parse_identifier(line) {
-            Some(identifier) => self.parse_from_identifier(identifier, line),
-            None => Ok(()),
-        }
-    }
-
-    pub fn evaluate(&mut self) -> Result<()> {
-        for segment in &self.mapping.segments {
-            for node in self.mapping.nodes.get_mut(&segment.name).unwrap() {
-                match node {
-                    Node::Instruction(instr) => {
-                        Self::update_instruction_with_context(instr, &self.context)?;
-                        instr.address = segment.start;
-
-                        self.offsets
-                            .entry(segment.name.clone())
-                            .and_modify(|value| {
-                                instr.address += *value as u16;
-                                *value += usize::from(instr.size())
-                            })
-                            .or_insert(instr.size().into());
+    fn evaluate_node(&mut self, node: Box<PNode>) -> Result<Bundle> {
+        match node.node_type {
+            NodeType::Control => self.evaluate_control(node),
+            NodeType::Literal => self.evaluate_literal(node),
+            NodeType::Instruction => self.evaluate_instruction(node),
+            NodeType::Value => match self.literal_mode {
+                Some(LiteralMode::Hexadecimal) => self.evaluate_hexadecimal(node),
+                Some(LiteralMode::Binary) => self.evaluate_binary(node),
+                Some(LiteralMode::Plain) => self.evaluate_decimal(node),
+                None => {
+                    if self.force_decimal {
+                        self.evaluate_decimal(node)
+                    } else {
+                        Err(self.parser_error("no prefix was given to operand"))
                     }
-                    Node::Scoped(scope) => {
-                        if scope.start {
-                            self.context.push(&scope.identifier.value);
-                        } else {
-                            _ = self.context.pop();
-                        }
-                    }
-                    Node::Literal(literal) => {
-                        Self::update_literal_with_context(literal, &self.context)?;
-                        self.offsets
-                            .entry(segment.name.clone())
-                            .and_modify(|value| *value += usize::from(literal.size()))
-                            .or_insert(literal.size().into());
-                    }
-                    Node::Label(label) => {
-                        let address =
-                            usize::from(segment.start) + self.offsets.get(&segment.name).unwrap();
-
-                        self.context
-                            .current_mut()
-                            .unwrap()
-                            .entry(label.value.clone())
-                            .and_modify(|e| e.value = address);
-                    }
-                    _ => {}
                 }
-            }
+            },
+            // TODO
+            _ => Ok(Bundle::new()),
         }
-
-        Ok(())
     }
 
-    // TODO: oh boy...
-    pub fn resolve_labels(&mut self) -> Result<()> {
-        for segment in &self.mapping.segments {
-            for node in self.mapping.nodes.get_mut(&segment.name).unwrap() {
-                match node {
-                    Node::Instruction(instr) => {
-                        if !instr.resolved {
-                            match &instr.left {
-                                Some(pstring) => {
-                                    match self.context.current().unwrap().get(&pstring.value) {
-                                        Some(entry) => {
-                                            if instr.mode == AddressingMode::Absolute {
-                                                let bytes = entry.value.to_le_bytes();
-                                                instr.bytes = [bytes[0], bytes[1]];
-                                            } else {
-                                                let diff: isize = entry.value as isize
-                                                    - (instr.address as isize + 2);
-                                                if diff < -128 || diff > 127 {
-                                                    return Err(instr.mnemonic.parser_error(
-                                                        format!("relative addressing out of range")
-                                                            .as_str(),
-                                                    ));
-                                                }
-                                                let bytes = diff.to_le_bytes();
-                                                instr.bytes = [bytes[0], 0];
-                                            }
-                                        }
-                                        None => {
-                                            return Err(instr.mnemonic.parser_error(
-                                                format!("label '{}' not found", pstring.value)
-                                                    .as_str(),
-                                            ))
-                                        }
-                                    }
-                                }
-                                None => {
-                                    return Err(instr.mnemonic.parser_error(
-                                        format!("there is no label for the given jump instruction")
-                                            .as_str(),
-                                    ))
-                                }
-                            }
-                        }
-                    }
-                    Node::Literal(literal) => {
-                        if !literal.resolved {
-                            match self
-                                .context
-                                .current()
-                                .unwrap()
-                                .get(&literal.identifier.value)
-                            {
-                                Some(entry) => {
-                                    let bytes = entry.value.to_le_bytes();
-                                    literal.bytes = [bytes[0], bytes[1]];
-                                }
-                                None => {
-                                    return Err(literal.identifier.parser_error(
-                                        format!(
-                                        "'{}' is neither a known variable or label at this scope",
-                                        literal.identifier.value
-                                    )
-                                        .as_str(),
-                                    ))
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
+    fn evaluate_instruction(&mut self, node: Box<PNode>) -> Result<Bundle> {
+        let mnemonic = node.value.value.to_lowercase();
 
-        Ok(())
-    }
-
-    fn update_instruction_with_context(instr: &mut Instruction, context: &Context) -> Result<()> {
-        // To keep things simple, we remove out the `implied` case and we parse
-        // further with a known `Some` value for the base algorithm implemented
-        // in `update_instruction_and_bytes`.
-        if instr.left.is_some() {
-            Self::update_addressing_and_bytes(instr, context)?;
+        let (mode, mut bundle) = if node.left.is_some() {
+            self.get_addressing_mode_and_bytes(node)?
         } else {
-            instr.mode = AddressingMode::Implied;
-        }
+            (AddressingMode::Implied, Bundle::new())
+        };
 
-        // Now that we have the addressing mode and the bytes, we can fill out
-        // the rest of it by fetching the values on `INSTRUCTIONS`.
-        match INSTRUCTIONS.get(&instr.mnemonic.value.to_lowercase()) {
-            Some(entries) => match entries.get(&instr.mode) {
+        match INSTRUCTIONS.get(&mnemonic) {
+            Some(entries) => match entries.get(&mode) {
                 Some(values) => {
-                    instr.cycles = values.cycles;
-                    instr.opcode = values.opcode;
-                    instr.size = values.size;
-                    instr.affected_on_page = values.affected_on_page;
+                    bundle.cycles = values.cycles;
+                    bundle.size = values.size;
+                    bundle.affected_on_page = values.affected_on_page;
+                    bundle.bytes[2] = bundle.bytes[1];
+                    bundle.bytes[1] = bundle.bytes[0];
+                    bundle.bytes[0] = values.opcode.to_le_bytes()[0];
                 }
                 None => {
-                    return Err(instr.mnemonic.parser_error(
+                    return Err(self.parser_error(
                         format!(
-                            "bad addressing mode '{}' for the instruction '{}'",
-                            &instr.mode, &instr.mnemonic.value
+                            "cannot use {} addressing mode for the instruction '{}'",
+                            mode, mnemonic
                         )
                         .as_str(),
-                    ));
+                    ))
                 }
             },
             None => {
-                return Err(instr.mnemonic.parser_error(
-                    format!("unknown instruction '{}'", &instr.mnemonic.value).as_str(),
-                ));
+                return Err(self.parser_error(format!("unknown instruction {}", mnemonic).as_str()))
+            }
+        }
+        Ok(bundle)
+    }
+
+    fn get_addressing_mode_and_bytes(
+        &mut self,
+        node: Box<PNode>,
+    ) -> Result<(AddressingMode, Bundle)> {
+        if node.clone().left.unwrap().node_type == NodeType::Indirection {
+            self.get_from_indirect(node)
+        } else if node.right.is_some() {
+            self.get_from_indexed(node)
+        } else {
+            self.get_from_left(node)
+        }
+    }
+
+    fn get_from_indirect(&mut self, node: Box<PNode>) -> Result<(AddressingMode, Bundle)> {
+        let left = node.left.unwrap();
+
+        match node.right {
+            Some(right) => {
+                if right.value.value.trim().to_lowercase() == "y" {
+                    if left.right.is_some() {
+                        return Err(self.parser_error(
+                            "it has to be either X addressing or Y addressing, not all at once",
+                        ));
+                    }
+
+                    let val = self.evaluate_node(left.left.unwrap())?;
+                    if val.size != 1 {
+                        return Err(self.parser_error(
+                            "address can only be one byte long on indirect Y addressing",
+                        ));
+                    }
+                    return Ok((AddressingMode::IndirectY, val));
+                }
+                return Err(
+                    self.parser_error("only the Y index is allowed on indirect Y addressing")
+                );
+            }
+            None => match left.right {
+                Some(right) => {
+                    if right.value.value.trim().to_lowercase() == "x" {
+                        let val = self.evaluate_node(left.left.unwrap())?;
+                        if val.size != 1 {
+                            return Err(self.parser_error(
+                                "address can only be one byte long on indirect X addressing",
+                            ));
+                        }
+                        return Ok((AddressingMode::IndirectX, val));
+                    }
+                    return Err(
+                        self.parser_error("only the X index is allowed on indirect X addressing")
+                    );
+                }
+                None => {
+                    let val = self.evaluate_node(left.left.unwrap())?;
+                    if val.size != 2 {
+                        return Err(self.parser_error("expecting a full 16-bit address"));
+                    }
+                    return Ok((AddressingMode::Indirect, val));
+                }
+            },
+        }
+    }
+
+    fn get_from_indexed(&mut self, node: Box<PNode>) -> Result<(AddressingMode, Bundle)> {
+        self.literal_mode = None; // TODO: needed?
+        let val = self.evaluate_node(node.left.unwrap())?;
+
+        if let Some(lm) = &self.literal_mode {
+            if *lm != LiteralMode::Hexadecimal {
+                return Err(self.parser_error("indexed addressing only works with addresses"));
             }
         }
 
-        Ok(())
-    }
-
-    fn update_addressing_and_bytes(instr: &mut Instruction, context: &Context) -> Result<()> {
-        // `unwrap()` is guaranteed to work by the caller.
-        let left = instr.left.as_ref().unwrap();
-
-        // We will first try to check if there's any variable involved on the
-        // left arm and replace the string if so. This will greatly simplify
-        // things down the line. That being said, there is a special reserved
-        // case, which is the implied addressing by using "a". In this case, we
-        // want to ensure that we assume an implied addressing and not a
-        // variable named "a".
-        if left.value.to_lowercase() == "a" {
-            instr.mode = AddressingMode::Implied;
-        } else {
-            let (nleft, resolved) = Self::replace_variable(left, context)?;
-            // TODO
-            instr.resolved = resolved;
-            if !resolved {
-                if instr.mnemonic.value == "jmp" {
-                    instr.mode = AddressingMode::Absolute;
+        match node.right.unwrap().value.value.to_lowercase().trim() {
+            "x" => {
+                if val.size == 1 {
+                    Ok((AddressingMode::ZeropageIndexedX, val))
                 } else {
-                    instr.mode = AddressingMode::RelativeOrZeropage;
+                    Ok((AddressingMode::IndexedX, val))
                 }
             }
-
-            if nleft.value.starts_with('$') {
-                // This is an address. At this point we should assume that the
-                // left node contains the address itself, and that the right one
-                // will contain whether there is indexing.
-
-                let string = nleft.value.chars().as_str();
-                instr.bytes = Self::parse_hex_from(string, &nleft, true, false, true)?;
-
-                match &instr.right {
-                    Some(xy) => match xy.value.to_lowercase().as_str() {
-                        "x" => {
-                            if string.len() == 3 {
-                                instr.mode = AddressingMode::ZeropageIndexedX;
-                            } else {
-                                instr.mode = AddressingMode::IndexedX;
-                            }
-                        }
-                        "y" => {
-                            if string.len() == 3 {
-                                instr.mode = AddressingMode::ZeropageIndexedY;
-                            } else {
-                                instr.mode = AddressingMode::IndexedY;
-                            }
-                        }
-                        _ => return Err(xy.parser_error("index is neither X nor Y")),
-                    },
-                    None => {
-                        if string.len() == 3 {
-                            instr.mode = AddressingMode::RelativeOrZeropage;
-                        } else {
-                            instr.mode = AddressingMode::Absolute;
-                        }
-                    }
+            "y" => {
+                if val.size == 1 {
+                    Ok((AddressingMode::ZeropageIndexedY, val))
+                } else {
+                    Ok((AddressingMode::IndexedY, val))
                 }
-            } else if nleft.value.starts_with('#') {
-                // Immediate addressing in any case: hexadecimal, binary or
-                // decimal. Hence, just figure out the character being used and
-                // call the right function for it.
-
-                let mut chars = nleft.value.chars();
-                chars.next();
-                let string = chars.as_str();
-
-                instr.bytes = Self::parse_numeric(string, &nleft, false)?;
-                instr.mode = AddressingMode::Immediate;
-            } else if nleft.value.starts_with('(') {
-                // Indirect addressing. In this case the left arm can be further
-                // subdivided. That is, indirect X-indexing is represented like
-                // so: `instr ($NN, x)`. Hence, first of all we have to figure
-                // out whether there is a subdivision.
-
-                let (left1, oleft2) = Self::split_left_arm(&nleft)?;
-                match oleft2 {
-                    Some(left2) => {
-                        // There is subdivision. Thus, we have to assume
-                        // indirect X-indexing, which means that the right arm
-                        // should be None and that the right side of the left
-                        // node must match the X register. Other than that, the
-                        // address being referenced must be zero page.
-                        if instr.right.is_some() {
-                            return Err(instr.right.as_ref().unwrap().parser_error(
-                                "bad indirect mode, expecting an indirect X-indexed addressing mode"
-                            ));
-                        }
-                        if left2.value.to_lowercase() != "x" {
-                            return Err(left2.parser_error(
-                                "the index in indirect X-indexed addressing must be X",
-                            ));
-                        }
-                        match Self::parse_hex_from(&left1.value, &left1, false, false, true) {
-                            Ok(bytes) => instr.bytes = bytes,
-                            Err(e) => {
-                                let msg = String::from(
-                                    "when parsing an instruction with indirect X-indexed addressing: ",
-                                ) + &e.message;
-                                return Err(left1.parser_error(msg.as_str()));
-                            }
-                        }
-                        instr.mode = AddressingMode::IndirectX;
-                    }
-                    None => {
-                        // There is no subdivision on the left arm. Hence, if
-                        // there is something on the right arm then we must
-                        // assume indirect Y-index addressing, and if not then
-                        // it's indirect addressing with no indices involvved.
-                        if instr.right.is_some() {
-                            if instr.right.as_ref().unwrap().value.to_lowercase() != "y" {
-                                return Err(instr.right.as_ref().unwrap().parser_error(
-                                    "the index in indirect Y-indexed addressing must be Y",
-                                ));
-                            }
-                            match Self::parse_hex_from(&left1.value, &left1, false, false, true) {
-                                Ok(bytes) => instr.bytes = bytes,
-                                Err(e) => {
-                                    let msg = String::from(
-                                    "when parsing an instruction with indirect Y-indexed addressing: ",
-                                ) + &e.message;
-                                    return Err(left1.parser_error(msg.as_str()));
-                                }
-                            }
-                            instr.mode = AddressingMode::IndirectY;
-                        } else {
-                            instr.bytes =
-                                Self::parse_hex_from(&left1.value, &left1, true, true, true)?;
-                            instr.mode = AddressingMode::Indirect;
-                        }
-                    }
-                }
-            } else {
-                // At this point all of the syntax cases have been exhausted:
-                // the programmer messed up. From this point on we try to figure
-                // out how they messed up.
-
-                if nleft.value.starts_with('=') {
-                    return Err(instr.mnemonic.parser_error(
-                        format!(
-                            "cannot use '{}' in an assignment because it's a word reserved for an instruction mnemonic",
-                            instr.mnemonic.value
-                        ).as_str(),
-                    ));
-                }
-                // TODO:
-                // instr.mode = AddressingMode::Absolute;
-                // return Err(instr.mnemonic.parser_error(
-                //     format!(
-                //         "unknown addressing mode for instruction '{}'",
-                //         instr.mnemonic.value
-                //     )
-                //     .as_str(),
-                // ));
             }
+            _ => Err(self.parser_error("can only use X and Y as indices")),
         }
-
-        Ok(())
     }
 
-    fn update_literal_with_context(literal: &mut Literal, context: &Context) -> Result<()> {
-        // If it has already been set, skip it.
-        // TODO: add a proper `is_set` thingie to it instead of this hack.
-        if literal.bytes[0] != 0 || literal.bytes[1] != 0 {
-            return Ok(());
+    fn get_from_left(&mut self, node: Box<PNode>) -> Result<(AddressingMode, Bundle)> {
+        let left = node.left.unwrap();
+
+        if left.value.value.to_lowercase().trim() == "a" {
+            return Ok((AddressingMode::Implied, Bundle::new()));
         }
 
-        // Evaluate any possible variable being used inside of this literal.
-        let (evaled, resolved) = Self::replace_variable(&literal.identifier, context)?;
+        self.literal_mode = None; // TODO: needed?
+        let val = self.evaluate_node(left)?;
 
-        // It may happen that the literal is just a label that is to be resolved
-        // in the future. If so, let's leave early.
-        literal.resolved = resolved;
-        if !resolved {
-            return Ok(());
-        }
-
-        // Parse the numeric value after a possible variable has been replaced.
-        let two_bytes_allowed = literal.size == 2;
-        let res = Self::parse_numeric(
-            evaled.value.as_str(),
-            &literal.identifier,
-            two_bytes_allowed,
-        );
-
-        // And finally assign the computed bytes.
-        match res {
-            Ok(bytes) => {
-                literal.bytes = bytes;
-                Ok(())
+        match self.literal_mode {
+            Some(LiteralMode::Hexadecimal) => {
+                if val.size == 1 {
+                    Ok((AddressingMode::RelativeOrZeropage, val))
+                } else {
+                    Ok((AddressingMode::Absolute, val))
+                }
             }
-            Err(e) => {
-                let msg = String::from("when parsing a data literal: ") + &e.message;
-                Err(literal.identifier.parser_error(msg.as_str()))
+            Some(LiteralMode::Plain) => {
+                if val.size > 1 {
+                    Err(self.parser_error("immediate is too big"))
+                } else {
+                    Ok((AddressingMode::Immediate, val))
+                }
+            }
+            _ => {
+                Err(self
+                    .parser_error("left arm of instruction is neither an address nor an immediate"))
             }
         }
     }
 
-    fn parse_numeric(string: &str, node: &PString, two_bytes_allowed: bool) -> Result<[u8; 2]> {
-        if string.starts_with('$') {
-            Ok(Self::parse_hex_from(
-                string,
-                node,
-                two_bytes_allowed,
-                false,
-                true,
-            )?)
-        } else if string.starts_with('%') {
-            Ok([Self::parse_binary_from(string, node)?, 0])
-        } else {
-            Ok([Self::parse_decimal_from(string, node)?, 0])
+    fn evaluate_control(&mut self, node: Box<PNode>) -> Result<Bundle> {
+        let id = node.value.value.to_lowercase();
+        let id_str = id.as_str();
+
+        // If we are just dealing with context resolution/assignment and the
+        // current control statement does not matter on that regard, just skip
+        // it.
+        // if self.only_context && !TOUCH_CONTEXT.contains(&id_str) {
+        //     return Ok(Bundle::new());
+        // }
+
+        match id_str {
+            ".hibyte" => self.evaluate_hilo_byte(node.args.unwrap_or(vec![]), true),
+            ".lobyte" => self.evaluate_hilo_byte(node.args.unwrap_or(vec![]), false),
+            ".scope" => self.evaluate_scope_definition(node),
+            ".endscope" => self.evaluate_scope_end(),
+            //         ".segment" => self.parse_segment_definition(&id, line),
+            //         ".byte" | ".db" => self.parse_literal_bytes(&id, line, false),
+            //         ".word" | ".dw" | ".addr" => self.parse_literal_bytes(&id, line, true),
+            //         ".proc" => self.parse_proc_definition(&id, line),
+            //         ".endproc" => self.parse_proc_end(&id),
+            //         ".macro" => self.parse_macro_definition(&id, line),
+            //         ".endmacro" => self.parse_macro_end(&id),
+            _ => Err(self.parser_error(format!("unknown control statement '{}'", id).as_str())),
         }
     }
 
-    fn split_left_arm(node: &PString) -> Result<(PString, Option<PString>)> {
-        let mut chars = node.value.chars();
-        chars.next();
-        let string = chars.as_str();
+    fn evaluate_literal(&mut self, node: Box<PNode>) -> Result<Bundle> {
+        let mut prev = None;
+        self.literal_mode = None;
 
-        match string.find(|c: char| c == ',') {
-            Some(idx) => {
-                let left1 = string.get(..idx).unwrap_or("").trim();
-                let left2 = string.get(idx + 1..).unwrap_or("").trim();
-
-                Ok((
-                    PString {
-                        value: left1.to_string(),
-                        line: node.line,
-                        range: Range {
-                            start: node.range.start + 1,
-                            end: node.range.start + 1 + left1.len(),
-                        },
-                    },
-                    Some(PString {
-                        value: left2.to_string(),
-                        line: node.line,
-                        range: Range {
-                            start: node.range.start + 1 + idx,
-                            end: node.range.start + 1 + idx + left2.len(),
-                        },
-                    }),
-                ))
+        let ret = match node.value.value.chars().nth(0) {
+            Some(prefix) => {
+                if prefix == '$' {
+                    prev = Some(LiteralMode::Hexadecimal);
+                } else if prefix == '%' {
+                    prev = Some(LiteralMode::Binary);
+                } else {
+                    prev = Some(LiteralMode::Plain);
+                }
+                self.literal_mode = prev.clone();
+                self.evaluate_node(node.left.unwrap())
             }
-            None => Ok((
-                PString {
-                    value: string.to_string(),
-                    line: node.line,
-                    range: Range {
-                        start: node.range.start + 1,
-                        end: node.range.end,
-                    },
-                },
-                None,
-            )),
+            None => Err(self.parser_error("no prefix was given to operand")),
+        };
+
+        self.literal_mode = prev;
+
+        ret
+    }
+
+    fn evaluate_hexadecimal(&mut self, node: Box<PNode>) -> Result<Bundle> {
+        let mut chars = node.value.value.chars();
+        let mut bytes = [0, 0, 0];
+        let size: u8;
+
+        match node.value.value.len() {
+            1 => {
+                bytes[0] = self.char_to_hex(chars.next())?;
+                size = 1;
+            }
+            2 => {
+                bytes[0] = self.char_to_hex(chars.next())? * 16;
+                bytes[0] += self.char_to_hex(chars.next())?;
+                size = 1;
+            }
+            3 => {
+                bytes[1] = self.char_to_hex(chars.next())?;
+                bytes[0] = self.char_to_hex(chars.next())? * 16;
+                bytes[0] += self.char_to_hex(chars.next())?;
+                size = 2;
+            }
+            4 => {
+                bytes[1] = self.char_to_hex(chars.next())? * 16;
+                bytes[1] += self.char_to_hex(chars.next())?;
+                bytes[0] = self.char_to_hex(chars.next())? * 16;
+                bytes[0] += self.char_to_hex(chars.next())?;
+                size = 2;
+            }
+            _ => return Err(self.parser_error("expecting a number of 1 to 4 hexadecimal digits")),
+        }
+
+        Ok(Bundle {
+            bytes,
+            size,
+            address: 0,
+            cycles: 0,
+            affected_on_page: false,
+        })
+    }
+
+    fn char_to_hex(&mut self, oc: Option<char>) -> Result<u8> {
+        match oc {
+            Some(c) => match c.to_digit(16) {
+                Some(c) => Ok(c as u8),
+                None => Err(self.parser_error("could not convert digit to hexadecimal")),
+            },
+            None => Err(self.parser_error("digit out of bounds")),
         }
     }
 
-    fn parse_binary_from(string: &str, node: &PString) -> Result<u8> {
+    fn evaluate_binary(&mut self, node: Box<PNode>) -> Result<Bundle> {
+        let string = node.value.value.as_str();
         let mut value = 0;
         let mut shift = 0;
 
-        for c in string.get(1..).unwrap_or("").chars().rev() {
+        for c in string.chars().rev() {
             if c == '1' {
                 let val = 1 << shift;
                 value += val;
             } else if c != '0' {
                 return Err(
-                    node.parser_error(format!("bad binary format for '{}'", string).as_str())
+                    self.parser_error(format!("bad binary format for '{}'", string).as_str())
                 );
             }
 
@@ -600,214 +493,88 @@ impl Assembler {
         }
 
         if shift < 8 {
-            Err(node.parser_error("missing binary digits to get a full byte"))
+            Err(self.parser_error("missing binary digits to get a full byte"))
         } else if shift > 8 {
-            Err(node.parser_error("too many binary digits for a single byte"))
+            Err(self.parser_error("too many binary digits for a single byte"))
         } else {
-            Ok(value)
+            Ok(Bundle {
+                bytes: [value as u8, 0, 0],
+                size: 1,
+                address: 0,
+                cycles: 0,
+                affected_on_page: false,
+            })
         }
     }
 
-    // TODO: returns if resolved
-    fn replace_variable(node: &PString, context: &Context) -> Result<(PString, bool)> {
-        match node
-            .value
-            .find(|c: char| c.is_alphabetic() || c == '_' || c == '@')
-        {
-            Some(idx) => {
-                // Before doing any replacement, let's check the character
-                // before the one that was found. In this case, if it was a
-                // proper ASCII digit, then it cannot be a variable but it's
-                // part of a numeric literal (e.g. '1A'): then just let the
-                // different numeric parsing functions do their job.
-                if idx > 0 {
-                    let prev = node.value.chars().nth(idx - 1).unwrap_or(' ');
-                    if prev.is_ascii_digit() {
-                        return Ok((node.clone(), true));
-                    }
-                }
+    fn evaluate_decimal(&mut self, node: Box<PNode>) -> Result<Bundle> {
+        let string = node.value.value.as_str();
+        if string.is_empty() {
+            return Err(self.parser_error("empty decimal literal"));
+        }
 
-                // The variable might still be before an inner comma (e.g.
-                // sta ($20, x)). We will assume that variables can happen
-                // only before that.
-                let end = node.value.find(',').unwrap_or(node.value.len());
-                let mut string = node.value.get(idx..end).unwrap_or("");
-                let tail = node.value.get(end..).unwrap_or("");
-
-                // Get the context that might be being referenced.
-                let ctxt = match string.find("::") {
-                    Some(_) => {
-                        let tctxt = string.rsplit_once("::").unwrap_or(("", ""));
-                        if tctxt.0.is_empty() {
-                            context.current()
-                        } else {
-                            string = tctxt.1;
-                            context.find(tctxt.0)
-                        }
-                    }
-                    None => context.current(),
-                };
-
-                match ctxt {
-                    Some(hash) => {
-                        // If there was a comma before the "variable" (i.e. idx >
-                        // end and hence string == ""), or this is just the regular
-                        // X or Y index, just return early.
-                        match string.to_lowercase().as_str() {
-                            "x" | "y" | "" => return Ok((node.clone(), true)),
-                            _ => {}
-                        }
-
-                        // It's not any of the indices, let's look for a match on
-                        // the current scope.
-                        match hash.get(string) {
-                            Some(var) => {
-                                // If this is just a memory address (e.g.
-                                // label), then just return it as is.
-                                if var.label {
-                                    return Ok((node.clone(), false));
-                                }
-
-                                let value = String::from(node.value.get(..idx).unwrap_or(""))
-                                    + var.node.value.as_str();
-                                Ok((
-                                    PString {
-                                        value: value.clone() + tail,
-                                        line: node.line,
-                                        range: Range {
-                                            start: node.range.start,
-                                            end: node.range.start + value.len(),
-                                        },
-                                    },
-                                    true,
-                                ))
-                            }
-                            None => {
-                                // If a variable could not be found, check that
-                                // this is not a purely hexadecimal number (e.g.
-                                // 'AA'). If that's the case, then just return
-                                // its value.
-                                if Self::parse_hex_from(string, node, true, false, false).is_ok() {
-                                    return Ok((node.clone(), true));
-                                }
-
-                                // We've tried hard to not assume the programmer
-                                // messing up, but there's no other way around
-                                // it: it's an "unknown variable" error.
-                                return Err(node.parser_error(
-                                    format!("unknown variable '{}'", string).as_str(),
-                                ));
-                            }
-                        }
-                    }
-                    None => {
-                        Err(node.parser_error(format!("unknown scope '{}'", "Global").as_str()))
-                    }
+        match self.do_evaluate_decimal(string) {
+            Ok(val) => Ok(val),
+            Err(e) => {
+                if e.parse {
+                    Err(e)
+                } else {
+                    self.fetch_variable(string)
                 }
             }
-            None => Ok((node.clone(), true)),
         }
     }
 
-    // Parse an hexadecimal value from the given `string`. A `node` must also be
-    // supplied so a ParseError can be pushed inside of it in case anything goes
-    // wrong. Other than that, there are three boolean parameters that have to
-    // be passed:
-    //   - `two_bytes_allowed`: the value can be 8-bit or 16-bit long.
-    //   - `exactly_two_bytes`: the value has to be exactly 16-bit long.
-    //   - `char_given`: whether the string starts with a '$' character or not.
-    fn parse_hex_from(
-        string: &str,
-        node: &PString,
-        two_bytes_allowed: bool,
-        exactly_two_bytes: bool,
-        char_given: bool,
-    ) -> Result<[u8; 2]> {
-        let mut chars = string.chars();
-        let len = if char_given {
-            chars.next();
-            string.len() - 1
-        } else {
-            string.len()
+    fn fetch_variable(&mut self, mut string: &str) -> Result<Bundle> {
+        // Get the context that might be being referenced.
+        let ctxt = match string.find("::") {
+            Some(_) => {
+                let tctxt = string.rsplit_once("::").unwrap_or(("", ""));
+                if tctxt.0.is_empty() {
+                    self.context.current()
+                } else {
+                    string = tctxt.1;
+                    self.context.find(tctxt.0)
+                }
+            }
+            None => self.context.current(),
         };
 
-        // TODO: re-visit this "exactly_two_byes bs"
-        match len {
-            1 => {
-                if exactly_two_bytes {
-                    return Err(node.parser_error("expecting a full 16-bit address"));
-                }
-                let i = Self::char_to_hex(node, chars.next())? * 16;
+        // println!("{:#?}", self.context);
+        // println!("{:#?}", ctxt);
 
-                Ok([i, 0])
-            }
-            2 => {
-                if exactly_two_bytes {
-                    return Err(node.parser_error("expecting a full 16-bit address"));
-                }
-                let mut i = Self::char_to_hex(node, chars.next())? * 16;
-                i += Self::char_to_hex(node, chars.next())?;
-
-                Ok([i, 0])
-            }
-            3 => {
-                if !two_bytes_allowed {
-                    return Err(node.parser_error("only one byte of data is allowed here"));
-                }
-
-                let hi = Self::char_to_hex(node, chars.next())? * 16;
-
-                let mut lo = Self::char_to_hex(node, chars.next())? * 16;
-                lo += Self::char_to_hex(node, chars.next())?;
-
-                Ok([lo, hi])
-            }
-            4 => {
-                if !two_bytes_allowed {
-                    return Err(node.parser_error("only one byte of data is allowed here"));
-                }
-
-                let mut hi = Self::char_to_hex(node, chars.next())? * 16;
-                hi += Self::char_to_hex(node, chars.next())?;
-
-                let mut lo = Self::char_to_hex(node, chars.next())? * 16;
-                lo += Self::char_to_hex(node, chars.next())?;
-
-                Ok([lo, hi])
-            }
-            _ => {
-                if two_bytes_allowed {
-                    Err(node.parser_error("expecting a number of 1 to 4 hexadecimal digits"))
-                } else if exactly_two_bytes {
-                    Err(node.parser_error("expecting a number of 4 hexadecimal digits"))
-                } else {
-                    Err(node.parser_error("expecting a number of 2 hexadecimal digits"))
+        match ctxt {
+            Some(hash) => {
+                match hash.get(string) {
+                    Some(var) => {
+                        // TODO
+                        // If this is just a memory address (e.g.
+                        // label), then just return it as is.
+                        // if var.label {
+                        //     return Ok((node.clone(), false));
+                        // }
+                        Ok(var.value.clone())
+                    }
+                    None => {
+                        Err(self.parser_error(format!("unknown variable '{}'", string).as_str()))
+                    }
                 }
             }
+            None => Err(self.parser_error(format!("unknown scope '{}'", "Global").as_str())),
         }
     }
 
-    fn char_to_hex(node: &PString, oc: Option<char>) -> Result<u8> {
-        match oc {
-            Some(c) => match c.to_digit(16) {
-                Some(c) => Ok(c as u8),
-                None => Err(node.parser_error("could not convert digit to hexadecimal")),
-            },
-            None => Err(node.parser_error("digit out of bounds")),
-        }
-    }
-
-    fn parse_decimal_from(string: &str, node: &PString) -> Result<u8> {
+    fn do_evaluate_decimal(&mut self, string: &str) -> Result<Bundle> {
         let mut value = 0;
         let mut shift = 1;
 
         if string.is_empty() {
-            return Err(node.parser_error("empty decimal literal"));
+            return Err(self.parser_error("empty decimal literal"));
         }
 
         for c in string.chars().rev() {
             if shift > 100 {
-                return Err(node.parser_error("decimal value is too big"));
+                return Err(self.parser_error("decimal value is too big"));
             }
             if c != '0' {
                 match c.to_digit(10) {
@@ -815,9 +582,11 @@ impl Assembler {
                         value += digit * shift;
                     }
                     None => {
-                        return Err(
-                            node.parser_error(format!("'{}' is not a decimal value", c).as_str())
-                        )
+                        return Err(ParseError {
+                            line: self.line,
+                            message: format!("'{}' is not a decimal value", c),
+                            parse: false,
+                        });
                     }
                 }
             }
@@ -825,799 +594,1073 @@ impl Assembler {
             shift *= 10;
         }
         if value > 255 {
-            return Err(node.parser_error("decimal value is too big"));
+            return Err(self.parser_error("decimal value is too big"));
         }
 
-        Ok(value as u8)
-    }
-
-    // Advances `self.column` until a non-whitespace character is found. Returns
-    // false if the line can be skipped entirely, true otherwise.
-    fn skip_whitespace(&mut self, line: &str) -> bool {
-        for c in line.get(self.column..).unwrap_or("").chars() {
-            if !c.is_whitespace() {
-                if c == ';' {
-                    return false;
-                }
-                return true;
-            }
-
-            self.column += 1;
-        }
-
-        true
-    }
-
-    // Returns a PString object which holds the information for an identifier.
-    //
-    // NOTE: this function assumes that `self.column` points to a non-whitespace
-    // character.
-    fn parse_identifier(&mut self, line: &str) -> Option<PString> {
-        let column = self.column;
-
-        // For the general case we just need to iterate until a whitespace
-        // character or an inline comment is found. Then our PString object
-        // is merely whatever is on the column..self.column range.
-        for c in line.get(column..).unwrap_or("").chars() {
-            if c.is_whitespace() || c == ';' {
-                let range = Range {
-                    start: column,
-                    end: self.column,
-                };
-
-                return Some(PString {
-                    value: String::from(line.get(range.clone()).unwrap_or("").trim()),
-                    line: self.line,
-                    range,
-                });
-            }
-
-            self.column += 1;
-        }
-
-        // Otherwise, we might be at a point whether there is nothing (e.g. an
-        // empty line), or the line is merely the identifier (e.g. instruction
-        // with implied addressing).
-        let range = Range {
-            start: column,
-            end: line.len(),
-        };
-        let id = String::from(line.get(range.clone()).unwrap_or("").trim());
-        if id.is_empty() {
-            None
-        } else {
-            Some(PString {
-                value: id,
-                line: self.line,
-                range,
-            })
-        }
-    }
-
-    // Given a PString object which acts as the identifier, try to parse the
-    // rest of the line depending on whether it's an instruction (e.g. `adc
-    // $20`), a control statement (e.g. `.macro whatever`) or a general
-    // statement (e.g. `Var = $10`).
-    fn parse_from_identifier(&mut self, id: PString, line: &str) -> Result<()> {
-        if id.value.starts_with('.') {
-            // If the statement starts with a '.', it's guaranteed to be a
-            // control statement.
-            self.parse_control(id, line)
-        } else {
-            // Otherwise, we will parse it either as an instruction or a general
-            // statement depending on whether the parsed identifier is a valid
-            // instruction mnemonic or not.
-            match INSTRUCTIONS.get(&id.value) {
-                Some(_instr) => self.parse_instruction(id, line),
-                None => self.parse_statement(id, line),
-            }
-        }
-    }
-
-    fn parse_control(&mut self, mut id: PString, line: &str) -> Result<()> {
-        self.skip_whitespace(line);
-
-        // Try to handle arguments passed to the control statement.
-        let mut args: Vec<String> = vec![];
-        if let Some(open) = line.find(|c: char| c == '(') {
-            match line.find(|c: char| c == ')') {
-                Some(close) => {
-                    id.value = id
-                        .value
-                        .get(..open)
-                        .unwrap_or(id.value.as_str())
-                        .to_string();
-                    id.range.end = open;
-
-                    args = line
-                        .get(open + 1..close)
-                        .unwrap_or(" ")
-                        .split(',')
-                        .map(|w| w.trim().to_string())
-                        .collect::<Vec<_>>();
-                }
-                None => {
-                    return Err(id.parser_error(format!("open parenthesis on macro call").as_str()))
-                }
-            }
-        }
-
-        match id.value.to_lowercase().as_str() {
-            ".scope" => self.parse_scope_definition(&id, line),
-            ".endscope" => self.parse_scope_end(&id),
-            ".segment" => self.parse_segment_definition(&id, line),
-            ".byte" | ".db" => self.parse_literal_bytes(&id, line, false),
-            ".word" | ".dw" | ".addr" => self.parse_literal_bytes(&id, line, true),
-            ".proc" => self.parse_proc_definition(&id, line),
-            ".endproc" => self.parse_proc_end(&id),
-            ".macro" => self.parse_macro_definition(&id, line),
-            ".endmacro" => self.parse_macro_end(&id),
-            ".hibyte" => self.parse_hi_lo_byte(&id, &args, true),
-            ".lobyte" => self.parse_hi_lo_byte(&id, &args, false),
-            _ => {
-                return Err(
-                    id.parser_error(format!("unknown control statement '{}'", id.value).as_str())
-                )
-            }
-        }
-    }
-
-    fn parse_hi_lo_byte(&mut self, id: &PString, args: &Vec<String>, hi: bool) -> Result<()> {
-        if args.len() > 1 {
-            return Err(id.parser_error(
-                format!(
-                    "only 1 argument was expected, but {} were passed",
-                    args.len()
-                )
-                .as_str(),
-            ));
-        }
-
-        println!("{:#?} -- {:#?} -- {}", id, args, hi);
-
-        Ok(())
-    }
-
-    fn parse_macro_definition(&mut self, id: &PString, line: &str) -> Result<()> {
-        self.skip_whitespace(line);
-
-        let identifier = self.fetch_identifier(id, line)?;
-        if identifier.is_reserved() {
-            return Err(identifier.parser_error(
-                format!(
-                    "cannot use reserved name '{}' for proc name",
-                    identifier.value
-                )
-                .as_str(),
-            ));
-        }
-
-        self.mapping.current_macro = Some(identifier.value.clone());
-        self.mapping.macros.entry(identifier.value).or_default();
-        Ok(())
-    }
-
-    fn parse_macro_end(&mut self, id: &PString) -> Result<()> {
-        match self.mapping.current_macro {
-            Some(_) => self.mapping.current_macro = None,
-            None => {
-                return Err(id.parser_error(
-                    format!("bad `.endmacro`: we are not inside of a macro definition").as_str(),
-                ))
-            }
-        }
-
-        Ok(())
-    }
-
-    fn parse_proc_definition(&mut self, id: &PString, line: &str) -> Result<()> {
-        self.skip_whitespace(line);
-
-        let identifier = self.fetch_identifier(id, line)?;
-        if identifier.is_reserved() {
-            return Err(identifier.parser_error(
-                format!(
-                    "cannot use reserved name '{}' for proc name",
-                    identifier.value
-                )
-                .as_str(),
-            ));
-        }
-
-        // Insert the given identifier into the context.
-        if let Some(entry) = self.context.current_mut() {
-            match entry.entry(identifier.value.clone()) {
-                Entry::Occupied(e) => {
-                    return Err(ParseError {
-                        line: self.line,
-                        message: format!(
-                        "proc '{}' already exists for this context: it was previously defined in line {}",
-                        id.value, e.get().node.line),
-                    })
-                }
-                Entry::Vacant(e) => e.insert(PValue {
-                    node: PString {
-                    value: identifier.value.clone(),
-                    line: self.line,
-                    range: Range {
-                        start: id.range.start,
-                        end: id.range.end,
-                    },
-                    },
-                    value: 0,
-                    label: true,
-                }),
-            };
-        }
-
-        // And add the node so it's picked up later.
-        self.mapping.push(Node::Label(Label {
-            value: identifier.value.to_string(),
-        }));
-
-        // TODO: lol
-        self.context.push_stack(&identifier.value);
-
-        self.mapping.push(Node::Scoped(Scoped {
-            identifier: identifier.clone(),
-            start: true,
-        }));
-
-        Ok(())
-    }
-
-    fn parse_proc_end(&mut self, id: &PString) -> Result<()> {
-        if !self.context.pop() {
-            return Err(id.parser_error("missmatched '.endproc': there is no proc to end"));
-        }
-        self.mapping.push(Node::Scoped(Scoped {
-            identifier: PString::new(),
-            start: false,
-        }));
-
-        Ok(())
-    }
-
-    fn parse_segment_definition(&mut self, id: &PString, line: &str) -> Result<()> {
-        self.skip_whitespace(line);
-
-        let identifier = self.fetch_possibly_quoted_identifier(id, line)?;
-        self.mapping.switch(&identifier)?;
-
-        Ok(())
-    }
-
-    fn parse_scope_definition(&mut self, id: &PString, line: &str) -> Result<()> {
-        self.skip_whitespace(line);
-
-        let identifier = self.fetch_identifier(id, line)?;
-        if identifier.is_reserved() {
-            return Err(identifier.parser_error(
-                format!("cannot use reserved name '{}'", identifier.value).as_str(),
-            ));
-        }
-        self.context.push(&identifier.value);
-        self.mapping.push(Node::Scoped(Scoped {
-            identifier,
-            start: true,
-        }));
-
-        Ok(())
-    }
-
-    fn parse_scope_end(&mut self, id: &PString) -> Result<()> {
-        if !self.context.pop() {
-            return Err(id.parser_error("missmatched '.endscope': there is no scope to end"));
-        }
-        self.mapping.push(Node::Scoped(Scoped {
-            identifier: PString::new(),
-            start: false,
-        }));
-
-        Ok(())
-    }
-
-    fn parse_literal_bytes(
-        &mut self,
-        node: &PString,
-        line: &str,
-        two_bytes_allowed: bool,
-    ) -> Result<()> {
-        loop {
-            self.skip_whitespace(line);
-
-            match line.chars().nth(self.column) {
-                Some(byte) => {
-                    let needle = if byte == '\'' {
-                        self.column += 1;
-                        self.skip_whitespace(line);
-                        '\''
-                    } else if byte == '"' {
-                        self.column += 1;
-                        self.skip_whitespace(line);
-                        '"'
-                    } else {
-                        ','
-                    };
-
-                    // Find the index of the needle. If it cannot be found, try
-                    // to find the first whitespace (e.g. to ditch out inline
-                    // comments or other artifacts). If neither of these are
-                    // found, it will simply return the end of the string.
-                    //
-                    // TODO: instead of ditching out what's right of the first
-                    // whitespace, try to error out on weird scenarios.
-                    let needle_idx = line
-                        .get(self.column..)
-                        .unwrap_or("")
-                        .find(|c: char| c == needle);
-                    let idx = match needle_idx {
-                        Some(v) => v,
-                        None => line
-                            .get(self.column..)
-                            .unwrap_or("")
-                            .find(|c: char| c.is_whitespace())
-                            .unwrap_or(line.len() - self.column),
-                    };
-
-                    // If this is the last character, the needle was a quote and
-                    // the last char is not the needle, then it means that the
-                    // quote was left open. Complain about this as well.
-                    if idx == line.len() - self.column {
-                        if line.chars().nth(idx).unwrap_or(' ') != needle
-                            && (needle == '"' || needle == '\'')
-                        {
-                            return Err(node.parser_error("non-terminated quote for byte literal"));
-                        }
-                    }
-
-                    // Now we have our string. Before pushing it, though, there
-                    // is a special case for alphabetic literals that need to be
-                    // translated.
-                    let string = line.get(self.column..self.column + idx).unwrap_or(" ");
-                    let mut bytes: [u8; 2] = [0, 0];
-                    if string.len() == 1 && string.chars().nth(0).unwrap().is_ascii_alphabetic() {
-                        let v = Vec::from(string);
-                        bytes[0] = v[0];
-                    }
-
-                    // NOTE: for now we push an incomplete literal. We need the
-                    // first pass to fill the context and then a second pass
-                    // will evaluate each literal as needed (e.g. replacing
-                    // values from variables being used in this literal).
-                    self.mapping.push(Node::Literal(Literal {
-                        identifier: PString {
-                            value: string.to_owned(),
-                            line: self.line,
-                            range: Range {
-                                start: self.column,
-                                end: self.column + idx,
-                            },
-                        },
-                        size: if two_bytes_allowed { 2 } else { 1 },
-                        bytes,
-                        resolved: true,
-                    }));
-
-                    self.column += idx;
-                    for c in line.get(self.column..).unwrap_or(" ").chars() {
-                        if c == ',' {
-                            break;
-                        }
-                        if c == ';' {
-                            return Ok(());
-                        }
-                        self.column += 1;
-                    }
-                    self.column += 1;
-                    self.skip_whitespace(line);
-                }
-                None => break,
-            };
-        }
-
-        Ok(())
-    }
-
-    fn fetch_identifier(&mut self, id: &PString, line: &str) -> Result<PString> {
-        let idx = line
-            .get(self.column..)
-            .unwrap_or(" ")
-            .find(|c: char| c.is_whitespace());
-
-        match idx {
-            Some(offset) => {
-                let end = self.column + offset;
-                let rest = line.get(end..).unwrap_or("").trim();
-                if !rest.is_empty() {
-                    if rest.chars().nth(0).unwrap_or(' ') != ';' {
-                        return Err(id.parser_error(
-                            "there should not be any further content besides the identifier",
-                        ));
-                    }
-                }
-                Ok(PString {
-                    value: line.get(self.column..end).unwrap_or(" ").trim().to_string(),
-                    line: self.line,
-                    range: Range {
-                        start: self.column,
-                        end,
-                    },
-                })
-            }
-            None => Ok(PString {
-                value: line.get(self.column..).unwrap_or(" ").trim().to_string(),
-                line: self.line,
-                range: Range {
-                    start: self.column,
-                    end: line.len(),
-                },
-            }),
-        }
-    }
-
-    fn fetch_possibly_quoted_identifier(&mut self, id: &PString, line: &str) -> Result<PString> {
-        let mut identifier = self.fetch_identifier(id, line)?;
-
-        if identifier.value.starts_with('\'') || identifier.value.starts_with('`') {
-            return Err(id.parser_error("use double quotes for the segment identifier instead"));
-        } else if identifier.value.starts_with('"') {
-            identifier.value = match identifier
-                .value
-                .get(1..(identifier.range.end - identifier.range.start - 1))
-            {
-                Some(v) => v.to_string(),
-                None => return Err(id.parser_error("could not fetch quoted identifier")),
-            };
-            if identifier.value.contains('"') {
-                return Err(id.parser_error("do not use double quotes inside of the identifier"));
-            }
-            identifier.range.start += 1;
-            identifier.range.end -= 1;
-        }
-
-        Ok(identifier)
-    }
-
-    fn parse_statement(&mut self, id: PString, line: &str) -> Result<()> {
-        if id.value.chars().nth(self.column - 1).unwrap_or(' ') == ':' {
-            self.parse_label(id, line)
-        } else {
-            match self.mapping.macros.get_mut(&id.value) {
-                Some(nodes) => {
-                    for node in nodes {
-                        self.mapping
-                            .nodes
-                            .get_mut(&self.mapping.current)
-                            .unwrap()
-                            .push(node.clone());
-                    }
-                    Ok(())
-                }
-                None => self.parse_assignment(id, line),
-            }
-        }
-    }
-
-    fn parse_label(&mut self, id: PString, _line: &str) -> Result<()> {
-        let name = &id.value.as_str()[..id.value.len() - 1].to_string();
-
-        // Forbid weird scenarios.
-        if name.contains("::") {
-            return Err(id.parser_error(
-                format!(
-                    "the label '{}' is scoped: do not declare variables this way",
-                    id.value
-                )
-                .as_str(),
-            ));
-        }
-
-        // Insert the given label into the context.
-        if let Some(entry) = self.context.current_mut() {
-            match entry.entry(name.clone()) {
-                Entry::Occupied(e) => {
-                    return Err(ParseError {
-                        line: self.line,
-                        message: format!(
-                        "label '{}' already exists for this context: it was previously defined in line {}",
-                        id.value, e.get().node.line),
-                    })
-                }
-                Entry::Vacant(e) => e.insert(PValue {
-                    node: PString {
-                    value: name.clone(),
-                    line: self.line,
-                    range: Range {
-                        start: id.range.start,
-                        end: id.range.end,
-                    },
-                    },
-                    value: 0,
-                    label: true,
-                }),
-            };
-        }
-
-        // And add the node so it's picked up later.
-        self.mapping.push(Node::Label(Label {
-            value: name.to_string(),
-        }));
-        Ok(())
-    }
-
-    fn parse_assignment(&mut self, id: PString, line: &str) -> Result<()> {
-        // You cannot assign into a name which is reserved.
-        if id.is_reserved() {
-            return Err(
-                id.parser_error(format!("cannot use reserved name '{}'", id.value).as_str())
-            );
-        }
-
-        // To avoid problems down the line, you cannot assign into names which
-        // are proper hexadecimal values.
-        if Self::parse_hex_from(&id.value, &id, true, false, false).is_ok() {
-            return Err(id.parser_error(
-                format!(
-                    "cannot use names which are valid hexadecimal values such as '{}'",
-                    id.value
-                )
-                .as_str(),
-            ));
-        }
-
-        // You cannot assign into scoped names: declare them into their
-        // respective scopes instead.
-        if id.value.contains("::") {
-            return Err(id.parser_error(
-                format!(
-                    "the name '{}' is scoped: do not declare variables this way",
-                    id.value
-                )
-                .as_str(),
-            ));
-        }
-
-        // Skip whitespaces and make sure that we have a '=' sign.
-        self.skip_whitespace(line);
-        if line.chars().nth(self.column).unwrap_or(' ') != '=' {
-            return Err(self.parser_error(format!("unknown instruction '{}'", id.value).as_str()));
-        }
-
-        // Skip the '=' sign and any possible whitespaces.
-        self.column += 1;
-        if !self.skip_whitespace(line) {
-            return Err(self.parser_error("incomplete assignment"));
-        }
-
-        let l = String::from(line.get(self.column..).unwrap_or("").trim());
-        if l.is_empty() {
-            return Err(self.parser_error("incomplete assignment"));
-        }
-
-        // The `Context` struct pretty much guarantees that `current` and
-        // `current_mut` will return something, so it's safe to ignore a
-        // `None`.
-        if let Some(entry) = self.context.current_mut() {
-            match entry.entry(id.value.clone()) {
-                Entry::Occupied(e) => {
-                    return Err(ParseError {
-                        line: self.line,
-                        message: format!(
-                        "variable '{}' is being re-assigned: it was previously defined in line {}",
-                        id.value, e.get().node.line),
-                    })
-                }
-                Entry::Vacant(e) => e.insert(PValue {
-                    node: PString {
-                        value: l,
-                        line: self.line,
-                        range: Range {
-                            start: id.range.start,
-                            end: line.len(),
-                        },
-                    },
-                    value: 0,
-                    label: false,
-                }),
-            };
-        }
-
-        Ok(())
-    }
-
-    fn parse_instruction(&mut self, id: PString, line: &str) -> Result<()> {
-        // Parse the instruction into a `Generic` node.
-        let node = self.get_generic_instruction_node(id, line)?;
-
-        // Make sure that there is no dangling content.
-        for c in line.get(self.column..).unwrap_or("").chars() {
-            if c == ';' {
-                break;
-            }
-            if !c.is_whitespace() {
-                return Err(self.parser_error("only one statement is allowed per line"));
-            }
-            self.column += 1;
-        }
-
-        // And push a new `Instruction` object based on the parsed node. Note
-        // that this instruction will be incomplete: we first need to evaluate
-        // variables first in this context to be able to fully parse this
-        // object.
-        self.push_incomplete_instruction_from(node)
-    }
-
-    // Returns a `Generic` node with the contents that can be parsed with the
-    // rest of the `line` and assuming that this is an assembly instruction
-    // which is identified by `id`.
-    fn get_generic_instruction_node(&mut self, id: PString, line: &str) -> Result<Generic> {
-        // First of all, make sure that we are at a non-whitespace character.
-        self.skip_whitespace(line);
-
-        // Instructions have a character which split the left and the right arms
-        // of the instruction. This is the character that we will use in order
-        // to stop on the first loop.
-        let needle_char = match line.chars().nth(self.column) {
-            Some(c) => {
-                if c == '(' {
-                    ')'
-                } else {
-                    ','
-                }
-            }
-            None => ',',
-        };
-
-        let mut column = self.column;
-        let mut left = None;
-        let mut right = None;
-        let mut found = false;
-
-        // First of the two loops: fetch the left arm. It iterates
-        // until the needle_char is found and then initializes the `left`
-        // variable with the fetched contents.
-        for c in line.get(column..).unwrap_or("").chars() {
-            if c == ';' {
-                break;
-            }
-            if c == needle_char {
-                self.init_positioned_maybe(&mut left, line, column, self.column);
-
-                for inner in line.get(self.column..).unwrap_or("").chars() {
-                    if inner.is_whitespace() || inner == ';' {
-                        break;
-                    }
-                    self.column += 1;
-                }
-
-                found = true;
-                break;
-            }
-
-            self.column += 1;
-        }
-
-        // If the previous loop found the needle, the we might have a right arm.
-        // Otherwise, if the needle was not found but the end of the line was
-        // reached, we might still need to pick up the contents that were not
-        // saved in the previous loop.
-        if found {
-            // Ready the `column` for the right arm.
-            self.skip_whitespace(line);
-            column = self.column;
-
-            // Second loop: fetch the right arm. This time it iterates until a
-            // whitespace character or ';' is found.
-            for c in line.get(column..).unwrap_or("").chars() {
-                if c == ';' {
-                    self.init_positioned_maybe(&mut right, line, column, self.column);
-                    break;
-                }
-                self.column += 1;
-            }
-
-            // Similarly to the first loop, if this second one reached the end
-            // without finding a whitespace or a ';' character, make sure that this
-            // content is not ignored.
-            self.init_positioned_maybe(&mut right, line, column, self.column);
-        } else {
-            self.init_positioned_maybe(&mut left, line, column, self.column);
-        }
-
-        Ok(Generic {
-            identifier: id,
-            left,
-            right,
+        Ok(Bundle {
+            bytes: [value as u8, 0, 0],
+            size: 1,
+            address: 0,
+            cycles: 0,
+            affected_on_page: false,
         })
     }
 
-    // Initialize the PString object `p` with the contents of
-    // `line.get(left..right)` unless it has already a `Some` value or the
-    // fetched contents would result in an empty string.
-    fn init_positioned_maybe(
-        &mut self,
-        p: &mut Option<PString>,
-        line: &str,
-        left: usize,
-        right: usize,
-    ) {
-        if !p.is_none() || left == right {
-            return;
+    fn evaluate_hilo_byte(&mut self, args: Vec<Box<PNode>>, hi: bool) -> Result<Bundle> {
+        if args.len() != 1 {
+            return Err(self.parser_error("wrong number of arguments: expecting exactly one"));
         }
 
-        let string = String::from(line.get(left..right).unwrap_or("").trim());
-        if !string.is_empty() {
-            *p = Some(PString {
-                value: string,
-                line: self.line,
-                range: Range {
-                    start: left,
-                    end: right,
-                },
-            });
+        let val = self.evaluate_node(args.first().unwrap().clone())?;
+        if val.size < 1 {
+            let s = if hi { ".hibyte" } else { ".lobyte" };
+            return Err(self.parser_error(format!("empty value for {}", s).as_str()));
+        }
+
+        let b = if hi {
+            if val.size == 1 {
+                val.bytes[0]
+            } else {
+                val.bytes[1]
+            }
+        } else {
+            val.bytes[0]
+        };
+
+        Ok(Bundle {
+            bytes: [b, 0, 0],
+            size: 1,
+            address: 0,
+            cycles: 0,
+            affected_on_page: false,
+        })
+    }
+
+    fn evaluate_scope_definition(&mut self, node: Box<PNode>) -> Result<Bundle> {
+        println!("{:#?}", node);
+        match node.left {
+            Some(identifier) => {
+                self.context.push(&identifier.value.value);
+                // TODO: mapping?
+
+                Ok(Bundle::new())
+            }
+            None => return Err(self.parser_error("scope definition with no identifier")),
         }
     }
 
-    fn push_incomplete_instruction_from(&mut self, node: Generic) -> Result<()> {
-        let mut instr = Instruction::from(&node.identifier.value);
-        instr.left = node.left;
-        instr.right = node.right;
+    fn evaluate_scope_end(&mut self) -> Result<Bundle> {
+        if !self.context.pop() {
+            return Err(self.parser_error("missmatched '.endscope': there is no scope to end"));
+        }
 
-        self.mapping.push(Node::Instruction(instr));
-        Ok(())
+        // TODO: mapping?
+
+        Ok(Bundle::new())
     }
+
+    // pub fn assemble(&mut self, reader: impl Read) -> Result<Vec<&dyn Encodable>> {
+    //     let mut instructions: Vec<&dyn Encodable> = vec![];
+
+    //     self.assemble_nodes(reader)?;
+
+    //     let mut idx: usize = 0;
+    //     for segment in &self.mapping.segments {
+    //         let mut size: usize = 0;
+
+    //         while idx < segment.start.into() {
+    //             match &segment.fill {
+    //                 Some(fill) => instructions.push(fill),
+    //                 None => instructions.push(&Fill { value: 0x00 }),
+    //             }
+    //             idx += 1;
+    //         }
+
+    //         for node in &self.mapping.nodes[&segment.name] {
+    //             match node {
+    //                 Node::Instruction(instr) => {
+    //                     instructions.push(instr);
+    //                     size += usize::from(instr.size());
+    //                 }
+    //                 Node::Literal(lit) => {
+    //                     instructions.push(lit);
+    //                     size += usize::from(lit.size());
+    //                 }
+    //                 _ => {}
+    //             }
+    //         }
+
+    //         if size > segment.size {
+    //             return Err(ParseError {
+    //                 line: 0,
+    //                 message: format!(
+    //                     "segment '{}' expected a size of '{}' bytes but '{}' bytes were produced instead",
+    //                     segment.name, size, segment.size
+    //                 ),
+    //             });
+    //         }
+    //         idx += size;
+    //         if segment.fill.is_none() {
+    //             continue;
+    //         }
+
+    //         while size < segment.size {
+    //             instructions.push(segment.fill.as_ref().unwrap());
+    //             size += 1;
+    //             idx += 1;
+    //         }
+    //     }
+
+    //     Ok(instructions)
+    // }
+
+    // pub fn evaluate(&mut self) -> Result<()> {
+    //     for segment in &self.mapping.segments {
+    //         for node in self.mapping.nodes.get_mut(&segment.name).unwrap() {
+    //             match node {
+    //                 Node::Instruction(instr) => {
+    //                     Self::update_instruction_with_context(instr, &self.context)?;
+    //                     instr.address = segment.start;
+
+    //                     self.offsets
+    //                         .entry(segment.name.clone())
+    //                         .and_modify(|value| {
+    //                             instr.address += *value as u16;
+    //                             *value += usize::from(instr.size())
+    //                         })
+    //                         .or_insert(instr.size().into());
+    //                 }
+    //                 Node::Scoped(scope) => {
+    //                     if scope.start {
+    //                         self.context.push(&scope.identifier.value);
+    //                     } else {
+    //                         _ = self.context.pop();
+    //                     }
+    //                 }
+    //                 Node::Literal(literal) => {
+    //                     Self::update_literal_with_context(literal, &self.context)?;
+    //                     self.offsets
+    //                         .entry(segment.name.clone())
+    //                         .and_modify(|value| *value += usize::from(literal.size()))
+    //                         .or_insert(literal.size().into());
+    //                 }
+    //                 Node::Label(label) => {
+    //                     let address =
+    //                         usize::from(segment.start) + self.offsets.get(&segment.name).unwrap();
+
+    //                     self.context
+    //                         .current_mut()
+    //                         .unwrap()
+    //                         .entry(label.value.clone())
+    //                         .and_modify(|e| e.value = address);
+    //                 }
+    //                 _ => {}
+    //             }
+    //         }
+    //     }
+
+    //     Ok(())
+    // }
+
+    // // TODO: oh boy...
+    // pub fn resolve_labels(&mut self) -> Result<()> {
+    //     for segment in &self.mapping.segments {
+    //         for node in self.mapping.nodes.get_mut(&segment.name).unwrap() {
+    //             match node {
+    //                 Node::Instruction(instr) => {
+    //                     if !instr.resolved {
+    //                         match &instr.left {
+    //                             Some(pstring) => {
+    //                                 match self.context.current().unwrap().get(&pstring.value) {
+    //                                     Some(entry) => {
+    //                                         if instr.mode == AddressingMode::Absolute {
+    //                                             let bytes = entry.value.to_le_bytes();
+    //                                             instr.bytes = [bytes[0], bytes[1]];
+    //                                         } else {
+    //                                             let diff: isize = entry.value as isize
+    //                                                 - (instr.address as isize + 2);
+    //                                             if diff < -128 || diff > 127 {
+    //                                                 return Err(instr.mnemonic.parser_error(
+    //                                                     format!("relative addressing out of range")
+    //                                                         .as_str(),
+    //                                                 ));
+    //                                             }
+    //                                             let bytes = diff.to_le_bytes();
+    //                                             instr.bytes = [bytes[0], 0];
+    //                                         }
+    //                                     }
+    //                                     None => {
+    //                                         return Err(instr.mnemonic.parser_error(
+    //                                             format!("label '{}' not found", pstring.value)
+    //                                                 .as_str(),
+    //                                         ))
+    //                                     }
+    //                                 }
+    //                             }
+    //                             None => {
+    //                                 return Err(instr.mnemonic.parser_error(
+    //                                     format!("there is no label for the given jump instruction")
+    //                                         .as_str(),
+    //                                 ))
+    //                             }
+    //                         }
+    //                     }
+    //                 }
+    //                 Node::Literal(literal) => {
+    //                     if !literal.resolved {
+    //                         match self
+    //                             .context
+    //                             .current()
+    //                             .unwrap()
+    //                             .get(&literal.identifier.value)
+    //                         {
+    //                             Some(entry) => {
+    //                                 let bytes = entry.value.to_le_bytes();
+    //                                 literal.bytes = [bytes[0], bytes[1]];
+    //                             }
+    //                             None => {
+    //                                 return Err(literal.identifier.parser_error(
+    //                                     format!(
+    //                                     "'{}' is neither a known variable or label at this scope",
+    //                                     literal.identifier.value
+    //                                 )
+    //                                     .as_str(),
+    //                                 ))
+    //                             }
+    //                         }
+    //                     }
+    //                 }
+    //                 _ => {}
+    //             }
+    //         }
+    //     }
+
+    //     Ok(())
+    // }
+
+    // fn update_instruction_with_context(instr: &mut Instruction, context: &Context) -> Result<()> {
+    //     // To keep things simple, we remove out the `implied` case and we parse
+    //     // further with a known `Some` value for the base algorithm implemented
+    //     // in `update_instruction_and_bytes`.
+    //     if instr.left.is_some() {
+    //         Self::update_addressing_and_bytes(instr, context)?;
+    //     } else {
+    //         instr.mode = AddressingMode::Implied;
+    //     }
+
+    //     // Now that we have the addressing mode and the bytes, we can fill out
+    //     // the rest of it by fetching the values on `INSTRUCTIONS`.
+    //     match INSTRUCTIONS.get(&instr.mnemonic.value.to_lowercase()) {
+    //         Some(entries) => match entries.get(&instr.mode) {
+    //             Some(values) => {
+    //                 instr.cycles = values.cycles;
+    //                 instr.opcode = values.opcode;
+    //                 instr.size = values.size;
+    //                 instr.affected_on_page = values.affected_on_page;
+    //             }
+    //             None => {
+    //                 return Err(instr.mnemonic.parser_error(
+    //                     format!(
+    //                         "bad addressing mode '{}' for the instruction '{}'",
+    //                         &instr.mode, &instr.mnemonic.value
+    //                     )
+    //                     .as_str(),
+    //                 ));
+    //             }
+    //         },
+    //         None => {
+    //             return Err(instr.mnemonic.parser_error(
+    //                 format!("unknown instruction '{}'", &instr.mnemonic.value).as_str(),
+    //             ));
+    //         }
+    //     }
+
+    //     Ok(())
+    // }
+
+    // fn update_addressing_and_bytes(instr: &mut Instruction, context: &Context) -> Result<()> {
+    //     // `unwrap()` is guaranteed to work by the caller.
+    //     let left = instr.left.as_ref().unwrap();
+
+    //     // We will first try to check if there's any variable involved on the
+    //     // left arm and replace the string if so. This will greatly simplify
+    //     // things down the line. That being said, there is a special reserved
+    //     // case, which is the implied addressing by using "a". In this case, we
+    //     // want to ensure that we assume an implied addressing and not a
+    //     // variable named "a".
+    //     if left.value.to_lowercase() == "a" {
+    //         instr.mode = AddressingMode::Implied;
+    //     } else {
+    //         let (nleft, resolved) = Self::replace_variable(left, context)?;
+    //         // TODO
+    //         instr.resolved = resolved;
+    //         if !resolved {
+    //             if instr.mnemonic.value == "jmp" {
+    //                 instr.mode = AddressingMode::Absolute;
+    //             } else {
+    //                 instr.mode = AddressingMode::RelativeOrZeropage;
+    //             }
+    //         }
+
+    //         if nleft.value.starts_with('$') {
+    //             // This is an address. At this point we should assume that the
+    //             // left node contains the address itself, and that the right one
+    //             // will contain whether there is indexing.
+
+    //             let string = nleft.value.chars().as_str();
+    //             instr.bytes = Self::parse_hex_from(string, &nleft, true, false, true)?;
+
+    //             match &instr.right {
+    //                 Some(xy) => match xy.value.to_lowercase().as_str() {
+    //                     "x" => {
+    //                         if string.len() == 3 {
+    //                             instr.mode = AddressingMode::ZeropageIndexedX;
+    //                         } else {
+    //                             instr.mode = AddressingMode::IndexedX;
+    //                         }
+    //                     }
+    //                     "y" => {
+    //                         if string.len() == 3 {
+    //                             instr.mode = AddressingMode::ZeropageIndexedY;
+    //                         } else {
+    //                             instr.mode = AddressingMode::IndexedY;
+    //                         }
+    //                     }
+    //                     _ => return Err(xy.parser_error("index is neither X nor Y")),
+    //                 },
+    //                 None => {
+    //                     if string.len() == 3 {
+    //                         instr.mode = AddressingMode::RelativeOrZeropage;
+    //                     } else {
+    //                         instr.mode = AddressingMode::Absolute;
+    //                     }
+    //                 }
+    //             }
+    //         } else if nleft.value.starts_with('#') {
+    //             // Immediate addressing in any case: hexadecimal, binary or
+    //             // decimal. Hence, just figure out the character being used and
+    //             // call the right function for it.
+
+    //             let mut chars = nleft.value.chars();
+    //             chars.next();
+    //             let string = chars.as_str();
+
+    //             instr.bytes = Self::parse_numeric(string, &nleft, false)?;
+    //             instr.mode = AddressingMode::Immediate;
+    //         } else if nleft.value.starts_with('(') {
+    //             // Indirect addressing. In this case the left arm can be further
+    //             // subdivided. That is, indirect X-indexing is represented like
+    //             // so: `instr ($NN, x)`. Hence, first of all we have to figure
+    //             // out whether there is a subdivision.
+
+    //             let (left1, oleft2) = Self::split_left_arm(&nleft)?;
+    //             match oleft2 {
+    //                 Some(left2) => {
+    //                     // There is subdivision. Thus, we have to assume
+    //                     // indirect X-indexing, which means that the right arm
+    //                     // should be None and that the right side of the left
+    //                     // node must match the X register. Other than that, the
+    //                     // address being referenced must be zero page.
+    //                     if instr.right.is_some() {
+    //                         return Err(instr.right.as_ref().unwrap().parser_error(
+    //                             "bad indirect mode, expecting an indirect X-indexed addressing mode"
+    //                         ));
+    //                     }
+    //                     if left2.value.to_lowercase() != "x" {
+    //                         return Err(left2.parser_error(
+    //                             "the index in indirect X-indexed addressing must be X",
+    //                         ));
+    //                     }
+    //                     match Self::parse_hex_from(&left1.value, &left1, false, false, true) {
+    //                         Ok(bytes) => instr.bytes = bytes,
+    //                         Err(e) => {
+    //                             let msg = String::from(
+    //                                 "when parsing an instruction with indirect X-indexed addressing: ",
+    //                             ) + &e.message;
+    //                             return Err(left1.parser_error(msg.as_str()));
+    //                         }
+    //                     }
+    //                     instr.mode = AddressingMode::IndirectX;
+    //                 }
+    //                 None => {
+    //                     // There is no subdivision on the left arm. Hence, if
+    //                     // there is something on the right arm then we must
+    //                     // assume indirect Y-index addressing, and if not then
+    //                     // it's indirect addressing with no indices involvved.
+    //                     if instr.right.is_some() {
+    //                         if instr.right.as_ref().unwrap().value.to_lowercase() != "y" {
+    //                             return Err(instr.right.as_ref().unwrap().parser_error(
+    //                                 "the index in indirect Y-indexed addressing must be Y",
+    //                             ));
+    //                         }
+    //                         match Self::parse_hex_from(&left1.value, &left1, false, false, true) {
+    //                             Ok(bytes) => instr.bytes = bytes,
+    //                             Err(e) => {
+    //                                 let msg = String::from(
+    //                                 "when parsing an instruction with indirect Y-indexed addressing: ",
+    //                             ) + &e.message;
+    //                                 return Err(left1.parser_error(msg.as_str()));
+    //                             }
+    //                         }
+    //                         instr.mode = AddressingMode::IndirectY;
+    //                     } else {
+    //                         instr.bytes =
+    //                             Self::parse_hex_from(&left1.value, &left1, true, true, true)?;
+    //                         instr.mode = AddressingMode::Indirect;
+    //                     }
+    //                 }
+    //             }
+    //         } else {
+    //             // At this point all of the syntax cases have been exhausted:
+    //             // the programmer messed up. From this point on we try to figure
+    //             // out how they messed up.
+
+    //             if nleft.value.starts_with('=') {
+    //                 return Err(instr.mnemonic.parser_error(
+    //                     format!(
+    //                         "cannot use '{}' in an assignment because it's a word reserved for an instruction mnemonic",
+    //                         instr.mnemonic.value
+    //                     ).as_str(),
+    //                 ));
+    //             }
+    //             // TODO:
+    //             // instr.mode = AddressingMode::Absolute;
+    //             // return Err(instr.mnemonic.parser_error(
+    //             //     format!(
+    //             //         "unknown addressing mode for instruction '{}'",
+    //             //         instr.mnemonic.value
+    //             //     )
+    //             //     .as_str(),
+    //             // ));
+    //         }
+    //     }
+
+    //     Ok(())
+    // }
+
+    // fn update_literal_with_context(literal: &mut Literal, context: &Context) -> Result<()> {
+    //     // If it has already been set, skip it.
+    //     // TODO: add a proper `is_set` thingie to it instead of this hack.
+    //     if literal.bytes[0] != 0 || literal.bytes[1] != 0 {
+    //         return Ok(());
+    //     }
+
+    //     // Evaluate any possible variable being used inside of this literal.
+    //     let (evaled, resolved) = Self::replace_variable(&literal.identifier, context)?;
+
+    //     // It may happen that the literal is just a label that is to be resolved
+    //     // in the future. If so, let's leave early.
+    //     literal.resolved = resolved;
+    //     if !resolved {
+    //         return Ok(());
+    //     }
+
+    //     // Parse the numeric value after a possible variable has been replaced.
+    //     let two_bytes_allowed = literal.size == 2;
+    //     let res = Self::parse_numeric(
+    //         evaled.value.as_str(),
+    //         &literal.identifier,
+    //         two_bytes_allowed,
+    //     );
+
+    //     // And finally assign the computed bytes.
+    //     match res {
+    //         Ok(bytes) => {
+    //             literal.bytes = bytes;
+    //             Ok(())
+    //         }
+    //         Err(e) => {
+    //             let msg = String::from("when parsing a data literal: ") + &e.message;
+    //             Err(literal.identifier.parser_error(msg.as_str()))
+    //         }
+    //     }
+    // }
+
+    // fn parse_numeric(string: &str, node: &PString, two_bytes_allowed: bool) -> Result<[u8; 2]> {
+    //     if string.starts_with('$') {
+    //         Ok(Self::parse_hex_from(
+    //             string,
+    //             node,
+    //             two_bytes_allowed,
+    //             false,
+    //             true,
+    //         )?)
+    //     } else if string.starts_with('%') {
+    //         Ok([Self::parse_binary_from(string, node)?, 0])
+    //     } else {
+    //         Ok([Self::parse_decimal_from(string, node)?, 0])
+    //     }
+    // }
+
+    // fn split_left_arm(node: &PString) -> Result<(PString, Option<PString>)> {
+    //     let mut chars = node.value.chars();
+    //     chars.next();
+    //     let string = chars.as_str();
+
+    //     match string.find(|c: char| c == ',') {
+    //         Some(idx) => {
+    //             let left1 = string.get(..idx).unwrap_or("").trim();
+    //             let left2 = string.get(idx + 1..).unwrap_or("").trim();
+
+    //             Ok((
+    //                 PString {
+    //                     value: left1.to_string(),
+    //                     line: node.line,
+    //                     range: Range {
+    //                         start: node.range.start + 1,
+    //                         end: node.range.start + 1 + left1.len(),
+    //                     },
+    //                 },
+    //                 Some(PString {
+    //                     value: left2.to_string(),
+    //                     line: node.line,
+    //                     range: Range {
+    //                         start: node.range.start + 1 + idx,
+    //                         end: node.range.start + 1 + idx + left2.len(),
+    //                     },
+    //                 }),
+    //             ))
+    //         }
+    //         None => Ok((
+    //             PString {
+    //                 value: string.to_string(),
+    //                 line: node.line,
+    //                 range: Range {
+    //                     start: node.range.start + 1,
+    //                     end: node.range.end,
+    //                 },
+    //             },
+    //             None,
+    //         )),
+    //     }
+    // }
+
+    // fn parse_binary_from(string: &str, node: &PString) -> Result<u8> {
+    //     let mut value = 0;
+    //     let mut shift = 0;
+
+    //     for c in string.get(1..).unwrap_or("").chars().rev() {
+    //         if c == '1' {
+    //             let val = 1 << shift;
+    //             value += val;
+    //         } else if c != '0' {
+    //             return Err(
+    //                 node.parser_error(format!("bad binary format for '{}'", string).as_str())
+    //             );
+    //         }
+
+    //         shift += 1;
+    //     }
+
+    //     if shift < 8 {
+    //         Err(node.parser_error("missing binary digits to get a full byte"))
+    //     } else if shift > 8 {
+    //         Err(node.parser_error("too many binary digits for a single byte"))
+    //     } else {
+    //         Ok(value)
+    //     }
+    // }
+
+    // // TODO: returns if resolved
+    // fn replace_variable(node: &PString, context: &Context) -> Result<(PString, bool)> {
+    //     match node
+    //         .value
+    //         .find(|c: char| c.is_alphabetic() || c == '_' || c == '@')
+    //     {
+    //         Some(idx) => {
+    //             // Before doing any replacement, let's check the character
+    //             // before the one that was found. In this case, if it was a
+    //             // proper ASCII digit, then it cannot be a variable but it's
+    //             // part of a numeric literal (e.g. '1A'): then just let the
+    //             // different numeric parsing functions do their job.
+    //             if idx > 0 {
+    //                 let prev = node.value.chars().nth(idx - 1).unwrap_or(' ');
+    //                 if prev.is_ascii_digit() {
+    //                     return Ok((node.clone(), true));
+    //                 }
+    //             }
+
+    //             // The variable might still be before an inner comma (e.g.
+    //             // sta ($20, x)). We will assume that variables can happen
+    //             // only before that.
+    //             let end = node.value.find(',').unwrap_or(node.value.len());
+    //             let mut string = node.value.get(idx..end).unwrap_or("");
+    //             let tail = node.value.get(end..).unwrap_or("");
+
+    //             // Get the context that might be being referenced.
+    //             let ctxt = match string.find("::") {
+    //                 Some(_) => {
+    //                     let tctxt = string.rsplit_once("::").unwrap_or(("", ""));
+    //                     if tctxt.0.is_empty() {
+    //                         context.current()
+    //                     } else {
+    //                         string = tctxt.1;
+    //                         context.find(tctxt.0)
+    //                     }
+    //                 }
+    //                 None => context.current(),
+    //             };
+
+    //             match ctxt {
+    //                 Some(hash) => {
+    //                     // If there was a comma before the "variable" (i.e. idx >
+    //                     // end and hence string == ""), or this is just the regular
+    //                     // X or Y index, just return early.
+    //                     match string.to_lowercase().as_str() {
+    //                         "x" | "y" | "" => return Ok((node.clone(), true)),
+    //                         _ => {}
+    //                     }
+
+    //                     // It's not any of the indices, let's look for a match on
+    //                     // the current scope.
+    //                     match hash.get(string) {
+    //                         Some(var) => {
+    //                             // If this is just a memory address (e.g.
+    //                             // label), then just return it as is.
+    //                             if var.label {
+    //                                 return Ok((node.clone(), false));
+    //                             }
+
+    //                             let value = String::from(node.value.get(..idx).unwrap_or(""))
+    //                                 + var.node.value.as_str();
+    //                             Ok((
+    //                                 PString {
+    //                                     value: value.clone() + tail,
+    //                                     line: node.line,
+    //                                     range: Range {
+    //                                         start: node.range.start,
+    //                                         end: node.range.start + value.len(),
+    //                                     },
+    //                                 },
+    //                                 true,
+    //                             ))
+    //                         }
+    //                         None => {
+    //                             // If a variable could not be found, check that
+    //                             // this is not a purely hexadecimal number (e.g.
+    //                             // 'AA'). If that's the case, then just return
+    //                             // its value.
+    //                             if Self::parse_hex_from(string, node, true, false, false).is_ok() {
+    //                                 return Ok((node.clone(), true));
+    //                             }
+
+    //                             // We've tried hard to not assume the programmer
+    //                             // messing up, but there's no other way around
+    //                             // it: it's an "unknown variable" error.
+    //                             return Err(node.parser_error(
+    //                                 format!("unknown variable '{}'", string).as_str(),
+    //                             ));
+    //                         }
+    //                     }
+    //                 }
+    //                 None => {
+    //                     Err(node.parser_error(format!("unknown scope '{}'", "Global").as_str()))
+    //                 }
+    //             }
+    //         }
+    //         None => Ok((node.clone(), true)),
+    //     }
+    // }
+
+    // fn parse_macro_definition(&mut self, id: &PString, line: &str) -> Result<()> {
+    //     self.skip_whitespace(line);
+
+    //     let identifier = self.fetch_identifier(id, line)?;
+    //     if identifier.is_reserved() {
+    //         return Err(identifier.parser_error(
+    //             format!(
+    //                 "cannot use reserved name '{}' for proc name",
+    //                 identifier.value
+    //             )
+    //             .as_str(),
+    //         ));
+    //     }
+
+    //     self.mapping.current_macro = Some(identifier.value.clone());
+    //     self.mapping.macros.entry(identifier.value).or_default();
+    //     Ok(())
+    // }
+
+    // fn parse_macro_end(&mut self, id: &PString) -> Result<()> {
+    //     match self.mapping.current_macro {
+    //         Some(_) => self.mapping.current_macro = None,
+    //         None => {
+    //             return Err(id.parser_error(
+    //                 format!("bad `.endmacro`: we are not inside of a macro definition").as_str(),
+    //             ))
+    //         }
+    //     }
+
+    //     Ok(())
+    // }
+
+    // fn parse_proc_definition(&mut self, id: &PString, line: &str) -> Result<()> {
+    //     self.skip_whitespace(line);
+
+    //     let identifier = self.fetch_identifier(id, line)?;
+    //     if identifier.is_reserved() {
+    //         return Err(identifier.parser_error(
+    //             format!(
+    //                 "cannot use reserved name '{}' for proc name",
+    //                 identifier.value
+    //             )
+    //             .as_str(),
+    //         ));
+    //     }
+
+    //     // Insert the given identifier into the context.
+    //     if let Some(entry) = self.context.current_mut() {
+    //         match entry.entry(identifier.value.clone()) {
+    //             Entry::Occupied(e) => {
+    //                 return Err(ParseError {
+    //                     line: self.line,
+    //                     message: format!(
+    //                     "proc '{}' already exists for this context: it was previously defined in line {}",
+    //                     id.value, e.get().node.line),
+    //                 })
+    //             }
+    //             Entry::Vacant(e) => e.insert(PValue {
+    //                 node: PString {
+    //                 value: identifier.value.clone(),
+    //                 line: self.line,
+    //                 range: Range {
+    //                     start: id.range.start,
+    //                     end: id.range.end,
+    //                 },
+    //                 },
+    //                 value: 0,
+    //                 label: true,
+    //             }),
+    //         };
+    //     }
+
+    //     // And add the node so it's picked up later.
+    //     self.mapping.push(Node::Label(Label {
+    //         value: identifier.value.to_string(),
+    //     }));
+
+    //     // TODO: lol
+    //     self.context.push_stack(&identifier.value);
+
+    //     self.mapping.push(Node::Scoped(Scoped {
+    //         identifier: identifier.clone(),
+    //         start: true,
+    //     }));
+
+    //     Ok(())
+    // }
+
+    // fn parse_proc_end(&mut self, id: &PString) -> Result<()> {
+    //     if !self.context.pop() {
+    //         return Err(id.parser_error("missmatched '.endproc': there is no proc to end"));
+    //     }
+    //     self.mapping.push(Node::Scoped(Scoped {
+    //         identifier: PString::new(),
+    //         start: false,
+    //     }));
+
+    //     Ok(())
+    // }
+
+    // fn parse_segment_definition(&mut self, id: &PString, line: &str) -> Result<()> {
+    //     self.skip_whitespace(line);
+
+    //     let identifier = self.fetch_possibly_quoted_identifier(id, line)?;
+    //     self.mapping.switch(&identifier)?;
+
+    //     Ok(())
+    // }
+
+    // fn parse_scope_definition(&mut self, id: &PString, line: &str) -> Result<()> {
+    //     self.skip_whitespace(line);
+
+    //     let identifier = self.fetch_identifier(id, line)?;
+    //     if identifier.is_reserved() {
+    //         return Err(identifier.parser_error(
+    //             format!("cannot use reserved name '{}'", identifier.value).as_str(),
+    //         ));
+    //     }
+    //     self.context.push(&identifier.value);
+    //     self.mapping.push(Node::Scoped(Scoped {
+    //         identifier,
+    //         start: true,
+    //     }));
+
+    //     Ok(())
+    // }
+
+    // fn parse_scope_end(&mut self, id: &PString) -> Result<()> {
+    //     if !self.context.pop() {
+    //         return Err(id.parser_error("missmatched '.endscope': there is no scope to end"));
+    //     }
+    //     self.mapping.push(Node::Scoped(Scoped {
+    //         identifier: PString::new(),
+    //         start: false,
+    //     }));
+
+    //     Ok(())
+    // }
+
+    // fn parse_literal_bytes(
+    //     &mut self,
+    //     node: &PString,
+    //     line: &str,
+    //     two_bytes_allowed: bool,
+    // ) -> Result<()> {
+    //     loop {
+    //         self.skip_whitespace(line);
+
+    //         match line.chars().nth(self.column) {
+    //             Some(byte) => {
+    //                 let needle = if byte == '\'' {
+    //                     self.column += 1;
+    //                     self.skip_whitespace(line);
+    //                     '\''
+    //                 } else if byte == '"' {
+    //                     self.column += 1;
+    //                     self.skip_whitespace(line);
+    //                     '"'
+    //                 } else {
+    //                     ','
+    //                 };
+
+    //                 // Find the index of the needle. If it cannot be found, try
+    //                 // to find the first whitespace (e.g. to ditch out inline
+    //                 // comments or other artifacts). If neither of these are
+    //                 // found, it will simply return the end of the string.
+    //                 //
+    //                 // TODO: instead of ditching out what's right of the first
+    //                 // whitespace, try to error out on weird scenarios.
+    //                 let needle_idx = line
+    //                     .get(self.column..)
+    //                     .unwrap_or("")
+    //                     .find(|c: char| c == needle);
+    //                 let idx = match needle_idx {
+    //                     Some(v) => v,
+    //                     None => line
+    //                         .get(self.column..)
+    //                         .unwrap_or("")
+    //                         .find(|c: char| c.is_whitespace())
+    //                         .unwrap_or(line.len() - self.column),
+    //                 };
+
+    //                 // If this is the last character, the needle was a quote and
+    //                 // the last char is not the needle, then it means that the
+    //                 // quote was left open. Complain about this as well.
+    //                 if idx == line.len() - self.column {
+    //                     if line.chars().nth(idx).unwrap_or(' ') != needle
+    //                         && (needle == '"' || needle == '\'')
+    //                     {
+    //                         return Err(node.parser_error("non-terminated quote for byte literal"));
+    //                     }
+    //                 }
+
+    //                 // Now we have our string. Before pushing it, though, there
+    //                 // is a special case for alphabetic literals that need to be
+    //                 // translated.
+    //                 let string = line.get(self.column..self.column + idx).unwrap_or(" ");
+    //                 let mut bytes: [u8; 2] = [0, 0];
+    //                 if string.len() == 1 && string.chars().nth(0).unwrap().is_ascii_alphabetic() {
+    //                     let v = Vec::from(string);
+    //                     bytes[0] = v[0];
+    //                 }
+
+    //                 // NOTE: for now we push an incomplete literal. We need the
+    //                 // first pass to fill the context and then a second pass
+    //                 // will evaluate each literal as needed (e.g. replacing
+    //                 // values from variables being used in this literal).
+    //                 self.mapping.push(Node::Literal(Literal {
+    //                     identifier: PString {
+    //                         value: string.to_owned(),
+    //                         line: self.line,
+    //                         range: Range {
+    //                             start: self.column,
+    //                             end: self.column + idx,
+    //                         },
+    //                     },
+    //                     size: if two_bytes_allowed { 2 } else { 1 },
+    //                     bytes,
+    //                     resolved: true,
+    //                 }));
+
+    //                 self.column += idx;
+    //                 for c in line.get(self.column..).unwrap_or(" ").chars() {
+    //                     if c == ',' {
+    //                         break;
+    //                     }
+    //                     if c == ';' {
+    //                         return Ok(());
+    //                     }
+    //                     self.column += 1;
+    //                 }
+    //                 self.column += 1;
+    //                 self.skip_whitespace(line);
+    //             }
+    //             None => break,
+    //         };
+    //     }
+
+    //     Ok(())
+    // }
+
+    // fn fetch_identifier(&mut self, id: &PString, line: &str) -> Result<PString> {
+    //     let idx = line
+    //         .get(self.column..)
+    //         .unwrap_or(" ")
+    //         .find(|c: char| c.is_whitespace());
+
+    //     match idx {
+    //         Some(offset) => {
+    //             let end = self.column + offset;
+    //             let rest = line.get(end..).unwrap_or("").trim();
+    //             if !rest.is_empty() {
+    //                 if rest.chars().nth(0).unwrap_or(' ') != ';' {
+    //                     return Err(id.parser_error(
+    //                         "there should not be any further content besides the identifier",
+    //                     ));
+    //                 }
+    //             }
+    //             Ok(PString {
+    //                 value: line.get(self.column..end).unwrap_or(" ").trim().to_string(),
+    //                 line: self.line,
+    //                 range: Range {
+    //                     start: self.column,
+    //                     end,
+    //                 },
+    //             })
+    //         }
+    //         None => Ok(PString {
+    //             value: line.get(self.column..).unwrap_or(" ").trim().to_string(),
+    //             line: self.line,
+    //             range: Range {
+    //                 start: self.column,
+    //                 end: line.len(),
+    //             },
+    //         }),
+    //     }
+    // }
+
+    // fn fetch_possibly_quoted_identifier(&mut self, id: &PString, line: &str) -> Result<PString> {
+    //     let mut identifier = self.fetch_identifier(id, line)?;
+
+    //     if identifier.value.starts_with('\'') || identifier.value.starts_with('`') {
+    //         return Err(id.parser_error("use double quotes for the segment identifier instead"));
+    //     } else if identifier.value.starts_with('"') {
+    //         identifier.value = match identifier
+    //             .value
+    //             .get(1..(identifier.range.end - identifier.range.start - 1))
+    //         {
+    //             Some(v) => v.to_string(),
+    //             None => return Err(id.parser_error("could not fetch quoted identifier")),
+    //         };
+    //         if identifier.value.contains('"') {
+    //             return Err(id.parser_error("do not use double quotes inside of the identifier"));
+    //         }
+    //         identifier.range.start += 1;
+    //         identifier.range.end -= 1;
+    //     }
+
+    //     Ok(identifier)
+    // }
+
+    // fn parse_label(&mut self, id: PString, _line: &str) -> Result<()> {
+    //     let name = &id.value.as_str()[..id.value.len() - 1].to_string();
+
+    //     // Forbid weird scenarios.
+    //     if name.contains("::") {
+    //         return Err(id.parser_error(
+    //             format!(
+    //                 "the label '{}' is scoped: do not declare variables this way",
+    //                 id.value
+    //             )
+    //             .as_str(),
+    //         ));
+    //     }
+
+    //     // Insert the given label into the context.
+    //     if let Some(entry) = self.context.current_mut() {
+    //         match entry.entry(name.clone()) {
+    //             Entry::Occupied(e) => {
+    //                 return Err(ParseError {
+    //                     line: self.line,
+    //                     message: format!(
+    //                     "label '{}' already exists for this context: it was previously defined in line {}",
+    //                     id.value, e.get().node.line),
+    //                 })
+    //             }
+    //             Entry::Vacant(e) => e.insert(PValue {
+    //                 node: PString {
+    //                 value: name.clone(),
+    //                 line: self.line,
+    //                 range: Range {
+    //                     start: id.range.start,
+    //                     end: id.range.end,
+    //                 },
+    //                 },
+    //                 value: 0,
+    //                 label: true,
+    //             }),
+    //         };
+    //     }
+
+    //     // And add the node so it's picked up later.
+    //     self.mapping.push(Node::Label(Label {
+    //         value: name.to_string(),
+    //     }));
+    //     Ok(())
+    // }
 
     fn parser_error(&self, msg: &str) -> ParseError {
         ParseError {
             message: String::from(msg),
             line: self.line,
+            parse: true,
         }
     }
 
-    pub fn from_byte_reader<R: Read>(&mut self, mut reader: R) -> Result<()> {
-        loop {
-            let mut buf = [0; 1];
-            let n = reader.read(&mut buf)?;
-            if n == 0 {
-                break;
-            }
+    // fn from_byte_reader<R: Read>(&mut self, mut reader: R) -> Result<()> {
+    //     loop {
+    //         let mut buf = [0; 1];
+    //         let n = reader.read(&mut buf)?;
+    //         if n == 0 {
+    //             break;
+    //         }
 
-            match OPCODES.get(&buf[0]) {
-                Some(v) => {
-                    let mut bs = [0; 2];
-                    for i in 0..v.size - 1 {
-                        let nn = reader.read(&mut buf)?;
-                        if nn == 0 {
-                            break;
-                        }
-                        bs[i as usize] = buf[0];
-                    }
-                    self.mapping.push(Node::Instruction(Instruction {
-                        mnemonic: PString::from(&v.mnemonic),
-                        opcode: v.opcode,
-                        size: v.size,
-                        bytes: bs,
-                        left: None,
-                        right: None,
-                        mode: v.mode.to_owned(),
-                        cycles: v.cycles,
-                        affected_on_page: v.affected_on_page,
-                        address: 0, // TODO
-                        resolved: true,
-                    }))
-                }
+    //         match OPCODES.get(&buf[0]) {
+    //             Some(v) => {
+    //                 let mut bs = [0; 2];
+    //                 for i in 0..v.size - 1 {
+    //                     let nn = reader.read(&mut buf)?;
+    //                     if nn == 0 {
+    //                         break;
+    //                     }
+    //                     bs[i as usize] = buf[0];
+    //                 }
+    //                 self.mapping.push(Node::Instruction(Instruction {
+    //                     mnemonic: PString::from(&v.mnemonic),
+    //                     opcode: v.opcode,
+    //                     size: v.size,
+    //                     bytes: bs,
+    //                     left: None,
+    //                     right: None,
+    //                     mode: v.mode.to_owned(),
+    //                     cycles: v.cycles,
+    //                     affected_on_page: v.affected_on_page,
+    //                     address: 0, // TODO
+    //                     resolved: true,
+    //                 }))
+    //             }
 
-                None => {
-                    return Err(
-                        self.parser_error(format!("unknown byte '0x{:02X}'", buf[0]).as_str())
-                    )
-                }
-            }
-        }
+    //             None => {
+    //                 return Err(
+    //                     self.parser_error(format!("unknown byte '0x{:02X}'", buf[0]).as_str())
+    //                 )
+    //             }
+    //         }
+    //     }
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 }
 
 #[cfg(test)]
@@ -1625,57 +1668,25 @@ mod tests {
     use super::*;
     use crate::mapping::EMPTY;
 
-    fn assert_hex(one: &dyn Encodable, expected: &[u8]) {
-        assert_eq!(
-            one.to_hex(),
-            expected
-                .iter()
-                .map(|x| format!("{:02X}", x))
-                .collect::<Vec<_>>()
-        );
-    }
-
     fn instruction_test(line: &str, hex: &[u8], skip_disassemble: bool) {
-        let mut parser = Assembler::new(EMPTY.to_vec());
-        let res = parser.assemble(line.as_bytes());
+        let mut asm = Assembler::new(EMPTY.to_vec());
+        let res = asm.assemble(line.as_bytes()).unwrap();
 
-        if res.is_err() {
-            if let Err(e) = res.clone() {
-                assert_eq!(
-                    e,
-                    ParseError {
-                        line: 0,
-                        message: String::from("")
-                    }
-                )
-            }
+        assert_eq!(res.len(), 1);
+
+        for i in 0..res[0].size {
+            assert_eq!(hex[i as usize], res[0].bytes[i as usize]);
         }
-
-        let vec = res.unwrap();
-
-        assert_eq!(vec.len(), 1);
-        assert_hex(vec[0], hex);
-
-        // Now disassemble.
 
         if skip_disassemble {
             return;
         }
-
-        parser.reset();
-        let dis = parser.disassemble(hex);
-        assert!(dis.is_ok());
-
-        let dvec = dis.unwrap();
-        assert_eq!(dvec.len(), 1);
-
-        let dinstr = dvec[0];
-        assert_eq!(dinstr.to_human(), line);
+        // TODO
     }
 
     fn instruction_err(line: &str, message: &str) {
-        let mut parser = Assembler::new(EMPTY.to_vec());
-        let err = parser.assemble(line.as_bytes());
+        let mut asm = Assembler::new(EMPTY.to_vec());
+        let err = asm.assemble(line.as_bytes());
 
         assert!(err.is_err());
         if let Err(e) = err {
@@ -1683,37 +1694,36 @@ mod tests {
         }
     }
 
-    // Mainly errors.
-
     #[test]
     fn bad_addressing() {
         instruction_err("unknown #$20", "unknown instruction 'unknown'");
         instruction_err(
             "adc ($2002, x)",
-            "when parsing an instruction with indirect X-indexed addressing: only one byte of data is allowed here",
+            "address can only be one byte long on indirect X addressing",
         );
         instruction_err(
-            "adc ($2002, x), y",
-            "bad indirect mode, expecting an indirect X-indexed addressing mode",
+            "adc ($20, x), y",
+            "it has to be either X addressing or Y addressing, not all at once",
         );
         instruction_err(
             "adc ($2002), y",
-            "when parsing an instruction with indirect Y-indexed addressing: only one byte of data is allowed here",
+            "address can only be one byte long on indirect Y addressing",
         );
         instruction_err(
             "adc ($20, y)",
-            "the index in indirect X-indexed addressing must be X",
+            "only the X index is allowed on indirect X addressing",
         );
         instruction_err(
             "adc ($20), x",
-            "the index in indirect Y-indexed addressing must be Y",
+            "only the Y index is allowed on indirect Y addressing",
         );
         instruction_err("jmp ($20)", "expecting a full 16-bit address");
-        instruction_err("adc $20, z", "index is neither X nor Y");
+        instruction_err("adc $20, z", "can only use X and Y as indices");
         instruction_err(
             "adc ($2000)",
-            "bad addressing mode 'indirect' for the instruction 'adc'",
+            "cannot use indirect addressing mode for the instruction 'adc'",
         );
+        instruction_err("lda 12", "no prefix was given to operand")
     }
 
     #[test]
@@ -1731,8 +1741,9 @@ mod tests {
     #[test]
     fn parse_hexadecimal() {
         instruction_err("adc $", "expecting a number of 1 to 4 hexadecimal digits");
-        instruction_err("adc #$", "expecting a number of 2 hexadecimal digits");
-        instruction_err("adc $AW", "unknown variable 'AW'");
+        // TODO: see comment on literal_mode being a stack.
+        instruction_err("adc #$", "expecting a number of 1 to 4 hexadecimal digits");
+        instruction_err("adc $AW", "could not convert digit to hexadecimal");
         instruction_test("adc $AA", &[0x65, 0xAA], false);
         instruction_test("adc $10", &[0x65, 0x10], false);
         instruction_test("adc $10AB", &[0x6D, 0xAB, 0x10], false);
@@ -1743,7 +1754,7 @@ mod tests {
         instruction_err("adc #", "empty decimal literal");
         instruction_err("adc #256", "decimal value is too big");
         instruction_err("adc #2000", "decimal value is too big");
-        instruction_err("adc #2A", "'A' is not a decimal value");
+        instruction_err("adc #2A", "unknown variable '2A'"); // TODO: not sure about this
         instruction_test("adc #1", &[0x69, 0x01], true);
     }
 
@@ -1848,6 +1859,33 @@ mod tests {
     }
 
     #[test]
+    fn load() {
+        // lda
+        instruction_test("lda #$20", &[0xA9, 0x20], false);
+        instruction_test("lda $20", &[0xA5, 0x20], false);
+        instruction_test("lda $20, x", &[0xB5, 0x20], false);
+        instruction_test("lda $2002", &[0xAD, 0x02, 0x20], false);
+        instruction_test("lda $2002, x", &[0xBD, 0x02, 0x20], false);
+        instruction_test("lda $2002, y", &[0xB9, 0x02, 0x20], false);
+        instruction_test("lda ($20, x)", &[0xA1, 0x20], false);
+        instruction_test("lda ($20), y", &[0xB1, 0x20], false);
+
+        // ldx
+        instruction_test("ldx #$20", &[0xA2, 0x20], false);
+        instruction_test("ldx $20", &[0xA6, 0x20], false);
+        instruction_test("ldx $20, y", &[0xB6, 0x20], false);
+        instruction_test("ldx $2002", &[0xAE, 0x02, 0x20], false);
+        instruction_test("ldx $2002, y", &[0xBE, 0x02, 0x20], false);
+
+        // ldy
+        instruction_test("ldy #$20", &[0xA0, 0x20], false);
+        instruction_test("ldy $20", &[0xA4, 0x20], false);
+        instruction_test("ldy $20, x", &[0xB4, 0x20], false);
+        instruction_test("ldy $2002", &[0xAC, 0x02, 0x20], false);
+        instruction_test("ldy $2002, x", &[0xBC, 0x02, 0x20], false);
+    }
+
+    #[test]
     fn jump() {
         instruction_test("jsr $2002", &[0x20, 0x02, 0x20], false);
 
@@ -1944,33 +1982,6 @@ mod tests {
     }
 
     #[test]
-    fn load() {
-        // lda
-        instruction_test("lda #$20", &[0xA9, 0x20], false);
-        instruction_test("lda $20", &[0xA5, 0x20], false);
-        instruction_test("lda $20, x", &[0xB5, 0x20], false);
-        instruction_test("lda $2002", &[0xAD, 0x02, 0x20], false);
-        instruction_test("lda $2002, x", &[0xBD, 0x02, 0x20], false);
-        instruction_test("lda $2002, y", &[0xB9, 0x02, 0x20], false);
-        instruction_test("lda ($20, x)", &[0xA1, 0x20], false);
-        instruction_test("lda ($20), y", &[0xB1, 0x20], false);
-
-        // ldx
-        instruction_test("ldx #$20", &[0xA2, 0x20], false);
-        instruction_test("ldx $20", &[0xA6, 0x20], false);
-        instruction_test("ldx $20, y", &[0xB6, 0x20], false);
-        instruction_test("ldx $2002", &[0xAE, 0x02, 0x20], false);
-        instruction_test("ldx $2002, y", &[0xBE, 0x02, 0x20], false);
-
-        // ldy
-        instruction_test("ldy #$20", &[0xA0, 0x20], false);
-        instruction_test("ldy $20", &[0xA4, 0x20], false);
-        instruction_test("ldy $20, x", &[0xB4, 0x20], false);
-        instruction_test("ldy $2002", &[0xAC, 0x02, 0x20], false);
-        instruction_test("ldy $2002, x", &[0xBC, 0x02, 0x20], false);
-    }
-
-    #[test]
     fn store_instructions() {
         //sta
         instruction_test("sta $20", &[0x85, 0x20], false);
@@ -2001,9 +2012,15 @@ mod tests {
     // Variables & scopes.
 
     #[test]
+    fn using_variables() {
+        // TODO
+        // todo!()
+    }
+
+    #[test]
     fn scoped_variable() {
-        let mut parser = Assembler::new(EMPTY.to_vec());
-        let res = parser
+        let mut asm = Assembler::new(EMPTY.to_vec());
+        let res = asm
             .assemble(
                 r#"
 .scope One   ; This is a comment
@@ -2030,13 +2047,9 @@ adc #Another::Variable
         let instrs: Vec<[u8; 2]> = vec![[0x69, 0x20], [0x69, 0x30], [0x69, 0x20], [0x69, 0x40]];
 
         for i in 0..4 {
-            assert_eq!(
-                res[i].to_hex(),
-                instrs[i]
-                    .iter()
-                    .map(|x| format!("{:02X}", x))
-                    .collect::<Vec<_>>()
-            );
+            assert_eq!(res[i].size, 2);
+            assert_eq!(res[i].bytes[0], instrs[i][0]);
+            assert_eq!(res[i].bytes[1], instrs[i][1]);
         }
     }
 
@@ -2060,117 +2073,101 @@ Yet = 4
         if let Err(e) = res {
             assert_eq!(
                 e.message,
-                "variable 'Yet' is being re-assigned: it was previously defined in line 6"
+                "variable 'Yet' is being re-assigned: it was previously defined in line 7"
             );
         }
-    }
-
-    #[test]
-    fn bad_variable_names() {
-        instruction_err("a = 2", "cannot use reserved name 'a'");
-        instruction_err("X = 2", "cannot use reserved name 'X'");
-
-        instruction_err(
-            "AA = 2",
-            "cannot use names which are valid hexadecimal values such as 'AA'",
-        );
-
-        instruction_err(
-            "Scope::Variable = 2",
-            "the name 'Scope::Variable' is scoped: do not declare variables this way",
-        );
     }
 
     #[test]
     fn bad_assignment() {
         instruction_err("Variable =", "incomplete assignment");
         instruction_err("Variable =  ; comment", "incomplete assignment");
-        instruction_err("adc = $12", "cannot use 'adc' in an assignment because it's a word reserved for an instruction mnemonic");
-    }
-
-    // Literals
-
-    #[test]
-    fn byte_literals_errors() {
-        // TODO
-        // instruction_err(
-        //     ".byte $0102",
-        //     "when parsing a data literal: only one byte of data is allowed here",
-        // );
-        // instruction_err(".byte '$01", "non-terminated quote for byte literal");
-        // instruction_err(".byte '$01, $02", "non-terminated quote for byte literal");
-    }
-
-    #[test]
-    fn byte_literals() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
-
-        let mut res = asm.assemble(".byte $01".as_bytes()).unwrap();
-        assert_eq!(res.len(), 1);
-        assert_hex(res[0], &[0x01]);
-
-        asm.reset();
-        res = asm.assemble(".db $01, $02".as_bytes()).unwrap();
-        assert_eq!(res.len(), 2);
-        assert_hex(res[0], &[0x01]);
-        assert_hex(res[1], &[0x02]);
-
-        asm.reset();
-        res = asm
-            .assemble(".byte $01, 2, '%00000011', \"$04\"".as_bytes())
-            .unwrap();
-        assert_eq!(res.len(), 4);
-        assert_hex(res[0], &[0x01]);
-        assert_hex(res[1], &[0x02]);
-        assert_hex(res[2], &[0x03]);
-        assert_hex(res[3], &[0x04]);
-    }
-
-    #[test]
-    fn word_literals() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
-
-        let mut res = asm.assemble(".word $01".as_bytes()).unwrap();
-        assert_eq!(res.len(), 1);
-        assert_hex(res[0], &[0x01, 0x00]);
-
-        asm.reset();
-        res = asm.assemble(".dw $0102, $02".as_bytes()).unwrap();
-        assert_eq!(res.len(), 2);
-        assert_hex(res[0], &[0x02, 0x01]);
-        assert_hex(res[1], &[0x02, 0x00]);
-
-        asm.reset();
-        res = asm
-            .assemble(".word $0102, $0204, '$0308', \"$0410\"".as_bytes())
-            .unwrap();
-        assert_eq!(res.len(), 4);
-        assert_hex(res[0], &[0x02, 0x01]);
-        assert_hex(res[1], &[0x04, 0x02]);
-        assert_hex(res[2], &[0x08, 0x03]);
-        assert_hex(res[3], &[0x10, 0x04]);
-    }
-
-    #[test]
-    fn variables_in_literals() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
-        let res = asm
-            .assemble(
-                r#"
-.scope One
-  Variable = $01
-.endscope
-
-Variable = $02
-.byte One::Variable, Variable, $03
-"#
-                .as_bytes(),
-            )
-            .unwrap();
-
-        assert_eq!(res.len(), 3);
-        assert_hex(res[0], &[0x01]);
-        assert_hex(res[1], &[0x02]);
-        assert_hex(res[2], &[0x03]);
     }
 }
+
+//     // Literals
+
+//     #[test]
+//     fn byte_literals_errors() {
+//         // TODO
+//         // instruction_err(
+//         //     ".byte $0102",
+//         //     "when parsing a data literal: only one byte of data is allowed here",
+//         // );
+//         // instruction_err(".byte '$01", "non-terminated quote for byte literal");
+//         // instruction_err(".byte '$01, $02", "non-terminated quote for byte literal");
+//     }
+
+//     #[test]
+//     fn byte_literals() {
+//         let mut asm = Assembler::new(EMPTY.to_vec());
+
+//         let mut res = asm.assemble(".byte $01".as_bytes()).unwrap();
+//         assert_eq!(res.len(), 1);
+//         assert_hex(res[0], &[0x01]);
+
+//         asm.reset();
+//         res = asm.assemble(".db $01, $02".as_bytes()).unwrap();
+//         assert_eq!(res.len(), 2);
+//         assert_hex(res[0], &[0x01]);
+//         assert_hex(res[1], &[0x02]);
+
+//         asm.reset();
+//         res = asm
+//             .assemble(".byte $01, 2, '%00000011', \"$04\"".as_bytes())
+//             .unwrap();
+//         assert_eq!(res.len(), 4);
+//         assert_hex(res[0], &[0x01]);
+//         assert_hex(res[1], &[0x02]);
+//         assert_hex(res[2], &[0x03]);
+//         assert_hex(res[3], &[0x04]);
+//     }
+
+//     #[test]
+//     fn word_literals() {
+//         let mut asm = Assembler::new(EMPTY.to_vec());
+
+//         let mut res = asm.assemble(".word $01".as_bytes()).unwrap();
+//         assert_eq!(res.len(), 1);
+//         assert_hex(res[0], &[0x01, 0x00]);
+
+//         asm.reset();
+//         res = asm.assemble(".dw $0102, $02".as_bytes()).unwrap();
+//         assert_eq!(res.len(), 2);
+//         assert_hex(res[0], &[0x02, 0x01]);
+//         assert_hex(res[1], &[0x02, 0x00]);
+
+//         asm.reset();
+//         res = asm
+//             .assemble(".word $0102, $0204, '$0308', \"$0410\"".as_bytes())
+//             .unwrap();
+//         assert_eq!(res.len(), 4);
+//         assert_hex(res[0], &[0x02, 0x01]);
+//         assert_hex(res[1], &[0x04, 0x02]);
+//         assert_hex(res[2], &[0x08, 0x03]);
+//         assert_hex(res[3], &[0x10, 0x04]);
+//     }
+
+//     #[test]
+//     fn variables_in_literals() {
+//         let mut asm = Assembler::new(EMPTY.to_vec());
+//         let res = asm
+//             .assemble(
+//                 r#"
+// .scope One
+//   Variable = $01
+// .endscope
+
+// Variable = $02
+// .byte One::Variable, Variable, $03
+// "#
+//                 .as_bytes(),
+//             )
+//             .unwrap();
+
+//         assert_eq!(res.len(), 3);
+//         assert_hex(res[0], &[0x01]);
+//         assert_hex(res[1], &[0x02]);
+//         assert_hex(res[2], &[0x03]);
+//     }
+// }

@@ -1,12 +1,13 @@
-use crate::instruction::PString;
+use crate::instruction::Bundle;
+use crate::parser::PNode;
 use std::collections::HashMap;
 
 const GLOBAL_CONTEXT: &str = "Global";
 
 #[derive(Debug)]
 pub struct PValue {
-    pub node: PString,
-    pub value: usize,
+    pub node: PNode,
+    pub value: Bundle,
     pub label: bool,
 }
 
@@ -30,10 +31,6 @@ impl Context {
         }
     }
 
-    pub fn global(&mut self) {
-        self.stack = vec![];
-    }
-
     pub fn find(&self, name: &str) -> Option<&HashMap<String, PValue>> {
         self.map.get(name)
     }
@@ -52,6 +49,17 @@ impl Context {
         }
     }
 
+    pub fn is_global(&self) -> bool {
+        self.stack.is_empty()
+    }
+
+    pub fn name(&self) -> &str {
+        match self.stack.last() {
+            Some(name) => name,
+            None => GLOBAL_CONTEXT,
+        }
+    }
+
     pub fn push(&mut self, identifier: &String) {
         let name = match self.stack.last() {
             Some(n) => n.to_owned() + &String::from("::") + identifier,
@@ -62,14 +70,14 @@ impl Context {
         self.map.entry(name).or_default();
     }
 
-    pub fn push_stack(&mut self, identifier: &String) {
-        let name = match self.stack.last() {
-            Some(n) => n.to_owned() + &String::from("::") + identifier,
-            None => identifier.to_string(),
-        };
+    // pub fn push_stack(&mut self, identifier: &String) {
+    //     let name = match self.stack.last() {
+    //         Some(n) => n.to_owned() + &String::from("::") + identifier,
+    //         None => identifier.to_string(),
+    //     };
 
-        self.stack.push(name.clone());
-    }
+    //     self.stack.push(name.clone());
+    // }
 
     pub fn pop(&mut self) -> bool {
         if self.stack.is_empty() {

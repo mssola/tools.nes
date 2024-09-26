@@ -19,6 +19,12 @@ pub struct Entry {
     pub affected_on_page: bool,
 }
 
+#[derive(Debug)]
+pub struct Control {
+    pub has_identifier: bool,
+    pub required_args: Option<usize>,
+}
+
 lazy_static! {
     pub static ref INSTRUCTIONS: HashMap<String, HashMap<AddressingMode, ShortEntry>> = {
         let mut instrs = HashMap::new();
@@ -668,5 +674,26 @@ lazy_static! {
         opcodes.insert(0x98, Entry { mode: AddressingMode::Implied, mnemonic: String::from("tya"), cycles: 2, size: 1, opcode: 0x98, affected_on_page: false });
 
         opcodes
+    };
+
+    pub static ref CONTROL_FUNCTIONS: HashMap<String, Control> = {
+        let mut functions = HashMap::new();
+
+        functions.insert(String::from(".hibyte"), Control { has_identifier: false, required_args: Some(1) });
+        functions.insert(String::from(".lobyte"), Control { has_identifier: false, required_args: Some(1) });
+        functions.insert(String::from(".macro"), Control { has_identifier: true, required_args: None });
+        functions.insert(String::from(".proc"), Control { has_identifier: true, required_args: Some(0) });
+        functions.insert(String::from(".scope"), Control { has_identifier: true, required_args: Some(0) });
+        functions.insert(String::from(".end"), Control { has_identifier: false, required_args: Some(0) });
+        functions.insert(String::from(".endscope"), Control { has_identifier: false, required_args: Some(0) });
+        functions.insert(String::from(".endproc"), Control { has_identifier: false, required_args: Some(0) });
+        functions.insert(String::from(".endmacro"), Control { has_identifier: false, required_args: Some(0) });
+        functions.insert(String::from(".segment"), Control { has_identifier: false, required_args: Some(1) });
+        functions.insert(String::from(".byte"), Control { has_identifier: false, required_args: None });
+        functions.insert(String::from(".db"), Control { has_identifier: false, required_args: None });
+        functions.insert(String::from(".word"), Control { has_identifier: false, required_args: None });
+        functions.insert(String::from(".dw"), Control { has_identifier: false, required_args: None });
+
+        functions
     };
 }
