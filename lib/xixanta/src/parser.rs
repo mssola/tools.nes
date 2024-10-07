@@ -4,8 +4,6 @@ use crate::opcodes::{CONTROL_FUNCTIONS, INSTRUCTIONS};
 use std::io::{self, BufRead, Read};
 use std::ops::Range;
 
-// TODO: add cargo-fuzz
-
 type Result<T> = std::result::Result<T, ParseError>;
 
 #[derive(Debug, Clone, PartialEq)]

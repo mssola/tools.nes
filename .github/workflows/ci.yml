@@ -10,7 +10,7 @@ env:
   RUSTFLAGS: "-Dwarnings"
 
 jobs:
-  clippy_check:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,3 +20,8 @@ jobs:
 
       - name: Run Clippy
         run: cargo clippy --all-targets --all-features
+
+      - name: Fuzzy testing
+        run: |
+          cd lib/xixanta
+          cargo +nightly fuzz run fuzz_target_1 -- -max_total_time=180
