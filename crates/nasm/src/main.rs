@@ -62,10 +62,19 @@ fn main() -> Result<()> {
         //     output.write_all("\n".as_bytes())?;
         // }
     } else {
-        let bundles = assembler.assemble(input)?;
-        for b in bundles {
-            for i in 0..b.size {
-                output.write_all(&[b.bytes[i as usize]])?;
+        match assembler.assemble(input) {
+            Ok(bundles) => {
+                for b in bundles {
+                    for i in 0..b.size {
+                        output.write_all(&[b.bytes[i as usize]])?;
+                    }
+                }
+            }
+            Err(errors) => {
+                for err in errors {
+                    println!("{}", err);
+                }
+                std::process::exit(1);
             }
         }
     }

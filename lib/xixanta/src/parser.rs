@@ -1,92 +1,61 @@
 use crate::errors::ParseError;
-use crate::instruction::PString;
+use crate::node::{NodeType, PNode, PString};
 use crate::opcodes::{CONTROL_FUNCTIONS, INSTRUCTIONS};
+use std::cmp::Ordering;
 use std::io::{self, BufRead, Read};
 use std::ops::Range;
 
-type Result<T> = std::result::Result<T, ParseError>;
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum NodeType {
-    Value,
-    Instruction,
-    Indirection,
-    Assignment,
-    Control,
-    Literal,
-    Identifier,
-    Label,
-    Call,
-    Empty,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct PNode {
-    pub node_type: NodeType,
-    pub value: PString,
-    pub left: Option<Box<PNode>>,
-    pub right: Option<Box<PNode>>,
-    pub args: Option<Vec<Box<PNode>>>,
-}
-
-impl PNode {
-    pub fn empty() -> PNode {
-        Self {
-            node_type: NodeType::Empty,
-            value: PString::new(),
-            left: None,
-            right: None,
-            args: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
+/// The Parser struct holds basic data for the current parsing session.
+#[derive(Default)]
 pub struct Parser {
+    // The current line number.
     line: usize,
+
+    // The current column number.
     column: usize,
+
+    // The offset of the string being evaluated as a "line". Note that this can
+    // vary wildly because on recursive expression parsing the line might be
+    // slightly different. This property allows us to have a proper value for
+    // each iteration.
     offset: usize,
-    pub nodes: Vec<Box<PNode>>,
-    pub errors: Vec<ParseError>,
+
+    /// The nodes that have been evaluated for the current parsing session. You
+    /// can count on this vector to be filled after calling
+    /// `parser::Parser::parse`.
+    pub nodes: Vec<PNode>,
 }
 
 impl Parser {
-    pub fn new() -> Self {
-        Self {
-            line: 0,
-            column: 0,
-            offset: 0,
-            nodes: Vec::new(),
-            errors: Vec::new(),
-        }
-    }
+    /// Parse the input from the given `reader`. You can then access the results
+    /// from the `nodes` field. Otherwise, a vector of ParseError's might be
+    /// returned.
+    pub fn parse(&mut self, reader: impl Read) -> Result<(), Vec<ParseError>> {
+        let mut errors = Vec::new();
 
-    pub fn reset(&mut self) {
-        self.line = 0;
-        self.column = 0;
-        self.offset = 0;
-        self.nodes = Vec::new();
-        self.errors = Vec::new();
-    }
-
-    pub fn parse(&mut self, reader: impl Read) -> Result<()> {
         for line in io::BufReader::new(reader).lines() {
-            if let Err(err) = self.parse_line(line?.as_str()) {
-                self.errors.push(err);
+            match line {
+                Ok(l) => {
+                    if let Err(err) = self.parse_line(l.as_str()) {
+                        errors.push(err);
+                    }
+                }
+                Err(_) => errors.push(self.parser_error("could not get line")),
             }
             self.line += 1;
         }
 
-        println!("NODES: {:#?}", self.nodes);
-
-        match self.errors.last() {
-            Some(err) => Err(err.clone()),
-            None => Ok(()),
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
         }
     }
 
-    fn parse_line(&mut self, line: &str) -> Result<()> {
+    // Parse a single `line` and push the parsed nodes into `self.nodes`.
+    fn parse_line(&mut self, line: &str) -> Result<(), ParseError> {
         self.column = 0;
+        self.offset = 0;
 
         // Skip until the first non-whitespace character. If that's not
         // possible, then it's an empty line and we can return early.
@@ -97,7 +66,7 @@ impl Parser {
         // Let's pin point the last character we need to care for parsing. This
         // can be either the start position of an inline comment (i.e. ';'), or
         // the real line end.
-        let end = if let Some(comment) = line.find(|c: char| c == ';') {
+        let end = if let Some(comment) = line.find(';') {
             comment
         } else {
             line.len()
@@ -119,13 +88,13 @@ impl Parser {
         self.offset = 0;
         let (mut id, mut nt) = self.parse_identifier(l)?;
         if nt == NodeType::Label {
-            self.nodes.push(Box::new(PNode {
+            self.nodes.push(PNode {
                 node_type: nt,
                 value: id,
                 left: None,
                 right: None,
                 args: None,
-            }));
+            });
 
             self.skip_whitespace(l);
 
@@ -149,15 +118,39 @@ impl Parser {
         self.parse_statement(l, id)
     }
 
-    fn parse_identifier(&mut self, line: &str) -> Result<(PString, NodeType)> {
+    // Given a `line` parses an identifier if possible. This identifier is not
+    // necessary an "identifier" per se, but rather a first identifier-like
+    // string which can be used to determine which kind of expression we are
+    // dealing with. Returns a PString representing this identifier on success,
+    // plus a hint on whether the identifier belongs to a label or not.
+    fn parse_identifier(&mut self, line: &str) -> Result<(PString, NodeType), ParseError> {
         let start = self.column;
         let base_offset = self.offset;
 
         // For the general case we just need to iterate until a whitespace
-        // character or an inline comment is found. Then our PString object
-        // is merely whatever is on the column..self.column range.
-        for c in line.get(self.offset..).unwrap_or("").chars() {
+        // character or an inline comment is found. Then our PString object is
+        // merely whatever is on the column..self.column range. Note that we
+        // need this iteration to be peekable so we can look ahead. This is
+        // interesting for detecting identifiers which are scoped (e.g.
+        // "Scope::Identifier").
+        let mut chars = line
+            .get(self.offset..)
+            .unwrap_or_default()
+            .chars()
+            .peekable();
+        while let Some(c) = chars.next() {
             if c.is_whitespace() || c == ':' || c == '(' || c == ')' || c == '=' {
+                // Look ahead to determine whether this is a regular ':' from a
+                // label, of a scoping operator '::'.
+                if let Some(next) = chars.peek() {
+                    if c == ':' && *next == ':' {
+                        chars.next();
+                        self.next();
+                        self.next();
+                        continue;
+                    }
+                }
+
                 let val = String::from(line.get(base_offset..self.offset).unwrap_or("").trim());
                 let nt = if c == ':' {
                     NodeType::Label
@@ -165,8 +158,6 @@ impl Parser {
                     NodeType::Value
                 };
 
-                // TODO
-                // self.next();
                 let end = if c == ':' {
                     self.next();
                     self.column - 1
@@ -178,18 +169,10 @@ impl Parser {
                     PString {
                         value: val,
                         line: self.line,
-                        range: Range {
-                            start,
-                            end, // TODO
-                                 // end: self.column - 1,
-                        },
+                        range: Range { start, end },
                     },
                     nt,
                 ));
-            } else if !c.is_alphanumeric() && c != '_' {
-                // TODO: on the contrary, if alphanumeric or _, just follow
-                // through. Otherwise always break. TODO NOT REALLY
-                // return Err(self.parser_error("bad character for possible identifier"));
             }
 
             self.next();
@@ -197,7 +180,7 @@ impl Parser {
 
         // The line is merely the identifier (e.g. instruction with implied
         // addressing).
-        let id = String::from(line.get(base_offset..).unwrap_or("").trim());
+        let id = String::from(line.get(base_offset..).unwrap_or_default().trim());
         Ok((
             PString {
                 value: id,
@@ -211,7 +194,9 @@ impl Parser {
         ))
     }
 
-    fn parse_statement(&mut self, line: &str, id: PString) -> Result<()> {
+    // Parse the top-level statement as found on the given `line` which has a
+    // leading `id` positioned-string which may be an identifier.
+    fn parse_statement(&mut self, line: &str, id: PString) -> Result<(), ParseError> {
         // There are only two top-level statements: instructions and
         // assignments. Other kinds of expressions can also be used in the
         // middle of assignments or instructions, and so they have to be handled
@@ -231,102 +216,148 @@ impl Parser {
         }
     }
 
-    fn parse_instruction(&mut self, line: &str, id: PString) -> Result<()> {
+    // Parse the given `line` as an instruction being identified by `id`.
+    fn parse_instruction(&mut self, line: &str, id: PString) -> Result<(), ParseError> {
         let mut paren = 0;
 
+        // After the initial instruction identifier (e.g. `lda`), there might be
+        // an undefined white space. Let's skip it now.
         self.skip_whitespace(line);
 
-        if line.contains("=") {
+        // After skipping the identifier, are we actually on a weird assignment
+        // scenario? (e.g. `lda = #42`). If so, then complain on the programmer
+        // using a reserved instruction mnemonic as a variable name.
+        if line.chars().nth(self.offset).unwrap_or_default() == '=' {
             return Err(self.parser_error(
-                format!("cannot used reserved name for the mnemonic '{}'", id.value).as_str(),
+                format!(
+                    "cannot use the reserved mnemonic '{}' as a variable name",
+                    id.value
+                )
+                .as_str(),
             ));
         }
 
+        // If the line at the current point starts with an open paren, then we
+        // assume that the indirect addressing mode is being used. If this is
+        // the case, then the left arm is actually what's inside of the
+        // parenthesis. Otherwise we have to grab until the very end.
         let indirect = line.chars().nth(self.offset).unwrap_or(',') == '(';
         let l = if indirect {
+            // Skip the '(' character and skip whitespaces.
             self.next();
             self.skip_whitespace(line);
+
+            // Now let's find the matching paren for the one that opened the
+            // indirect addressing mode, and that's the end of our left arm for
+            // this instruction.
             paren = self.find_matching_paren(line, self.offset)?;
             line.get(self.offset..paren).unwrap_or_default()
         } else {
             line.get(self.offset..).unwrap_or_default()
         };
 
+        // Is there a left arm at all? If so, then parse it now but considering
+        // the trimmed `l` variable, which is a bit special when using indirect
+        // addressing mode.
         self.offset = 0;
         let mut left = if l.is_empty() {
             None
         } else {
-            Some(self.parse_left_arm(l)?)
+            Some(Box::new(self.parse_left_arm(l)?))
         };
 
+        // Skip whitespace until the possible right arm. Notice that both
+        // `paren` on indirect addressing mode, and `parse_left_arm` have set
+        // the "cursor" just after any possible comma. Hence, if there's
+        // anything left, then it's the right arm which might have leading
+        // spaces.
         self.skip_whitespace(l);
 
-        // The parsing of the left arm should have advanced the offset right
-        // into the right arm. If there is nothing there, then we have no right
-        // arm. Otherwise we have to parse the expression.
-        // TODO
+        // At this point, if there is nothing there, then we have no right arm.
+        // Otherwise we have to parse the expression.
         let mut right_str = l.get(self.offset..).unwrap_or_default();
         let mut right = if right_str.is_empty() {
             None
         } else {
             self.offset = 0;
-            Some(self.parse_expression(right_str)?)
+            Some(Box::new(self.parse_expression(right_str)?))
         };
 
+        // If we were in indirect addressing mode, then there's some juggling we
+        // have to do for the parsed expressions. This is the most complex part
+        // from this function, as it will mutate the `left` and the `right`
+        // nodes in subtle ways. But this is better than having things in a
+        // different function because the rest of the code is pretty much the
+        // same.
         if indirect {
+            // In indirect addressing mode there's *always* a left arm.
             if left.is_none() {
                 return Err(self.parser_error("empty indirect addressing"));
             }
 
-            left = Some(Box::new(PNode {
-                node_type: NodeType::Indirection,
-                value: PString::new(),
-                left,
-                right: right.clone(),
-                args: None,
-            }));
-
+            // Now, here's the trick: if there's something left after the
+            // parenthesis, then we have the right arm there. Note that the
+            // Indirection node cannot have a right arm at the same time. If
+            // this is the case, we are going to freak out now.
             right_str = line.get(paren..).unwrap_or_default();
             if !(right_str.is_empty() || right_str == ")") && right.is_some() {
                 return Err(self.parser_error("bad indirect addressing"));
             }
 
+            // The left arm from an indirect addressing mode is actually the
+            // indirection itself.
+            left = Some(Box::new(PNode {
+                node_type: NodeType::Indirection,
+                value: PString::default(),
+                left,
+                right,
+                args: None,
+            }));
+
+            // Do we have anything as a right arm?
             right = if right_str.is_empty() || right_str == ")" {
                 None
             } else {
                 self.offset = 0;
 
-                // TODO: ")  ,"
+                // Skip any possible leading space on ")   ,".
                 self.next();
                 self.skip_whitespace(right_str);
 
-                // TODO: ",    "
+                // Skip any possible leading space after the comma.
                 self.next();
                 self.skip_whitespace(right_str);
 
-                Some(self.parse_expression(right_str)?)
+                // And finally parse the right arm for the global instruction.
+                Some(Box::new(self.parse_expression(right_str)?))
             };
         }
 
-        self.nodes.push(Box::new(PNode {
+        // We can push the resulting parsed expressions.
+        self.nodes.push(PNode {
             node_type: NodeType::Instruction,
             value: id,
             left,
             right,
             args: None,
-        }));
+        });
 
         Ok(())
     }
 
-    fn parse_assignment(&mut self, line: &str, id: PString) -> Result<()> {
-        if let Err(msg) = id.is_valid_identifier() {
+    // Parse the given `line` as an assignment statement which declares a
+    // variable at `id`.
+    fn parse_assignment(&mut self, line: &str, id: PString) -> Result<(), ParseError> {
+        // Notice that `parse_identifier` pretty much swallows any kind of
+        // identifier without doing any sanity checks. Now it's the time to do
+        // so.
+        if let Err(msg) = id.is_valid_identifier(false) {
             return Err(self.parser_error(&msg));
         }
 
         // Skip whitespaces and make sure that we have a '=' sign.
         self.skip_whitespace(line);
-        if line.chars().nth(self.offset).unwrap_or(' ') != '=' {
+        if line.chars().nth(self.offset).unwrap_or_default() != '=' {
             return Err(self.parser_error(format!("unknown instruction '{}'", id.value).as_str()));
         }
 
@@ -340,20 +371,24 @@ impl Parser {
             return Err(self.parser_error("incomplete assignment"));
         };
         self.offset = 0;
-        let left = Some(self.parse_expression(rest)?);
+        let left = self.parse_expression(rest)?;
 
-        self.nodes.push(Box::new(PNode {
+        // And push the node.
+        self.nodes.push(PNode {
             node_type: NodeType::Assignment,
-            value: id.clone(),
-            left,
+            value: id,
+            left: Some(Box::new(left)),
             right: None,
             args: None,
-        }));
+        });
 
         Ok(())
     }
 
-    fn parse_arguments(&mut self, line: &str) -> Result<Vec<Box<PNode>>> {
+    // Parse any possible arguments for the given `line`. The offset is supposed
+    // to be at a point where arguments might appear, either between parens or
+    // not.
+    fn parse_arguments(&mut self, line: &str) -> Result<Vec<PNode>, ParseError> {
         // Skip any possible whitespace before the optional opening paren.
         self.skip_whitespace(line);
 
@@ -362,63 +397,74 @@ impl Parser {
         // the end of the cleaned line.
         let paren = line.chars().nth(self.offset).unwrap_or_default() == '(';
         let end = if paren {
+            // We have a parenthesis. Skip it.
             self.next();
             self.skip_whitespace(line);
+
+            // The end is actually the matching paren for the current opening
+            // one.
             self.find_matching_paren(line, self.offset)?
         } else {
             line.len()
         };
 
         let mut args = Vec::new();
+        let trimmed_str = line.get(..end).unwrap_or_default().trim_end();
 
+        // Having an infinite loop with `break`s inside is admittedly not the
+        // cleanest thing ever, but it does its job.
         loop {
-            // TODO: trimmed_str out?
-            let trimmed_str = line.get(..end).unwrap_or_default().trim_end();
-            println!("TRIMME: {:#?}", trimmed_str.get(self.offset..));
-
-            let (arg_end, comma) = self.find_left_end(trimmed_str, false)?;
+            // This looks scarier than it actually is. It first finds the end of
+            // the argument. Then it calculates a diff on trimming the end or
+            // not. This diff will be used to re-adjust the column after the
+            // argument is parsed, so we skip any final spaces.
+            let (arg_end, comma) = self.find_left_end(trimmed_str)?;
             let arg_untrimmed = line.get(self.offset..arg_end).unwrap_or_default();
             let arg = arg_untrimmed.trim_end();
             let diff = arg_untrimmed.len() - arg.len();
-            // .trim_end();
-            println!(
-                "ARG_END: {:#?} -- ARG: {:#?} - DIFF: {}",
-                arg_end, arg, diff
-            );
+
+            // Do we actually have an argument. If not then this is the end of
+            // our loop.
             if arg.is_empty() {
                 break;
             }
-            // if !comma {
-            //     s = arg.to_owned() + " ";
-            //     arg = s.as_str();
-            // }
 
+            // Parse the argument, which is trimmed down from the line and hence
+            // the offset needs to be reset.
             self.offset = 0;
             args.push(self.parse_expression(arg)?);
 
+            // After the parsing is done for the current argument, move both
+            // `self.offset` and `self.column` right after the end of the
+            // current argument.
             self.offset = arg_end;
             self.column += diff;
-            println!("{:#?}", line.get(self.offset..end));
-            self.skip_whitespace(line); // TODO
+
+            // Was the argument ended by a comma? If so there are more arguments
+            // to be parsed. Otherwise we can break the loop if it wasn't
+            // catched for whatever reason by the previous check.
             if comma {
+                // Skip the comma character and any leading white spaces for the
+                // next argument.
                 self.next();
                 self.skip_whitespace(line);
+            } else {
+                break;
             }
         }
-
-        println!("ARGS: {:#?}", args);
 
         Ok(args)
     }
 
-    fn parse_left_arm(&mut self, line: &str) -> Result<Box<PNode>> {
+    // Parse the left arm from an instruction and leave `offset` and `column`
+    // past the end of it.
+    fn parse_left_arm(&mut self, line: &str) -> Result<PNode, ParseError> {
         let start_column = self.column;
 
         // We track the start value of the offset and we will keep track of the
         // movement of it on `end`. This allows us to preserve the value on
         // inner calls that might modify the offset value.
-        // TODO
-        let (end, comma) = self.find_left_end(line, false)?;
+        let (end, comma) = self.find_left_end(line)?;
 
         // Set the offset to 0 since we are constraining the string to be
         // parsed.
@@ -429,20 +475,26 @@ impl Parser {
         // computed end.
         let expr = self.parse_expression(str);
 
-        // Set the offset to the end of the line that is shared with the caller.
-        // let diff_column = (end - start) - (self.column - start_column);
+        // Set the `offset` and `column` to the end of the line that is shared
+        // with the caller.
         self.offset = end;
         self.column = start_column + end;
+
+        // If there was a comma, then the caller expects this function to move
+        // both `offset` and `column` past it.
         if comma {
             self.next();
         }
         expr
     }
 
-    // TODO: revisit inside_paren
-    fn find_left_end(&self, line: &str, inside_paren: bool) -> Result<(usize, bool)> {
+    // Find the end position for a "left arm"-like expression. That is, there
+    // might be opening/closing parenthesis which need to be balanced. On
+    // success it returns the index from within the given `line`, and a boolean
+    // which is set to true/false on whether a comma was found.
+    fn find_left_end(&self, line: &str) -> Result<(usize, bool), ParseError> {
         let mut idx = self.offset;
-        let mut parens = if inside_paren { 1 } else { 0 };
+        let mut parens = 0;
         let mut comma = false;
 
         for c in line.get(self.offset..).unwrap_or_default().chars() {
@@ -470,7 +522,10 @@ impl Parser {
         Ok((idx, comma))
     }
 
-    fn find_matching_paren(&self, line: &str, init: usize) -> Result<usize> {
+    // Finds the matching parenthesis which closes the parenthesis that was just
+    // opened. The `init` index point to the next character after the opening
+    // paren from the given `line`.
+    fn find_matching_paren(&self, line: &str, init: usize) -> Result<usize, ParseError> {
         let mut idx = init;
         let mut parens = 1;
 
@@ -481,10 +536,10 @@ impl Parser {
                 parens -= 1;
             }
 
-            if parens == 0 {
-                return Ok(idx);
-            } else if parens < 0 {
-                return Err(self.parser_error("too many closing parenthesis"));
+            match parens.cmp(&0) {
+                Ordering::Equal => return Ok(idx),
+                Ordering::Less => return Err(self.parser_error("too many closing parenthesis")),
+                Ordering::Greater => {}
             }
 
             idx += 1;
@@ -501,7 +556,7 @@ impl Parser {
     // `line` (e.g. the line might not be a full line but rather a limited range
     // and the offset has been set accordingly). Returns a new node for the
     // expression at hand.
-    fn parse_expression(&mut self, line: &str) -> Result<Box<PNode>> {
+    fn parse_expression(&mut self, line: &str) -> Result<PNode, ParseError> {
         let (id, nt) = self.parse_identifier(line)?;
 
         if nt == NodeType::Label {
@@ -515,11 +570,15 @@ impl Parser {
     // part of it has already been parsed and evaluated as the given `id`.
     // Indeces such as `self.column` and `self.offset` are assumed to be correct
     // at this point. Returns a new node for the expression at hand.
-    fn parse_expression_with_identifier(&mut self, id: PString, line: &str) -> Result<Box<PNode>> {
+    fn parse_expression_with_identifier(
+        &mut self,
+        id: PString,
+        line: &str,
+    ) -> Result<PNode, ParseError> {
         // Reaching this condition is usually a bad sign, but there is so many
         // ways in which it could go wrong, that an `assert!` wouldn't be fair
         // either. Hence, just error out.
-        if !id.is_valid() {
+        if id.is_empty() {
             return Err(self.parser_error("invalid identifier"));
         }
 
@@ -538,31 +597,31 @@ impl Parser {
                 .is_empty()
             {
                 let args = self.parse_arguments(line)?;
-                return Ok(Box::new(PNode {
+                return Ok(PNode {
                     node_type: NodeType::Call,
                     value: id,
                     left: None,
                     right: None,
                     args: if args.is_empty() { None } else { Some(args) },
-                }));
+                });
             }
 
             // Blindly return the identifier as a PNode. This might be either a
             // value as-is, or a macro call which we can't make sense at the
             // moment. Eitherway, let the assembler decide.
-            Ok(Box::new(PNode {
+            Ok(PNode {
                 node_type: NodeType::Value,
                 value: id,
                 left: None,
                 right: None,
                 args: None,
-            }))
+            })
         }
     }
 
     // Returns a NodeType::Control node with whatever could be parsed
     // considering the given `id` and rest of the `line`.
-    fn parse_control(&mut self, id: PString, line: &str) -> Result<Box<PNode>> {
+    fn parse_control(&mut self, id: PString, line: &str) -> Result<PNode, ParseError> {
         let mut left = None;
         let required;
 
@@ -601,18 +660,18 @@ impl Parser {
             }
         }
 
-        Ok(Box::new(PNode {
+        Ok(PNode {
             node_type: NodeType::Control,
             value: id,
             left,
             right: None,
             args: if args.is_empty() { None } else { Some(args) },
-        }))
+        })
     }
 
     // Returns a NodeType::Literal node with whatever could be parsed
     // considering the given `id` and rest of the `line`.
-    fn parse_literal(&mut self, id: PString, line: &str) -> Result<Box<PNode>> {
+    fn parse_literal(&mut self, id: PString, line: &str) -> Result<PNode, ParseError> {
         // Force the column to point to the literal character just in case
         // of expressions like '#.hibyte'. Then skip whitespaces for super
         // ugly statements such as '# 20'. This is ugly but we should permit
@@ -628,13 +687,13 @@ impl Parser {
         self.offset = 0;
         let left = self.parse_expression(inner)?;
 
-        Ok(Box::new(PNode {
+        Ok(PNode {
             node_type: NodeType::Literal,
             value: id,
-            left: Some(left),
+            left: Some(Box::new(left)),
             right: None,
             args: None,
-        }))
+        })
     }
 
     // Returns a new ParseError by using the current line.
@@ -642,7 +701,6 @@ impl Parser {
         ParseError {
             message: String::from(msg),
             line: self.line,
-            parse: true,
         }
     }
 
@@ -684,7 +742,7 @@ mod tests {
         assert!(parser.nodes.len() == 1);
     }
 
-    fn assert_node(node: &Box<PNode>, nt: NodeType, line: &str, value: &str) {
+    fn assert_node(node: &PNode, nt: NodeType, line: &str, value: &str) {
         assert_eq!(node.node_type, nt);
         assert_eq!(
             node.value.value.as_str(),
@@ -697,23 +755,23 @@ mod tests {
 
     #[test]
     fn empty_line() {
-        let mut parser = Parser::new();
-        assert!(!parser.parse("".as_bytes()).is_err());
+        let mut parser = Parser::default();
+        assert!(parser.parse("".as_bytes()).is_ok());
         assert_eq!(parser.nodes.len(), 0);
     }
 
     #[test]
     fn spaced_line() {
-        let mut parser = Parser::new();
-        assert!(!parser.parse("   ".as_bytes()).is_err());
+        let mut parser = Parser::default();
+        assert!(parser.parse("   ".as_bytes()).is_ok());
         assert_eq!(parser.nodes.len(), 0);
     }
 
     #[test]
     fn just_a_comment_line() {
         for line in vec![";; This is a comment", "    ;; Comment"].into_iter() {
-            let mut parser = Parser::new();
-            assert!(!parser.parse(line.as_bytes()).is_err());
+            let mut parser = Parser::default();
+            assert!(parser.parse(line.as_bytes()).is_ok());
             assert_eq!(parser.nodes.len(), 0);
         }
     }
@@ -722,14 +780,14 @@ mod tests {
 
     #[test]
     fn anonymous_label() {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         assert!(parser.parse(":".as_bytes()).is_ok());
         assert_eq!(parser.nodes.len(), 1);
         assert!(parser.nodes.first().unwrap().value.value.is_empty());
         assert_eq!(parser.nodes.first().unwrap().value.range.start, 0);
         assert_eq!(parser.nodes.first().unwrap().value.range.end, 0);
 
-        parser = Parser::new();
+        parser = Parser::default();
         assert!(parser.parse("  :".as_bytes()).is_ok());
         assert_eq!(parser.nodes.len(), 1);
         assert!(parser.nodes.first().unwrap().value.value.is_empty());
@@ -739,14 +797,14 @@ mod tests {
 
     #[test]
     fn named_label() {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         assert!(parser.parse("label:".as_bytes()).is_ok());
         assert_eq!(parser.nodes.len(), 1);
         assert_eq!(parser.nodes.first().unwrap().value.value, "label");
         assert_eq!(parser.nodes.first().unwrap().value.range.start, 0);
         assert_eq!(parser.nodes.first().unwrap().value.range.end, 5);
 
-        parser = Parser::new();
+        parser = Parser::default();
         assert!(parser.parse("  label:".as_bytes()).is_ok());
         assert_eq!(parser.nodes.len(), 1);
         assert_eq!(parser.nodes.first().unwrap().value.value, "label");
@@ -758,7 +816,7 @@ mod tests {
     fn label_with_instruction() {
         let line = "label: dex";
 
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         assert!(parser.parse(line.as_bytes()).is_ok());
         assert_eq!(parser.nodes.len(), 2);
 
@@ -781,7 +839,7 @@ mod tests {
     #[test]
     fn parse_pound_literal() {
         for line in vec!["#20", " #20 ", "  #20   ; Comment", "  label:   # 20"].into_iter() {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
@@ -799,7 +857,7 @@ mod tests {
     #[test]
     fn parse_compound_literal() {
         let line = "#$20";
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         assert!(parser.parse(line.as_bytes()).is_ok());
 
         let node = parser.nodes.last().unwrap();
@@ -821,7 +879,7 @@ mod tests {
     #[test]
     fn parse_variable_in_literal() {
         let line = "#Variable";
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         assert!(parser.parse(line.as_bytes()).is_ok());
 
         let node = parser.nodes.last().unwrap();
@@ -833,6 +891,16 @@ mod tests {
         assert_eq!(inner.node_type, NodeType::Value);
         assert_eq!(inner.value.value, "Variable");
         assert_eq!(line.get(inner.value.range).unwrap(), "Variable");
+    }
+
+    #[test]
+    fn parse_bad_literals() {
+        for line in vec!["#", "#%", "$"].into_iter() {
+            let mut parser = Parser::default();
+            let err = parser.parse(line.as_bytes()).unwrap_err();
+
+            assert_eq!(err.first().unwrap().message, "invalid identifier");
+        }
     }
 
     // Regular instructions.
@@ -848,7 +916,7 @@ mod tests {
         ]
         .into_iter()
         {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
@@ -862,7 +930,7 @@ mod tests {
     #[test]
     fn instruction_with_implied_explicit() {
         for line in vec!["inc a", "    inc a", " inc  a  "].into_iter() {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             assert_one_valid(&mut parser, line);
 
             let node = parser.nodes.first().unwrap();
@@ -877,7 +945,7 @@ mod tests {
     #[test]
     fn instruction_with_zeropage() {
         for line in vec!["inc $20", "    inc   $20", " inc  $20  "].into_iter() {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             assert_one_valid(&mut parser, line);
 
             let node = parser.nodes.first().unwrap();
@@ -892,7 +960,7 @@ mod tests {
     #[test]
     fn instruction_with_immediate() {
         for line in vec!["adc #$20", "  adc #$20  ", "  adc   #$20  "].into_iter() {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             assert_one_valid(&mut parser, line);
 
             let node = parser.nodes.first().unwrap();
@@ -907,7 +975,7 @@ mod tests {
     #[test]
     fn instruction_with_absolute() {
         for line in vec!["inc $2002", "    inc   $2002", " inc  $2002  "].into_iter() {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             assert_one_valid(&mut parser, line);
 
             let node = parser.nodes.first().unwrap();
@@ -934,7 +1002,7 @@ mod tests {
         ]
         .into_iter()
         {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
@@ -961,7 +1029,7 @@ mod tests {
         ]
         .into_iter()
         {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
@@ -986,7 +1054,7 @@ mod tests {
         ]
         .into_iter()
         {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
@@ -1002,16 +1070,16 @@ mod tests {
 
     #[test]
     fn bad_indirect_addressing_x() {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
 
-        let err = parser.parse("lda (Variable, x), y".as_bytes());
-        assert_eq!(err.unwrap_err().message, "bad indirect addressing");
+        let err = parser.parse("lda (Variable, x), y".as_bytes()).unwrap_err();
+        assert_eq!(err.first().unwrap().message, "bad indirect addressing");
     }
 
     #[test]
     fn indirect_addressing_y() {
         for line in vec!["lda ($20), y"].into_iter() {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
@@ -1030,7 +1098,7 @@ mod tests {
     #[test]
     fn variable_in_instruction() {
         let line = "lda Variable, x";
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         assert!(parser.parse(line.as_bytes()).is_ok());
 
         let node = parser.nodes.last().unwrap();
@@ -1049,7 +1117,7 @@ mod tests {
     #[test]
     fn variable_literal_in_instruction() {
         let line = "lda #Variable, x";
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         assert!(parser.parse(line.as_bytes()).is_ok());
 
         let node = parser.nodes.last().unwrap();
@@ -1065,41 +1133,90 @@ mod tests {
         assert_node(&node.right.clone().unwrap(), NodeType::Value, line, "x");
     }
 
+    #[test]
+    fn scoped_variable_literal_in_instruction() {
+        for var in vec!["Scope::Variable", "Scope::Inner::Variable"].into_iter() {
+            let line = format!("lda #{}", var);
+            let mut parser = Parser::default();
+            assert!(parser.parse(line.as_bytes()).is_ok());
+
+            let node = parser.nodes.last().unwrap();
+            assert_node(node, NodeType::Instruction, line.as_str(), "lda");
+            assert!(node.right.is_none());
+            assert!(node.args.is_none());
+
+            assert_node(
+                &node.left.clone().unwrap(),
+                NodeType::Literal,
+                line.as_str(),
+                format!("#{}", var).as_str(),
+            );
+        }
+    }
+
+    #[test]
+    fn bad_variable_scoping() {
+        let mut parser = Parser::default();
+
+        let err = parser.parse("adc #One:Variable".as_bytes()).unwrap_err();
+        assert_eq!(
+            err.first().unwrap().message,
+            "not expecting a label defined here"
+        );
+    }
+
+    #[test]
+    fn reserved_mnemonic_name() {
+        let mut parser = Parser::default();
+
+        let err = parser.parse("lda = $10".as_bytes()).unwrap_err();
+        assert_eq!(
+            err.first().unwrap().message,
+            "cannot use the reserved mnemonic 'lda' as a variable name"
+        );
+    }
+
     // Assignments
 
     #[test]
     fn bad_assignments() {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
 
-        let mut err = parser.parse("abc = $10".as_bytes());
+        let mut err = parser.parse("abc = $10".as_bytes()).unwrap_err();
         assert_eq!(
-            err.unwrap_err().message,
+            err.first().unwrap().message,
             "cannot use names which are valid hexadecimal values such as 'abc'"
         );
 
-        parser = Parser::new();
-        err = parser.parse("var =".as_bytes());
-        assert_eq!(err.unwrap_err().message, "incomplete assignment");
+        parser = Parser::default();
+        err = parser.parse("var =".as_bytes()).unwrap_err();
+        assert_eq!(err.first().unwrap().message, "incomplete assignment");
 
-        parser = Parser::new();
-        err = parser.parse("var =   ".as_bytes());
-        assert_eq!(err.unwrap_err().message, "incomplete assignment");
+        parser = Parser::default();
+        err = parser.parse("var =   ".as_bytes()).unwrap_err();
+        assert_eq!(err.first().unwrap().message, "incomplete assignment");
 
-        parser = Parser::new();
-        err = parser.parse("var =   ; Comment".as_bytes());
-        assert_eq!(err.unwrap_err().message, "incomplete assignment");
+        parser = Parser::default();
+        err = parser.parse("var =   ; Comment".as_bytes()).unwrap_err();
+        assert_eq!(err.first().unwrap().message, "incomplete assignment");
     }
 
     // Control statements.
 
     #[test]
     fn parse_control_no_args() {
-        for line in vec![".end", "    .end", " label: .end   ; Comment"].into_iter() {
-            let mut parser = Parser::new();
+        for line in vec![
+            ".endmacro",
+            "    .endmacro",
+            " label: .endmacro   ; Comment",
+        ]
+        .into_iter()
+        {
+            let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
-            assert_node(node, NodeType::Control, line, ".end");
+            assert_node(node, NodeType::Control, line, ".endmacro");
             assert!(node.left.is_none());
             assert!(node.right.is_none());
             assert!(node.args.is_none());
@@ -1117,7 +1234,7 @@ mod tests {
         ]
         .into_iter()
         {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
@@ -1142,7 +1259,7 @@ mod tests {
         ]
         .into_iter()
         {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
@@ -1167,7 +1284,7 @@ mod tests {
         ]
         .into_iter()
         {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
@@ -1191,7 +1308,7 @@ mod tests {
         ]
         .into_iter()
         {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
@@ -1218,7 +1335,7 @@ mod tests {
         ]
         .into_iter()
         {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
@@ -1238,9 +1355,11 @@ mod tests {
     #[test]
     fn parse_control_bad_number_args() {
         for line in vec![".hibyte", ".hibyte($20, $22)"].into_iter() {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
+            let err = parser.parse(line.as_bytes()).unwrap_err();
+
             assert_eq!(
-                parser.parse(line.as_bytes()).unwrap_err().message,
+                err.first().unwrap().message,
                 "wrong number of arguments for function '.hibyte'"
             );
         }
@@ -1249,7 +1368,7 @@ mod tests {
     #[test]
     fn parse_control_in_instructions() {
         for line in vec!["lda #.hibyte($2010)", "  label:   lda #.hibyte   $2010   "].into_iter() {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
@@ -1281,7 +1400,7 @@ mod tests {
         ]
         .into_iter()
         {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
@@ -1320,7 +1439,7 @@ mod tests {
         ]
         .into_iter()
         {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
@@ -1360,7 +1479,7 @@ mod tests {
         ]
         .into_iter()
         {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
@@ -1386,17 +1505,13 @@ mod tests {
 
     #[test]
     fn parse_unknown_control() {
-        let mut parser = Parser::new();
-        assert_eq!(
-            parser.parse(".".as_bytes()).unwrap_err().message,
-            "unknown function '.'"
-        );
+        let mut parser = Parser::default();
+        let mut err = parser.parse(".".as_bytes()).unwrap_err();
+        assert_eq!(err.first().unwrap().message, "unknown function '.'");
 
-        parser = Parser::new();
-        assert_eq!(
-            parser.parse(".whatever".as_bytes()).unwrap_err().message,
-            "unknown function '.whatever'"
-        );
+        parser = Parser::default();
+        err = parser.parse(".whatever".as_bytes()).unwrap_err();
+        assert_eq!(err.first().unwrap().message, "unknown function '.whatever'");
     }
 
     // Macro calls.
@@ -1410,7 +1525,7 @@ mod tests {
         ]
         .into_iter()
         {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
@@ -1432,7 +1547,7 @@ mod tests {
         ]
         .into_iter()
         {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
@@ -1453,7 +1568,7 @@ mod tests {
         ]
         .into_iter()
         {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
@@ -1477,7 +1592,7 @@ mod tests {
         ]
         .into_iter()
         {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
