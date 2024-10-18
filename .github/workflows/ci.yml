@@ -15,6 +15,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Ensure latest Rust stable
+        run: |
+          rustup update stable
+          rustup default stable
+
       - name: Run tests
         run: cargo test --verbose
 
