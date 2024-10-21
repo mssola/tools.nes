@@ -87,8 +87,10 @@ impl Context {
         Ok(())
     }
 
-    /// Change the current context given a `node`.
-    pub fn change_context(&mut self, node: &PNode) -> Result<(), ContextError> {
+    /// Change the current context given a `node`. Returns a tuple which states:
+    ///   0. Whether the context has changed.
+    ///   1. Whether a caller can bundle nodes safely.
+    pub fn change_context(&mut self, node: &PNode) -> Result<(bool, bool), ContextError> {
         // The parser already guarantees that the control node is
         // from a function that we already know, so calling `unwrap`
         // is not dangerous.
@@ -98,17 +100,25 @@ impl Context {
 
         // If the control function does not touch the context, leave early.
         if !control.touches_context {
-            return Ok(());
+            return Ok((false, true));
         }
 
         // And push/pop the context depending on the control being used.
         match node.value.value.as_str() {
-            ".macro" | ".proc" | ".scope" => self.context_push(&node.left.clone().unwrap()),
-            ".endmacro" | ".endproc" | ".endscope" => self.context_pop(&node.value)?,
-            _ => {}
+            ".macro" => {
+                self.context_push(&node.left.clone().unwrap());
+                Ok((true, false))
+            }
+            ".proc" | ".scope" => {
+                self.context_push(&node.left.clone().unwrap());
+                Ok((true, true))
+            }
+            ".endmacro" | ".endproc" | ".endscope" => {
+                self.context_pop(&node.value)?;
+                Ok((true, true))
+            }
+            _ => Ok((false, true)),
         }
-
-        Ok(())
     }
 
     // Pushes a new context given a `node`, which holds the identifier of the

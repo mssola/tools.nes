@@ -60,6 +60,7 @@ pub struct Assembler {
     literal_mode: Option<LiteralMode>,
     stage: Stage,
     macros: HashMap<String, Macro>,
+    can_bundle: bool,
 }
 
 impl Assembler {
@@ -78,6 +79,7 @@ impl Assembler {
             literal_mode: None,
             stage: Stage::Init,
             macros: HashMap::new(),
+            can_bundle: true,
         }
     }
 
@@ -187,12 +189,11 @@ impl Assembler {
     pub fn bundle(&mut self, nodes: &Vec<PNode>) -> Result<Vec<Bundle>, Vec<Error>> {
         let mut bundles = Vec::new();
         let mut errors = Vec::new();
-        let mut inside_macro = false;
 
         for node in nodes {
             match node.node_type {
                 NodeType::Instruction => {
-                    if !inside_macro {
+                    if self.can_bundle {
                         match self.evaluate_node(node) {
                             Ok(bundle) => bundles.push(bundle),
                             Err(e) => errors.push(Error::Eval(e)),
@@ -200,23 +201,8 @@ impl Assembler {
                     }
                 }
                 NodeType::Control => {
-                    let id = node.value.value.as_str();
-
-                    // TODO: skip macros altogether.
-                    if id == ".macro" {
-                        if inside_macro {
-                            errors.push(Error::Eval(EvalError {
-                                message: "nesting macros is forbidden".to_string(),
-                                line: node.value.line,
-                            }));
-                            continue;
-                        }
-                        inside_macro = true;
-                    } else if id == ".endmacro" {
-                        inside_macro = false;
-                    } else if let Err(err) = self.context.change_context(node) {
-                        // TODO: forbid if inside_macro
-                        errors.push(Error::Context(err));
+                    if let Err(e) = self.evaluate_control_statement(node, &mut bundles) {
+                        errors.push(Error::Eval(e));
                     }
                 }
                 NodeType::Value | NodeType::Call => {
@@ -301,7 +287,7 @@ impl Assembler {
         match node.node_type {
             NodeType::Instruction => Ok(self.evaluate_instruction(node)?),
             NodeType::Literal => Ok(self.evaluate_literal(node)?),
-            NodeType::Control => Ok(self.evaluate_control(node)?),
+            NodeType::Control => Ok(self.evaluate_control_expression(node)?),
             NodeType::Value => match self.literal_mode {
                 Some(LiteralMode::Hexadecimal) => Ok(self.evaluate_hexadecimal(node)?),
                 Some(LiteralMode::Binary) => Ok(self.evaluate_binary(node)?),
@@ -583,7 +569,38 @@ impl Assembler {
         }
     }
 
-    fn evaluate_control(&mut self, node: &PNode) -> Result<Bundle, EvalError> {
+    fn evaluate_control_statement(
+        &mut self,
+        node: &PNode,
+        res: &mut Vec<Bundle>,
+    ) -> Result<(), EvalError> {
+        let changed;
+
+        // This might just be a statement that changes the context (e.g.
+        // ".macro", ".proc", etc.). In this case change the context and leave
+        // early.
+        (changed, self.can_bundle) = self.context.change_context(node)?;
+        if changed {
+            return Ok(());
+        }
+
+        // Otherwise, check the function that could act as a statement that
+        // produces bundles.
+        let function = node.value.value.as_str();
+        match function {
+            ".byte" | ".db" => self.push_evaluated_arguments(node, res, 1),
+            ".addr" | ".dw" => self.push_evaluated_arguments(node, res, 2),
+            _ => Err(EvalError {
+                line: node.value.line,
+                message: format!(
+                    "cannot handle control statement '{}' in this context",
+                    function
+                ),
+            }),
+        }
+    }
+
+    fn evaluate_control_expression(&mut self, node: &PNode) -> Result<Bundle, EvalError> {
         let function = node.value.value.as_str();
 
         match function {
@@ -620,6 +637,58 @@ impl Assembler {
         bundle.size = 1;
 
         Ok(bundle)
+    }
+
+    fn push_evaluated_arguments(
+        &mut self,
+        node: &PNode,
+        res: &mut Vec<Bundle>,
+        nbytes: u8,
+    ) -> Result<(), EvalError> {
+        match &node.args {
+            Some(args) => {
+                for arg in args {
+                    // Evaluate the argument as a node.
+                    let mut bundle = self.evaluate_node(arg)?;
+
+                    // If there is a missmatch between the expected number of
+                    // bytes and what we got, we might be able to resolve it if
+                    // we expected two bytes and only one was received: extend
+                    // it by leading zeroes. Otherwise we have to error out:
+                    // it's up to the programmer to either call `.hibyte` or
+                    // something similar if that's whay they intended.
+                    if bundle.size != nbytes {
+                        match nbytes {
+                            1 => {
+                                return Err(EvalError {
+                                    line: arg.value.line,
+                                    message: "expecting an argument that fits into a byte"
+                                        .to_string(),
+                                })
+                            }
+                            2 => {
+                                bundle.size = 2;
+                                bundle.bytes[1] = 0x00;
+                                bundle.bytes[2] = 0x00;
+                            }
+                            _ => panic!("bad argument when evaluating arguments"),
+                        }
+                    }
+                    res.push(bundle);
+                }
+            }
+            None => {
+                return Err(EvalError {
+                    line: node.value.line,
+                    message: format!(
+                        "expecting at least one argument for '{}'",
+                        node.value.value.as_str(),
+                    ),
+                })
+            }
+        }
+
+        Ok(())
     }
 
     fn evaluate_variable(&mut self, id: &PString) -> Result<Bundle, EvalError> {
@@ -1322,7 +1391,41 @@ lda #Scope::Variable
     // TODO
 
     // Control statements
-    // TODO: .byte, .word, variables in between (e.g. `.byte Variable::Value`, `lda #.hibyte(Variable)`)
+
+    #[test]
+    fn byte_literals() {
+        let mut asm = Assembler::new(EMPTY.to_vec());
+        let res = asm
+            .assemble(
+                r#"
+.scope Vars
+    Variable = 4
+.endscope
+
+.byte #Vars::Variable
+.dw $2001, $02
+"#
+                .as_bytes(),
+            )
+            .unwrap();
+
+        assert_eq!(res.len(), 3);
+
+        // .byte
+        assert_eq!(res[0].bytes[0], 0x04);
+        assert_eq!(res[0].bytes[1], 0x00);
+        assert_eq!(res[0].size, 1);
+
+        // First .dw argument.
+        assert_eq!(res[1].bytes[0], 0x01);
+        assert_eq!(res[1].bytes[1], 0x20);
+        assert_eq!(res[1].size, 2);
+
+        // Second .dw argument.
+        assert_eq!(res[2].bytes[0], 0x02);
+        assert_eq!(res[2].bytes[1], 0x00);
+        assert_eq!(res[2].size, 2);
+    }
 
     #[test]
     fn hi_lo_byte() {
