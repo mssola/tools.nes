@@ -584,8 +584,42 @@ impl Assembler {
     }
 
     fn evaluate_control(&mut self, node: &PNode) -> Result<Bundle, EvalError> {
-        println!("NODE: {:#?}", node);
-        Ok(Bundle::default())
+        let function = node.value.value.as_str();
+
+        match function {
+            ".hibyte" => self.evaluate_byte(node, true),
+            ".lobyte" => self.evaluate_byte(node, false),
+            _ => Err(EvalError {
+                line: node.value.line,
+                message: format!(
+                    "cannot handle control statement '{}' in this context",
+                    function
+                ),
+            }),
+        }
+    }
+
+    fn evaluate_byte(&mut self, node: &PNode, high: bool) -> Result<Bundle, EvalError> {
+        // The parser actually guarantees that the ".hibyte" and ".lobyte"
+        // functions have exactly one argument. Hence, if this is not the case,
+        // it's fine to let "unwrap" panic: it's a sign that's something is
+        // wrong elsewhere.
+        let arg = node.args.as_ref().unwrap().first().unwrap();
+
+        // Get the bundle from the argument
+        let mut bundle = self.evaluate_node(arg)?;
+
+        // The bundle we got is going to be shuffled if we wanted the high byte.
+        // After that, just zero out the rest (not mandatory but let's do it out
+        // of consistency) and set the size to just one byte.
+        if high {
+            bundle.bytes[0] = bundle.bytes[1];
+        }
+        bundle.bytes[1] = 0x00;
+        bundle.bytes[2] = 0x00;
+        bundle.size = 1;
+
+        Ok(bundle)
     }
 
     fn evaluate_variable(&mut self, id: &PString) -> Result<Bundle, EvalError> {
@@ -1289,6 +1323,30 @@ lda #Scope::Variable
 
     // Control statements
     // TODO: .byte, .word, variables in between (e.g. `.byte Variable::Value`, `lda #.hibyte(Variable)`)
+
+    #[test]
+    fn hi_lo_byte() {
+        let mut asm = Assembler::new(EMPTY.to_vec());
+        let res = asm
+            .assemble(
+                r#"
+Var = $2002
+lda #.lobyte(Var)
+lda #.hibyte(Var)
+"#
+                .as_bytes(),
+            )
+            .unwrap();
+
+        assert_eq!(res.len(), 2);
+        let instrs: Vec<[u8; 2]> = vec![[0xA9, 0x02], [0xA9, 0x20]];
+
+        for i in 0..2 {
+            assert_eq!(res[i].size, 2);
+            assert_eq!(res[i].bytes[0], instrs[i][0]);
+            assert_eq!(res[i].bytes[1], instrs[i][1]);
+        }
+    }
 
     // Macros
 
