@@ -126,6 +126,7 @@ impl Parser {
     fn parse_identifier(&mut self, line: &str) -> Result<(PString, NodeType), ParseError> {
         let start = self.column;
         let base_offset = self.offset;
+        let mut nt = NodeType::Value;
 
         // For the general case we just need to iterate until a whitespace
         // character or an inline comment is found. Then our PString object is
@@ -139,35 +140,113 @@ impl Parser {
             .chars()
             .peekable();
         while let Some(c) = chars.next() {
+            // Check for characters that end an identifier.
             if c.is_whitespace() || c == ':' || c == '(' || c == ')' || c == '=' {
-                // Look ahead to determine whether this is a regular ':' from a
-                // label, of a scoping operator '::'.
-                if let Some(next) = chars.peek() {
-                    if c == ':' && *next == ':' {
-                        chars.next();
-                        self.next();
-                        self.next();
-                        continue;
+                // This next match looks scarier than what it actually is. To
+                // sum things up, the ':' character is quite troublesome, since
+                // it can mean three things depending on the context.
+                //
+                //  1. A label in the form of "label:". In this case there is no
+                //     "next" character.
+                //  2. A scope operator in "Scope::Variable". In this case we
+                //     should swallow up both colon characters and continue
+                //     parsing the identifier.
+                //  3. A relative label in "jmp :-" or "jmp :+". In this case we
+                //     want to exhaust the character stream
+                match chars.peek() {
+                    Some(pc) => {
+                        if c == ':' {
+                            let next = *pc;
+                            match next {
+                                // Scope operator (e.g. "Scope::Variable").
+                                ':' => {
+                                    chars.next();
+                                    self.next();
+                                    self.next();
+                                    continue;
+                                }
+                                // Relative label (e.g. "jmp :+" or "jmp :-").
+                                '+' | '-' => {
+                                    // Relative labels start with ':' *always*.
+                                    // Hence, if there was something behind it,
+                                    // there is something wrong (e.g. "Bad:+").
+                                    if base_offset != self.offset {
+                                        return Err(ParseError {
+                                        line: self.line,
+                                        message: "you cannot have a relative label inside of an identifier".to_string(),
+                                    });
+                                    }
+
+                                    // Skip the ':' character for the next loop.
+                                    self.next();
+
+                                    // Let's exhaust the stream of characters.
+                                    let mut size = 0;
+                                    for cc in chars.by_ref() {
+                                        //  Only four levels of relative jumps
+                                        //  are allowed. This is a rather random
+                                        //  number, but if you are dealing with
+                                        //  more than two levels of relative
+                                        //  jumps you are already screwed, so we
+                                        //  are actually quite generous here for
+                                        //  what it's most probably just
+                                        //  spaghetti code.
+                                        size += 1;
+                                        if size > 4 {
+                                            return Err(ParseError {
+                                            line: self.line,
+                                            message: "you can only jump to a maximum of four relative labels".to_string(),
+                                        });
+                                        }
+
+                                        // You cannot mix '+'/'-' characters
+                                        // with others.
+                                        if cc != next {
+                                            let msg =
+                                                if next == '+' { "forward" } else { "backward" };
+                                            return Err(ParseError {
+                                                line: self.line,
+                                                message: format!(
+                                                "{} relative label can only have '{}' characters",
+                                                msg, next
+                                            ),
+                                            });
+                                        }
+                                        self.next();
+                                    }
+                                }
+                                // Regular label (e.g. "label:").
+                                _ => nt = NodeType::Label,
+                            }
+                        }
+                    }
+                    // If there are no characters left, check if it was a regular label.
+                    None => {
+                        if c == ':' {
+                            nt = NodeType::Label;
+                        }
                     }
                 }
 
-                let val = String::from(line.get(base_offset..self.offset).unwrap_or("").trim());
-                let nt = if c == ':' {
-                    NodeType::Label
-                } else {
-                    NodeType::Value
+                // The value of the identifier is whatever we have picked up
+                // along the parsing.
+                let value = String::from(line.get(base_offset..self.offset).unwrap_or("").trim());
+
+                // The end of the identifier range has to be shortened for
+                // regular labels because we want to ignore to extra ':'
+                // character in the end.
+                let end = match nt {
+                    NodeType::Label => {
+                        self.next();
+                        self.column - 1
+                    }
+                    _ => self.column,
                 };
 
-                let end = if c == ':' {
-                    self.next();
-                    self.column - 1
-                } else {
-                    self.column
-                };
-
+                // And we are done.
                 return Ok((
                     PString {
-                        value: val,
+                        value,
                         line: self.line,
                         range: Range { start, end },
                     },
@@ -1173,6 +1252,60 @@ mod tests {
         assert_eq!(
             err.first().unwrap().message,
             "cannot use the reserved mnemonic 'lda' as a variable name"
+        );
+    }
+
+    #[test]
+    fn relative_labels() {
+        for label in vec![":+", ":++", ":+++ ", ":++++", ":-", ":--", ":---", ":----"].into_iter() {
+            let line = format!("jmp {}", label);
+            let mut parser = Parser::default();
+            assert!(parser.parse(line.as_bytes()).is_ok());
+
+            let node = parser.nodes.last().unwrap();
+            assert_node(node, NodeType::Instruction, line.as_str(), "jmp");
+            assert!(node.right.is_none());
+            assert!(node.args.is_none());
+
+            assert_node(
+                &node.left.clone().unwrap(),
+                NodeType::Value,
+                line.as_str(),
+                label.trim(),
+            );
+        }
+    }
+
+    #[test]
+    fn bad_relative_labels() {
+        let mut parser = Parser::default();
+
+        let mut line = "jmp :+++++";
+        let mut err = parser.parse(line.as_bytes()).unwrap_err();
+        assert_eq!(
+            err.first().unwrap().message,
+            "you can only jump to a maximum of four relative labels"
+        );
+
+        line = "jmp :+-";
+        err = parser.parse(line.as_bytes()).unwrap_err();
+        assert_eq!(
+            err.first().unwrap().message,
+            "forward relative label can only have '+' characters"
+        );
+
+        line = "jmp :-+-";
+        err = parser.parse(line.as_bytes()).unwrap_err();
+        assert_eq!(
+            err.first().unwrap().message,
+            "backward relative label can only have '-' characters"
+        );
+
+        line = "jmp Identifier:++";
+        err = parser.parse(line.as_bytes()).unwrap_err();
+        assert_eq!(
+            err.first().unwrap().message,
+            "you cannot have a relative label inside of an identifier"
         );
     }
 
