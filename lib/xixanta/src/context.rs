@@ -59,28 +59,35 @@ impl Context {
         }
     }
 
-    /// Sets a value for a new variable defined in the assignment `node`.
-    pub fn set_variable(&mut self, id: &PString, bundle: &Bundle) -> Result<(), ContextError> {
+    /// Sets a value for a variable defined in the assignment `node`. If
+    /// `overwrite` is set to true, then this value will be set even if the
+    /// variable already existed, otherwise it will return a ContextError
+    pub fn set_variable(
+        &mut self,
+        id: &PString,
+        bundle: &Bundle,
+        overwrite: bool,
+    ) -> Result<(), ContextError> {
         let scope_name = self.name().to_string();
         let scope = self.map.get_mut(&scope_name).unwrap();
 
         match scope.get_mut(&id.value) {
-            Some(_) => {
-                return Err(ContextError {
-                    message: format!(
-                        "'{}' already defined in {}: you cannot re-assign variables",
-                        id.value,
-                        self.to_human()
-                    ),
-                    line: id.line,
-                    reason: ContextErrorReason::Redefinition,
-                })
+            Some(sc) => {
+                if !overwrite {
+                    return Err(ContextError {
+                        message: format!(
+                            "'{}' already defined in {}: you cannot re-assign variables",
+                            id.value,
+                            self.to_human()
+                        ),
+                        line: id.line,
+                        reason: ContextErrorReason::Redefinition,
+                    });
+                }
+                *sc = bundle.clone();
             }
             None => {
-                self.map.insert(
-                    scope_name,
-                    HashMap::from([(id.value.clone(), bundle.to_owned())]),
-                );
+                scope.insert(id.value.clone(), bundle.to_owned());
             }
         }
 
@@ -121,6 +128,16 @@ impl Context {
         }
     }
 
+    pub fn force_context_switch(&mut self, name: &String) {
+        self.stack.push(name.to_owned());
+    }
+
+    pub fn force_context_pop(&mut self) {
+        if !self.stack.is_empty() {
+            self.stack.truncate(self.stack.len() - 1);
+        }
+    }
+
     // Pushes a new context given a `node`, which holds the identifier of the
     // new scope.
     fn context_push(&mut self, id: &PNode) {
@@ -150,7 +167,7 @@ impl Context {
     }
 
     // Returns the name of the current context.
-    fn name(&self) -> &str {
+    pub fn name(&self) -> &str {
         match self.stack.last() {
             Some(name) => name,
             None => GLOBAL_CONTEXT,

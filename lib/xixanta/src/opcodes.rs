@@ -727,6 +727,7 @@ lazy_static! {
         functions.insert(String::from(".db"), Control { has_identifier: false, required_args: None, touches_context: false });
         functions.insert(String::from(".word"), Control { has_identifier: false, required_args: None, touches_context: false });
         functions.insert(String::from(".dw"), Control { has_identifier: false, required_args: None, touches_context: false });
+        functions.insert(String::from(".addr"), Control { has_identifier: false, required_args: None, touches_context: false });
 
         functions
     };

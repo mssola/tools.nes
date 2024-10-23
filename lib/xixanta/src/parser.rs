@@ -3,7 +3,6 @@ use crate::node::{NodeType, PNode, PString};
 use crate::opcodes::{CONTROL_FUNCTIONS, INSTRUCTIONS};
 use std::cmp::Ordering;
 use std::io::{self, BufRead, Read};
-use std::ops::Range;
 
 /// The Parser struct holds basic data for the current parsing session.
 #[derive(Default)]
@@ -248,7 +247,8 @@ impl Parser {
                     PString {
                         value,
                         line: self.line,
-                        range: Range { start, end },
+                        start,
+                        end,
                     },
                     nt,
                 ));
@@ -264,10 +264,8 @@ impl Parser {
             PString {
                 value: id,
                 line: self.line,
-                range: Range {
-                    start,
-                    end: self.column,
-                },
+                start,
+                end: self.column,
             },
             NodeType::Value,
         ))
@@ -755,7 +753,7 @@ impl Parser {
         // of expressions like '#.hibyte'. Then skip whitespaces for super
         // ugly statements such as '# 20'. This is ugly but we should permit
         // it. A later linter can yell at a programmer for this.
-        self.column = id.range.start;
+        self.column = id.start;
         self.offset = 0;
         self.next();
         self.skip_whitespace(line);
@@ -825,7 +823,7 @@ mod tests {
         assert_eq!(node.node_type, nt);
         assert_eq!(
             node.value.value.as_str(),
-            line.get(node.value.range.clone()).unwrap()
+            line.get(node.value.start..node.value.end).unwrap()
         );
         assert_eq!(node.value.value.as_str(), value);
     }
@@ -863,15 +861,15 @@ mod tests {
         assert!(parser.parse(":".as_bytes()).is_ok());
         assert_eq!(parser.nodes.len(), 1);
         assert!(parser.nodes.first().unwrap().value.value.is_empty());
-        assert_eq!(parser.nodes.first().unwrap().value.range.start, 0);
-        assert_eq!(parser.nodes.first().unwrap().value.range.end, 0);
+        assert_eq!(parser.nodes.first().unwrap().value.start, 0);
+        assert_eq!(parser.nodes.first().unwrap().value.end, 0);
 
         parser = Parser::default();
         assert!(parser.parse("  :".as_bytes()).is_ok());
         assert_eq!(parser.nodes.len(), 1);
         assert!(parser.nodes.first().unwrap().value.value.is_empty());
-        assert_eq!(parser.nodes.first().unwrap().value.range.start, 2);
-        assert_eq!(parser.nodes.first().unwrap().value.range.end, 2);
+        assert_eq!(parser.nodes.first().unwrap().value.start, 2);
+        assert_eq!(parser.nodes.first().unwrap().value.end, 2);
     }
 
     #[test]
@@ -880,15 +878,15 @@ mod tests {
         assert!(parser.parse("label:".as_bytes()).is_ok());
         assert_eq!(parser.nodes.len(), 1);
         assert_eq!(parser.nodes.first().unwrap().value.value, "label");
-        assert_eq!(parser.nodes.first().unwrap().value.range.start, 0);
-        assert_eq!(parser.nodes.first().unwrap().value.range.end, 5);
+        assert_eq!(parser.nodes.first().unwrap().value.start, 0);
+        assert_eq!(parser.nodes.first().unwrap().value.end, 5);
 
         parser = Parser::default();
         assert!(parser.parse("  label:".as_bytes()).is_ok());
         assert_eq!(parser.nodes.len(), 1);
         assert_eq!(parser.nodes.first().unwrap().value.value, "label");
-        assert_eq!(parser.nodes.first().unwrap().value.range.start, 2);
-        assert_eq!(parser.nodes.first().unwrap().value.range.end, 7);
+        assert_eq!(parser.nodes.first().unwrap().value.start, 2);
+        assert_eq!(parser.nodes.first().unwrap().value.end, 7);
     }
 
     #[test]
@@ -901,8 +899,8 @@ mod tests {
 
         // Label.
         assert_eq!(parser.nodes.first().unwrap().value.value, "label");
-        assert_eq!(parser.nodes.first().unwrap().value.range.start, 0);
-        assert_eq!(parser.nodes.first().unwrap().value.range.end, 5);
+        assert_eq!(parser.nodes.first().unwrap().value.start, 0);
+        assert_eq!(parser.nodes.first().unwrap().value.end, 5);
 
         // Instruction
         assert_node(
@@ -929,7 +927,7 @@ mod tests {
             let left = node.left.clone().unwrap();
             assert_eq!(left.node_type, NodeType::Value);
             assert_eq!(left.value.value, "20");
-            assert_eq!(line.get(left.value.range).unwrap(), "20");
+            assert_eq!(line.get(left.value.start..left.value.end).unwrap(), "20");
         }
     }
 
@@ -947,12 +945,16 @@ mod tests {
         let inner = node.left.clone().unwrap();
         assert_eq!(inner.node_type, NodeType::Literal);
         assert_eq!(inner.value.value, "$20");
-        assert_eq!(line.get(inner.value.range).unwrap(), "$20");
+        assert_eq!(line.get(inner.value.start..inner.value.end).unwrap(), "$20");
 
         let innerinner = inner.left.clone().unwrap();
         assert_eq!(innerinner.node_type, NodeType::Value);
         assert_eq!(innerinner.value.value, "20");
-        assert_eq!(line.get(innerinner.value.range).unwrap(), "20");
+        assert_eq!(
+            line.get(innerinner.value.start..innerinner.value.end)
+                .unwrap(),
+            "20"
+        );
     }
 
     #[test]
@@ -969,7 +971,10 @@ mod tests {
         let inner = node.left.clone().unwrap();
         assert_eq!(inner.node_type, NodeType::Value);
         assert_eq!(inner.value.value, "Variable");
-        assert_eq!(line.get(inner.value.range).unwrap(), "Variable");
+        assert_eq!(
+            line.get(inner.value.start..inner.value.end).unwrap(),
+            "Variable"
+        );
     }
 
     #[test]

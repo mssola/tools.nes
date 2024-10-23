@@ -10,7 +10,8 @@ use std::io::Read;
 use std::ops::Range;
 
 /// A Bundle represents a set of bytes that can be encoded as binary data.
-#[derive(Debug, Default, Clone)]
+/// TODO: maybe inside of Mapping?
+#[derive(Debug, Default, Clone, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Bundle {
     /// The bytes which make up any encodable element for the application. The
     /// capacity is of three bytes maximum, but the actual size is encoded in
@@ -30,6 +31,28 @@ pub struct Bundle {
 
     /// Whether the cost in cycles is affected when crossing a page boundary.
     pub affected_on_page: bool,
+
+    resolved: bool,
+}
+
+impl Bundle {
+    pub fn new(resolved: bool) -> Self {
+        Self {
+            resolved,
+            ..Default::default()
+        }
+    }
+
+    pub fn fill(value: u8) -> Self {
+        Self {
+            bytes: [value, 0, 0],
+            size: 1,
+            address: 0,
+            cycles: 0,
+            affected_on_page: false,
+            resolved: true,
+        }
+    }
 }
 
 #[derive(Clone, PartialEq)]
@@ -55,23 +78,28 @@ pub struct Macro {
     args: Vec<PString>,
 }
 
+#[derive(Clone, Debug)]
+pub struct PendingNode {
+    segment: usize,
+    context: String,
+    bundle_index: usize,
+    node: PNode,
+}
+
 pub struct Assembler {
     context: Context,
     literal_mode: Option<LiteralMode>,
     stage: Stage,
     macros: HashMap<String, Macro>,
     can_bundle: bool,
+    segments: Vec<Segment>,
+    current_segment: usize,
+    pending: Vec<PendingNode>,
 }
 
 impl Assembler {
     pub fn new(segments: Vec<Segment>) -> Self {
         assert!(!segments.is_empty());
-
-        // TODO
-        let mut offsets = HashMap::new();
-        for segment in segments {
-            offsets.insert(segment.name, 0);
-        }
 
         // TODO
         Self {
@@ -80,6 +108,9 @@ impl Assembler {
             stage: Stage::Init,
             macros: HashMap::new(),
             can_bundle: true,
+            segments,
+            current_segment: 0,
+            pending: vec![],
         }
     }
 
@@ -103,7 +134,10 @@ impl Assembler {
         // Finally convert the relevant nodes into binary bundles which can be
         // used by the caller.
         self.stage = Stage::Bundling;
-        self.bundle(&parser.nodes)
+        self.bundle(&parser.nodes)?;
+
+        // TODO
+        self.crunch_and_resolve_pending()
     }
 
     pub fn eval_context(&mut self, nodes: &[PNode]) -> Result<(), Vec<Error>> {
@@ -111,8 +145,15 @@ impl Assembler {
         let mut current_macro = None;
 
         for (idx, node) in nodes.iter().enumerate() {
-            // TODO: initilize labels on each scope.
             match node.node_type {
+                NodeType::Label => {
+                    if let Err(err) =
+                        self.context
+                            .set_variable(&node.value, &Bundle::default(), false)
+                    {
+                        errors.push(Error::Context(err));
+                    }
+                }
                 NodeType::Assignment => {
                     // TODO: in fact, we cannot have assignments in many places.
                     if current_macro.is_some() {
@@ -125,7 +166,8 @@ impl Assembler {
                     }
                     match self.evaluate_node(node.left.as_ref().unwrap()) {
                         Ok(value) => {
-                            if let Err(err) = self.context.set_variable(&node.value, &value) {
+                            if let Err(err) = self.context.set_variable(&node.value, &value, false)
+                            {
                                 errors.push(Error::Context(err));
                             }
                         }
@@ -186,27 +228,47 @@ impl Assembler {
         }
     }
 
-    pub fn bundle(&mut self, nodes: &Vec<PNode>) -> Result<Vec<Bundle>, Vec<Error>> {
-        let mut bundles = Vec::new();
+    pub fn bundle(&mut self, nodes: &Vec<PNode>) -> Result<(), Vec<Error>> {
         let mut errors = Vec::new();
 
         for node in nodes {
             match node.node_type {
+                NodeType::Label => {
+                    let segment = &self.segments[self.current_segment];
+                    let value = (segment.start as usize + segment.offset).to_le_bytes();
+                    let bundle = Bundle {
+                        bytes: [value[0], value[1], value[2]],
+                        size: 2,
+                        address: 0,
+                        cycles: 0,
+                        affected_on_page: false,
+                        resolved: true,
+                    };
+
+                    if let Err(err) = self.context.set_variable(&node.value, &bundle, true) {
+                        errors.push(Error::Context(err));
+                    }
+                }
                 NodeType::Instruction => {
                     if self.can_bundle {
+                        self.literal_mode = None;
                         match self.evaluate_node(node) {
-                            Ok(bundle) => bundles.push(bundle),
+                            Ok(bundle) => {
+                                if let Err(e) = self.push_bundle(bundle, node) {
+                                    errors.push(Error::Eval(e));
+                                }
+                            }
                             Err(e) => errors.push(Error::Eval(e)),
                         }
                     }
                 }
                 NodeType::Control => {
-                    if let Err(e) = self.evaluate_control_statement(node, &mut bundles) {
+                    if let Err(e) = self.evaluate_control_statement(node) {
                         errors.push(Error::Eval(e));
                     }
                 }
                 NodeType::Value | NodeType::Call => {
-                    if let Err(e) = self.bundle_call(node, nodes, &mut bundles) {
+                    if let Err(e) = self.bundle_call(node, nodes) {
                         errors.push(Error::Eval(e));
                     }
                 }
@@ -216,18 +278,43 @@ impl Assembler {
         }
 
         if errors.is_empty() {
-            Ok(bundles)
+            Ok(())
         } else {
             Err(errors)
         }
     }
 
-    fn bundle_call(
-        &mut self,
-        node: &PNode,
-        nodes: &[PNode],
-        bundles: &mut Vec<Bundle>,
-    ) -> Result<(), EvalError> {
+    // TODO: maybe split?
+    pub fn crunch_and_resolve_pending(&mut self) -> Result<Vec<Bundle>, Vec<Error>> {
+        let mut errors = vec![];
+
+        for pn in self.pending.clone() {
+            self.context.force_context_switch(&pn.context);
+
+            match self.evaluate_node(&pn.node) {
+                Ok(bundle) => {
+                    let current = &mut self.segments[pn.segment];
+                    current.bundles[pn.bundle_index] = bundle;
+                }
+                Err(e) => errors.push(Error::Eval(e)),
+            }
+
+            self.context.force_context_pop();
+        }
+
+        let mut res = vec![];
+        for segment in &mut self.segments {
+            res.append(&mut segment.bundles);
+
+            if let Some(_fill) = segment.fill {
+                // TODO
+            }
+        }
+
+        Ok(res)
+    }
+
+    fn bundle_call(&mut self, node: &PNode, nodes: &[PNode]) -> Result<(), EvalError> {
         // Get the macro object for the given identifier.
         let mcr = self
             .macros
@@ -267,7 +354,7 @@ impl Assembler {
             for (idx, arg) in args.unwrap().iter().enumerate() {
                 let bundle = self.evaluate_node(arg)?;
                 self.context
-                    .set_variable(margs.nth(idx).unwrap(), &bundle)?;
+                    .set_variable(margs.nth(idx).unwrap(), &bundle, false)?;
             }
         }
 
@@ -277,8 +364,37 @@ impl Assembler {
             .get(mcr.nodes.start..=mcr.nodes.end)
             .unwrap_or_default()
         {
-            bundles.push(self.evaluate_node(node)?);
+            let bundle = self.evaluate_node(node)?;
+            self.push_bundle(bundle, node)?;
         }
+
+        Ok(())
+    }
+
+    // TODO: move
+    fn push_bundle(&mut self, bundle: Bundle, node: &PNode) -> Result<(), EvalError> {
+        let current = &mut self.segments[self.current_segment];
+        current.offset += bundle.size as usize;
+
+        if current.offset > current.size {
+            return Err(EvalError {
+                line: 0,
+                message: format!(
+                    "exceeding segment size for '{}' ({} bytes)",
+                    current.name, current.size
+                ),
+            });
+        }
+
+        if !bundle.resolved {
+            self.pending.push(PendingNode {
+                segment: self.current_segment,
+                context: self.context.name().to_string(),
+                bundle_index: current.bundles.len(),
+                node: node.to_owned(),
+            });
+        }
+        current.bundles.push(bundle);
 
         Ok(())
     }
@@ -381,6 +497,7 @@ impl Assembler {
             address: 0,
             cycles: 0,
             affected_on_page: false,
+            resolved: true,
         })
     }
 
@@ -427,6 +544,7 @@ impl Assembler {
                 address: 0,
                 cycles: 0,
                 affected_on_page: false,
+                resolved: true,
             }),
         }
     }
@@ -498,6 +616,7 @@ impl Assembler {
             address: 0,
             cycles: 0,
             affected_on_page: false,
+            resolved: true,
         })
     }
 
@@ -569,11 +688,7 @@ impl Assembler {
         }
     }
 
-    fn evaluate_control_statement(
-        &mut self,
-        node: &PNode,
-        res: &mut Vec<Bundle>,
-    ) -> Result<(), EvalError> {
+    fn evaluate_control_statement(&mut self, node: &PNode) -> Result<(), EvalError> {
         let changed;
 
         // This might just be a statement that changes the context (e.g.
@@ -588,8 +703,8 @@ impl Assembler {
         // produces bundles.
         let function = node.value.value.as_str();
         match function {
-            ".byte" | ".db" => self.push_evaluated_arguments(node, res, 1),
-            ".addr" | ".dw" => self.push_evaluated_arguments(node, res, 2),
+            ".byte" | ".db" => self.push_evaluated_arguments(node, 1),
+            ".addr" | ".word" | ".dw" => self.push_evaluated_arguments(node, 2),
             _ => Err(EvalError {
                 line: node.value.line,
                 message: format!(
@@ -639,12 +754,7 @@ impl Assembler {
         Ok(bundle)
     }
 
-    fn push_evaluated_arguments(
-        &mut self,
-        node: &PNode,
-        res: &mut Vec<Bundle>,
-        nbytes: u8,
-    ) -> Result<(), EvalError> {
+    fn push_evaluated_arguments(&mut self, node: &PNode, nbytes: u8) -> Result<(), EvalError> {
         match &node.args {
             Some(args) => {
                 for arg in args {
@@ -674,7 +784,7 @@ impl Assembler {
                             _ => panic!("bad argument when evaluating arguments"),
                         }
                     }
-                    res.push(bundle);
+                    self.push_bundle(bundle, node)?;
                 }
             }
             None => {
@@ -704,7 +814,7 @@ impl Assembler {
     fn evaluate_instruction(&mut self, node: &PNode) -> Result<Bundle, EvalError> {
         let (mode, mut bundle) = match &node.left {
             Some(_) => self.get_addressing_mode_and_bytes(node)?,
-            None => (AddressingMode::Implied, Bundle::default()),
+            None => (AddressingMode::Implied, Bundle::new(true)),
         };
 
         let mnemonic = node.value.value.to_lowercase();
@@ -749,7 +859,7 @@ impl Assembler {
         } else if node.right.is_some() {
             self.get_from_indexed(node)
         } else {
-            self.get_from_left(left.as_ref().unwrap())
+            self.get_from_left(node, left.as_ref().unwrap())
         }
     }
 
@@ -856,9 +966,13 @@ impl Assembler {
         }
     }
 
-    fn get_from_left(&mut self, left_arm: &PNode) -> Result<(AddressingMode, Bundle), EvalError> {
+    fn get_from_left(
+        &mut self,
+        base: &PNode,
+        left_arm: &PNode,
+    ) -> Result<(AddressingMode, Bundle), EvalError> {
         if left_arm.value.value.to_lowercase().trim() == "a" {
-            return Ok((AddressingMode::Implied, Bundle::default()));
+            return Ok((AddressingMode::Implied, Bundle::new(true)));
         }
 
         let val = self.evaluate_node(left_arm)?;
@@ -872,10 +986,13 @@ impl Assembler {
             }
             Some(LiteralMode::Plain) => {
                 if val.size > 1 {
-                    Err(EvalError {
-                        message: "immediate is too big".to_string(),
-                        line: left_arm.value.line,
-                    })
+                    match base.value.value.as_str() {
+                        "jmp" | "jsr" => Ok((AddressingMode::Absolute, val)),
+                        _ => Err(EvalError {
+                            message: "immediate is too big".to_string(),
+                            line: left_arm.value.line,
+                        }),
+                    }
                 } else {
                     Ok((AddressingMode::Immediate, val))
                 }
@@ -1388,7 +1505,41 @@ lda #Scope::Variable
     }
 
     // Labels & branching
-    // TODO
+
+    #[test]
+    fn same_segment_labels() {
+        let mut asm = Assembler::new(EMPTY.to_vec());
+        let res = asm
+            .assemble(
+                r#"
+nop
+@hello:
+    jmp @hello
+    jmp @end
+@end:
+    nop
+"#
+                .as_bytes(),
+            )
+            .unwrap();
+
+        assert_eq!(res.len(), 4);
+
+        // jmp @hello
+        assert_eq!(res[1].size, 3);
+        assert_eq!(res[1].bytes[0], 0x4C);
+        assert_eq!(res[1].bytes[1], 0x01);
+        assert_eq!(res[1].bytes[2], 0x00);
+
+        // jmp @end
+        assert_eq!(res[2].size, 3);
+        assert_eq!(res[2].bytes[0], 0x4C);
+        assert_eq!(res[2].bytes[1], 0x07);
+        assert_eq!(res[2].bytes[2], 0x00);
+    }
+
+    // TODO: anonymous jumps
+    // TODO: labels & anonymous beq/blt/etc.
 
     // Control statements
 
@@ -1613,4 +1764,7 @@ MACRO(1)
              you cannot re-assign variables."
         );
     }
+
+    // Segments
+    // TODO: segments as is, fill data, jmp's
 }

@@ -1,5 +1,4 @@
 use std::fmt;
-use std::ops::Range;
 
 /// A Positioned String. That is, a String which also has information on the
 /// line number and the column range.
@@ -11,14 +10,17 @@ pub struct PString {
     /// Line number where it has been found.
     pub line: usize,
 
-    /// The column range where it has been found.
-    pub range: Range<usize>,
+    /// The start column where it has been found.
+    pub start: usize,
+
+    /// The end column where it has been found.
+    pub end: usize,
 }
 
 impl PString {
     /// Returns true if the string has either an empty value or an empty range.
     pub fn is_empty(&self) -> bool {
-        self.value.is_empty() || self.range.is_empty()
+        self.value.is_empty() || (self.start == self.end)
     }
 
     /// Returns an empty tuple if the string contains a valid identifier, or a

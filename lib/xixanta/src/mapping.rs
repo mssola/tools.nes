@@ -1,34 +1,46 @@
+use crate::assembler::Bundle;
+
 lazy_static! {
     pub static ref EMPTY: Vec<Segment> = vec![Segment {
         name: String::from("CODE"),
         start: 0x0000,
         size: 0xFFFF,
+        offset: 0,
         fill: None,
+        bundles: vec![],
     }];
     pub static ref NROM: Vec<Segment> = vec![
         Segment {
             name: String::from("HEADER"),
             start: 0x0000,
             size: 0x0010,
+            offset: 0,
             fill: Some(0x00),
+            bundles: vec![],
         },
         Segment {
             name: String::from("VECTORS"),
             start: 0xFFFA,
             size: 0x0006,
+            offset: 0,
             fill: Some(0x00),
+            bundles: vec![],
         },
         Segment {
             name: String::from("CODE"),
             start: 0x8000,
             size: 0x7FFA,
+            offset: 0,
             fill: Some(0x00),
+            bundles: vec![],
         },
         Segment {
             name: String::from("CHARS"),
             start: 0x0000,
             size: 0x2000,
+            offset: 0,
             fill: Some(0x00),
+            bundles: vec![],
         }
     ];
 }
@@ -38,7 +50,9 @@ pub struct Segment {
     pub name: String,
     pub start: u16,
     pub size: usize,
+    pub offset: usize,
     pub fill: Option<usize>,
+    pub bundles: Vec<Bundle>,
 }
 
 /* TODO
