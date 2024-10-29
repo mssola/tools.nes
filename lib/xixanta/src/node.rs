@@ -82,6 +82,24 @@ impl PString {
     }
 }
 
+/// The type of control function being used. Use this enum in order to detect
+/// which control function was detected instead of the node value.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ControlType {
+    Hibyte,
+    Lobyte,
+    StartMacro,
+    EndMacro,
+    StartProc,
+    EndProc,
+    StartScope,
+    EndScope,
+    Segment,
+    Byte,
+    Word,
+    Addr,
+}
+
 /// The PNode type.
 #[derive(Debug, Clone, PartialEq)]
 pub enum NodeType {
@@ -106,10 +124,12 @@ pub enum NodeType {
     Assignment,
 
     /// A control statement (e.g. ".proc foo"). The `value` string contains the
-    /// name of the function, the `left` an optional identifier (e.g. the "foo"
-    /// on ".proc foo"), and the `args` contain any possible arguments that have
-    /// been passed to this control statement.
-    Control,
+    /// name of the function as it was provided (use the `ControlType` value of
+    /// the enum to detect which function was exactly provided), the `left` an
+    /// optional identifier (e.g. the "foo" on ".proc foo"), and the `args`
+    /// contain any possible arguments that have been passed to this control
+    /// statement.
+    Control(ControlType),
 
     /// A literal expression, that is, something that starts with '#', '%' or
     /// '$'. The `left` node contains the inner expression.
@@ -130,7 +150,7 @@ impl fmt::Display for NodeType {
             NodeType::Instruction => write!(f, "instruction"),
             NodeType::Indirection => write!(f, "indirection"),
             NodeType::Assignment => write!(f, "assignment"),
-            NodeType::Control => write!(f, "control function"),
+            NodeType::Control(_) => write!(f, "control function"),
             NodeType::Literal => write!(f, "literal"),
             NodeType::Label => write!(f, "label"),
             NodeType::Call => write!(f, "call"),

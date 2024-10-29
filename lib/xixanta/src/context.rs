@@ -1,6 +1,6 @@
 use crate::assembler::Bundle;
 use crate::errors::{ContextError, ContextErrorReason};
-use crate::node::{PNode, PString};
+use crate::node::{ControlType, NodeType, PNode, PString};
 use crate::opcodes::CONTROL_FUNCTIONS;
 use std::collections::HashMap;
 
@@ -111,16 +111,19 @@ impl Context {
         }
 
         // And push/pop the context depending on the control being used.
-        match node.value.value.as_str() {
-            ".macro" => {
+        match node.node_type {
+            NodeType::Control(ControlType::StartMacro) => {
                 self.context_push(&node.left.clone().unwrap());
                 Ok((true, false))
             }
-            ".proc" | ".scope" => {
+            NodeType::Control(ControlType::StartProc)
+            | NodeType::Control(ControlType::StartScope) => {
                 self.context_push(&node.left.clone().unwrap());
                 Ok((true, true))
             }
-            ".endmacro" | ".endproc" | ".endscope" => {
+            NodeType::Control(ControlType::EndMacro)
+            | NodeType::Control(ControlType::EndProc)
+            | NodeType::Control(ControlType::EndScope) => {
                 self.context_pop(&node.value)?;
                 Ok((true, true))
             }

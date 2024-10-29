@@ -703,11 +703,13 @@ impl Parser {
     fn parse_control(&mut self, id: PString, line: &str) -> Result<PNode, ParseError> {
         let mut left = None;
         let required;
+        let node_type;
 
         // Ensure that this is a function that we know of. In the past this was
         // not done and it brought too many problems that made the more
         // "abstract" way of handling this just too complicated.
         if let Some(control) = CONTROL_FUNCTIONS.get(&id.value.to_lowercase()) {
+            node_type = control.control_type.clone();
             required = control.required_args;
 
             // If this control function has an identifier (e.g. `.macro
@@ -740,7 +742,7 @@ impl Parser {
         }
 
         Ok(PNode {
-            node_type: NodeType::Control,
+            node_type: NodeType::Control(node_type),
             value: id,
             left,
             right: None,
@@ -815,6 +817,7 @@ impl Parser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::node::ControlType;
 
     fn assert_one_valid(parser: &mut Parser, line: &str) {
         assert!(parser.parse(line.as_bytes()).is_ok());
@@ -1356,7 +1359,12 @@ mod tests {
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
-            assert_node(node, NodeType::Control, line, ".endmacro");
+            assert_node(
+                node,
+                NodeType::Control(ControlType::EndMacro),
+                line,
+                ".endmacro",
+            );
             assert!(node.left.is_none());
             assert!(node.right.is_none());
             assert!(node.args.is_none());
@@ -1378,7 +1386,12 @@ mod tests {
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
-            assert_node(node, NodeType::Control, line, ".hibyte");
+            assert_node(
+                node,
+                NodeType::Control(ControlType::Hibyte),
+                line,
+                ".hibyte",
+            );
             assert!(node.left.is_none());
             assert!(node.right.is_none());
 
@@ -1403,7 +1416,7 @@ mod tests {
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
-            assert_node(node, NodeType::Control, line, ".byte");
+            assert_node(node, NodeType::Control(ControlType::Byte), line, ".byte");
             assert!(node.left.is_none());
             assert!(node.right.is_none());
 
@@ -1428,7 +1441,12 @@ mod tests {
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
-            assert_node(node, NodeType::Control, line, ".scope");
+            assert_node(
+                node,
+                NodeType::Control(ControlType::StartScope),
+                line,
+                ".scope",
+            );
             assert!(node.right.is_none());
             assert!(node.args.is_none());
 
@@ -1452,7 +1470,12 @@ mod tests {
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
-            assert_node(node, NodeType::Control, line, ".macro");
+            assert_node(
+                node,
+                NodeType::Control(ControlType::StartMacro),
+                line,
+                ".macro",
+            );
             assert!(node.right.is_none());
 
             let left = node.left.clone().unwrap();
@@ -1479,7 +1502,12 @@ mod tests {
             assert!(parser.parse(line.as_bytes()).is_ok());
 
             let node = parser.nodes.last().unwrap();
-            assert_node(node, NodeType::Control, line, ".macro");
+            assert_node(
+                node,
+                NodeType::Control(ControlType::StartMacro),
+                line,
+                ".macro",
+            );
             assert!(node.right.is_none());
 
             let left = node.left.clone().unwrap();
@@ -1522,7 +1550,12 @@ mod tests {
             assert!(left.args.is_none());
 
             let control = left.left.clone().unwrap();
-            assert_node(&control, NodeType::Control, line, ".hibyte");
+            assert_node(
+                &control,
+                NodeType::Control(ControlType::Hibyte),
+                line,
+                ".hibyte",
+            );
             assert!(control.left.is_none());
             assert!(control.right.is_none());
 
@@ -1558,7 +1591,12 @@ mod tests {
             assert!(left.args.is_none());
 
             let control = left.left.clone().unwrap();
-            assert_node(&control, NodeType::Control, line, ".hibyte");
+            assert_node(
+                &control,
+                NodeType::Control(ControlType::Hibyte),
+                line,
+                ".hibyte",
+            );
             assert!(control.left.is_none());
             assert!(control.right.is_none());
 
@@ -1597,7 +1635,12 @@ mod tests {
             assert!(left.args.is_none());
 
             let control = left.left.clone().unwrap();
-            assert_node(&control, NodeType::Control, line, ".hibyte");
+            assert_node(
+                &control,
+                NodeType::Control(ControlType::Hibyte),
+                line,
+                ".hibyte",
+            );
             assert!(control.left.is_none());
             assert!(control.right.is_none());
 
@@ -1633,7 +1676,12 @@ mod tests {
             assert!(left.args.is_none());
 
             let control = left.left.clone().unwrap();
-            assert_node(&control, NodeType::Control, line, ".hibyte");
+            assert_node(
+                &control,
+                NodeType::Control(ControlType::Hibyte),
+                line,
+                ".hibyte",
+            );
             assert!(control.left.is_none());
             assert!(control.right.is_none());
 

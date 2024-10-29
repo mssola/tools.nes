@@ -1,3 +1,4 @@
+use crate::node::ControlType;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -55,6 +56,7 @@ pub struct ShortEntry {
 
 #[derive(Debug)]
 pub struct Control {
+    pub control_type: ControlType,
     pub has_identifier: bool,
     pub required_args: Option<usize>,
     pub touches_context: bool,
@@ -714,20 +716,20 @@ lazy_static! {
     pub static ref CONTROL_FUNCTIONS: HashMap<String, Control> = {
         let mut functions = HashMap::new();
 
-        functions.insert(String::from(".hibyte"), Control { has_identifier: false, required_args: Some(1), touches_context: false });
-        functions.insert(String::from(".lobyte"), Control { has_identifier: false, required_args: Some(1), touches_context: false });
-        functions.insert(String::from(".macro"), Control { has_identifier: true, required_args: None, touches_context: true });
-        functions.insert(String::from(".proc"), Control { has_identifier: true, required_args: Some(0), touches_context: true });
-        functions.insert(String::from(".scope"), Control { has_identifier: true, required_args: Some(0), touches_context: true });
-        functions.insert(String::from(".endscope"), Control { has_identifier: false, required_args: Some(0), touches_context: true });
-        functions.insert(String::from(".endproc"), Control { has_identifier: false, required_args: Some(0), touches_context: true });
-        functions.insert(String::from(".endmacro"), Control { has_identifier: false, required_args: Some(0), touches_context: true });
-        functions.insert(String::from(".segment"), Control { has_identifier: false, required_args: Some(1), touches_context: true });
-        functions.insert(String::from(".byte"), Control { has_identifier: false, required_args: None, touches_context: false });
-        functions.insert(String::from(".db"), Control { has_identifier: false, required_args: None, touches_context: false });
-        functions.insert(String::from(".word"), Control { has_identifier: false, required_args: None, touches_context: false });
-        functions.insert(String::from(".dw"), Control { has_identifier: false, required_args: None, touches_context: false });
-        functions.insert(String::from(".addr"), Control { has_identifier: false, required_args: None, touches_context: false });
+        functions.insert(String::from(".hibyte"), Control { control_type: ControlType::Hibyte, has_identifier: false, required_args: Some(1), touches_context: false });
+        functions.insert(String::from(".lobyte"), Control { control_type: ControlType::Lobyte, has_identifier: false, required_args: Some(1), touches_context: false });
+        functions.insert(String::from(".macro"), Control { control_type: ControlType::StartMacro, has_identifier: true, required_args: None, touches_context: true });
+        functions.insert(String::from(".proc"), Control { control_type: ControlType::StartProc, has_identifier: true, required_args: Some(0), touches_context: true });
+        functions.insert(String::from(".scope"), Control { control_type: ControlType::StartScope, has_identifier: true, required_args: Some(0), touches_context: true });
+        functions.insert(String::from(".endscope"), Control { control_type: ControlType::EndScope, has_identifier: false, required_args: Some(0), touches_context: true });
+        functions.insert(String::from(".endproc"), Control { control_type: ControlType::EndProc, has_identifier: false, required_args: Some(0), touches_context: true });
+        functions.insert(String::from(".endmacro"), Control { control_type: ControlType::EndMacro, has_identifier: false, required_args: Some(0), touches_context: true });
+        functions.insert(String::from(".segment"), Control { control_type: ControlType::Segment, has_identifier: false, required_args: Some(1), touches_context: true });
+        functions.insert(String::from(".byte"), Control { control_type: ControlType::Byte, has_identifier: false, required_args: None, touches_context: false });
+        functions.insert(String::from(".db"), Control { control_type: ControlType::Byte, has_identifier: false, required_args: None, touches_context: false });
+        functions.insert(String::from(".word"), Control { control_type: ControlType::Word, has_identifier: false, required_args: None, touches_context: false });
+        functions.insert(String::from(".dw"), Control { control_type: ControlType::Word, has_identifier: false, required_args: None, touches_context: false });
+        functions.insert(String::from(".addr"), Control { control_type: ControlType::Addr, has_identifier: false, required_args: None, touches_context: false });
 
         functions
     };

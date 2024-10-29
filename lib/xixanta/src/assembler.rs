@@ -1,7 +1,7 @@
 use crate::context::Context;
 use crate::errors::{Error, EvalError};
 use crate::mapping::Segment;
-use crate::node::{NodeType, PNode, PString};
+use crate::node::{ControlType, NodeType, PNode, PString};
 use crate::opcodes::{AddressingMode, INSTRUCTIONS};
 use crate::parser::Parser;
 use std::cmp::Ordering;
@@ -145,7 +145,7 @@ impl Assembler {
         let mut current_macro = None;
 
         for (idx, node) in nodes.iter().enumerate() {
-            match node.node_type {
+            match &node.node_type {
                 NodeType::Label => {
                     if let Err(err) =
                         self.context
@@ -174,43 +174,46 @@ impl Assembler {
                         Err(e) => errors.push(Error::Eval(e)),
                     }
                 }
-                NodeType::Control => {
+                NodeType::Control(control_type) => {
                     // TODO: prevent nesting of control statements depending on
                     // a definition (e.g. .macro's cannot be nested inside of
                     // another control statement, but .if yes).
-                    let id = node.value.value.as_str();
 
-                    if id == ".macro" {
-                        // TODO: macros are only on the global scope.
-                        //
-                        // TODO: boy this is ugly. In fact, this stupid shit if
-                        // current_macro might not be relevant anymore.
-                        current_macro = Some(&node.left.as_ref().unwrap().value);
-                        // TODO: watch out for weird shit on the name of arguments.
-                        self.macros
-                            .entry(node.left.as_ref().unwrap().value.value.clone())
-                            .or_insert(Macro {
-                                nodes: Range {
-                                    start: idx + 1,
-                                    end: idx + 1,
-                                },
-                                args: node
-                                    .args
-                                    .clone()
-                                    .unwrap_or_default()
-                                    .into_iter()
-                                    .map(|a| a.value)
-                                    .collect::<Vec<_>>(),
-                            });
-                    } else if id == ".endmacro" {
-                        // TODO: if m.nodes.start < idx - 1 => empty macro
-
-                        if let Some(name) = current_macro {
+                    match control_type {
+                        ControlType::StartMacro => {
+                            // TODO: macros are only on the global scope.
+                            //
+                            // TODO: boy this is ugly. In fact, this stupid shit if
+                            // current_macro might not be relevant anymore.
+                            current_macro = Some(&node.left.as_ref().unwrap().value);
+                            // TODO: watch out for weird shit on the name of arguments.
                             self.macros
-                                .entry(name.value.clone())
-                                .and_modify(|m| m.nodes.end = idx - 1);
+                                .entry(node.left.as_ref().unwrap().value.value.clone())
+                                .or_insert(Macro {
+                                    nodes: Range {
+                                        start: idx + 1,
+                                        end: idx + 1,
+                                    },
+                                    args: node
+                                        .args
+                                        .clone()
+                                        .unwrap_or_default()
+                                        .into_iter()
+                                        .map(|a| a.value)
+                                        .collect::<Vec<_>>(),
+                                });
                         }
-                        current_macro = None;
+                        ControlType::EndMacro => {
+                            // TODO: if m.nodes.start < idx - 1 => empty macro
+
+                            if let Some(name) = current_macro {
+                                self.macros
+                                    .entry(name.value.clone())
+                                    .and_modify(|m| m.nodes.end = idx - 1);
+                            }
+                            current_macro = None;
+                        }
+                        _ => {}
                     }
                     if let Err(err) = self.context.change_context(node) {
                         // TODO: forbid if inside_macro
@@ -271,7 +274,7 @@ impl Assembler {
                         }
                     }
                 }
-                NodeType::Control => {
+                NodeType::Control(_) => {
                     if let Err(e) = self.evaluate_control_statement(node) {
                         errors.push(Error::Eval(e));
                     }
@@ -422,7 +425,7 @@ impl Assembler {
         match node.node_type {
             NodeType::Instruction => Ok(self.evaluate_instruction(node)?),
             NodeType::Literal => Ok(self.evaluate_literal(node)?),
-            NodeType::Control => Ok(self.evaluate_control_expression(node)?),
+            NodeType::Control(_) => Ok(self.evaluate_control_expression(node)?),
             NodeType::Value => match self.literal_mode {
                 Some(LiteralMode::Hexadecimal) => Ok(self.evaluate_hexadecimal(node)?),
                 Some(LiteralMode::Binary) => Ok(self.evaluate_binary(node)?),
@@ -722,31 +725,30 @@ impl Assembler {
 
         // Otherwise, check the function that could act as a statement that
         // produces bundles.
-        let function = node.value.value.as_str();
-        match function {
-            ".byte" | ".db" => self.push_evaluated_arguments(node, 1),
-            ".addr" | ".word" | ".dw" => self.push_evaluated_arguments(node, 2),
+        match node.node_type {
+            NodeType::Control(ControlType::Byte) => self.push_evaluated_arguments(node, 1),
+            NodeType::Control(ControlType::Addr) | NodeType::Control(ControlType::Word) => {
+                self.push_evaluated_arguments(node, 2)
+            }
             _ => Err(EvalError {
                 line: node.value.line,
                 message: format!(
                     "cannot handle control statement '{}' in this context",
-                    function
+                    node.value.value
                 ),
             }),
         }
     }
 
     fn evaluate_control_expression(&mut self, node: &PNode) -> Result<Bundle, EvalError> {
-        let function = node.value.value.to_lowercase();
-
-        match function.as_str() {
-            ".hibyte" => self.evaluate_byte(node, true),
-            ".lobyte" => self.evaluate_byte(node, false),
+        match node.node_type {
+            NodeType::Control(ControlType::Hibyte) => self.evaluate_byte(node, true),
+            NodeType::Control(ControlType::Lobyte) => self.evaluate_byte(node, false),
             _ => Err(EvalError {
                 line: node.value.line,
                 message: format!(
                     "cannot handle control statement '{}' as an expression in this context",
-                    function
+                    node.value.value
                 ),
             }),
         }
