@@ -369,10 +369,10 @@ impl Assembler {
         if nargs > 0 {
             let mut margs = mcr.args.iter();
 
-            for (idx, arg) in args.unwrap().iter().enumerate() {
+            for arg in args.unwrap().iter() {
                 let bundle = self.evaluate_node(arg)?;
                 self.context
-                    .set_variable(margs.nth(idx).unwrap(), &bundle, false)?;
+                    .set_variable(margs.next().unwrap(), &bundle, false)?;
             }
         }
 
@@ -737,15 +737,15 @@ impl Assembler {
     }
 
     fn evaluate_control_expression(&mut self, node: &PNode) -> Result<Bundle, EvalError> {
-        let function = node.value.value.as_str();
+        let function = node.value.value.to_lowercase();
 
-        match function {
+        match function.as_str() {
             ".hibyte" => self.evaluate_byte(node, true),
             ".lobyte" => self.evaluate_byte(node, false),
             _ => Err(EvalError {
                 line: node.value.line,
                 message: format!(
-                    "cannot handle control statement '{}' in this context",
+                    "cannot handle control statement '{}' as an expression in this context",
                     function
                 ),
             }),
@@ -1854,6 +1854,70 @@ MACRO(1)
             "Evaluation error (line 5): 'Var' already defined in the global scope: \
              you cannot re-assign variables."
         );
+    }
+
+    #[test]
+    fn macro_multiple_arguments() {
+        let mut asm = Assembler::new(EMPTY.to_vec());
+        let res = asm
+            .assemble(
+                r#"
+.macro WRITE_PPU_DATA address, value
+    bit $2002                   ; PPUSTATUS
+    lda #.HIBYTE(address)
+    sta $2006                   ; PPUADDR
+    lda #.LOBYTE(address)
+    sta $2006                   ; PPUADDR
+    lda #value
+    sta $2007                   ; PPUDATA
+.endmacro
+
+WRITE_PPU_DATA $20B9, $04
+"#
+                .as_bytes(),
+            )
+            .unwrap();
+
+        assert_eq!(res.len(), 7);
+
+        // bit $2002
+        assert_eq!(res[0].size, 3);
+        assert_eq!(res[0].bytes[0], 0x2C);
+        assert_eq!(res[0].bytes[1], 0x02);
+        assert_eq!(res[0].bytes[2], 0x20);
+
+        // lda #.HIBYTE(address)
+        assert_eq!(res[1].size, 2);
+        assert_eq!(res[1].bytes[0], 0xA9);
+        assert_eq!(res[1].bytes[1], 0x20);
+
+        // sta $2006
+        assert_eq!(res[2].size, 3);
+        assert_eq!(res[2].bytes[0], 0x8D);
+        assert_eq!(res[2].bytes[1], 0x06);
+        assert_eq!(res[2].bytes[2], 0x20);
+
+        // lda #.LOBYTE(address)
+        assert_eq!(res[3].size, 2);
+        assert_eq!(res[3].bytes[0], 0xA9);
+        assert_eq!(res[3].bytes[1], 0xB9);
+
+        // sta $2006
+        assert_eq!(res[4].size, 3);
+        assert_eq!(res[4].bytes[0], 0x8D);
+        assert_eq!(res[4].bytes[1], 0x06);
+        assert_eq!(res[4].bytes[2], 0x20);
+
+        // lda #value
+        assert_eq!(res[5].size, 2);
+        assert_eq!(res[5].bytes[0], 0xA9);
+        assert_eq!(res[5].bytes[1], 0x04);
+
+        // sta $2007
+        assert_eq!(res[6].size, 3);
+        assert_eq!(res[6].bytes[0], 0x8D);
+        assert_eq!(res[6].bytes[1], 0x07);
+        assert_eq!(res[6].bytes[2], 0x20);
     }
 
     // Segments
