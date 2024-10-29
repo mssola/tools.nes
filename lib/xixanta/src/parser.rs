@@ -4,6 +4,8 @@ use crate::opcodes::{CONTROL_FUNCTIONS, INSTRUCTIONS};
 use std::cmp::Ordering;
 use std::io::{self, BufRead, Read};
 
+// TODO: allow for labels a la ".Lwhatever:"
+
 /// The Parser struct holds basic data for the current parsing session.
 #[derive(Default)]
 pub struct Parser {

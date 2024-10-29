@@ -164,3 +164,17 @@ pub struct PNode {
     /// optional arguments.
     pub args: Option<Vec<PNode>>,
 }
+
+impl PNode {
+    pub fn is_branch(&self) -> bool {
+        if self.node_type != NodeType::Instruction {
+            return false;
+        }
+
+        let opcode = self.value.value.to_lowercase();
+        matches!(
+            opcode.as_str(),
+            "bcc" | "bcs" | "beq" | "bmi" | "bne" | "bpl" | "bvc" | "bvs"
+        )
+    }
+}

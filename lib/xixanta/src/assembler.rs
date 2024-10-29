@@ -253,7 +253,16 @@ impl Assembler {
                     if self.can_bundle {
                         self.literal_mode = None;
                         match self.evaluate_node(node) {
-                            Ok(bundle) => {
+                            Ok(mut bundle) => {
+                                if node.is_branch() {
+                                    // TODO: it's a bit of a pity...
+                                    let current = &mut self.segments[self.current_segment];
+                                    bundle.address = current.offset;
+
+                                    if let Err(e) = self.to_relative_address(node, &mut bundle) {
+                                        errors.push(Error::Eval(e));
+                                    }
+                                }
                                 if let Err(e) = self.push_bundle(bundle, node) {
                                     errors.push(Error::Eval(e));
                                 }
@@ -292,9 +301,18 @@ impl Assembler {
             self.context.force_context_switch(&pn.context);
 
             match self.evaluate_node(&pn.node) {
-                Ok(bundle) => {
+                Ok(mut bundle) => {
+                    // TODO: oh boy
+                    bundle.address = self.segments[pn.segment].bundles[pn.bundle_index].address;
+
+                    if pn.node.is_branch() {
+                        if let Err(e) = self.to_relative_address(&pn.node, &mut bundle) {
+                            errors.push(Error::Eval(e));
+                        }
+                    }
+
                     let current = &mut self.segments[pn.segment];
-                    current.bundles[pn.bundle_index] = bundle;
+                    current.bundles[pn.bundle_index].bytes = bundle.bytes;
                 }
                 Err(e) => errors.push(Error::Eval(e)),
             }
@@ -372,8 +390,9 @@ impl Assembler {
     }
 
     // TODO: move
-    fn push_bundle(&mut self, bundle: Bundle, node: &PNode) -> Result<(), EvalError> {
+    fn push_bundle(&mut self, mut bundle: Bundle, node: &PNode) -> Result<(), EvalError> {
         let current = &mut self.segments[self.current_segment];
+        bundle.address = current.offset;
         current.offset += bundle.size as usize;
 
         if current.offset > current.size {
@@ -415,6 +434,8 @@ impl Assembler {
                         // just decimal values.
                         Ok(self.evaluate_decimal(node)?)
                     } else if node.value.is_valid_identifier(true).is_err() {
+                        // TODO: relative labels
+                        println!("NODE: {:#?}", node);
                         // If this is not a valid identifier, just error out.
                         Err(EvalError {
                             message: "no prefix was given to operand".to_string(),
@@ -978,7 +999,7 @@ impl Assembler {
         let val = self.evaluate_node(left_arm)?;
         match self.literal_mode {
             Some(LiteralMode::Hexadecimal) => {
-                if val.size == 1 {
+                if base.is_branch() || val.size == 1 {
                     Ok((AddressingMode::RelativeOrZeropage, val))
                 } else {
                     Ok((AddressingMode::Absolute, val))
@@ -1003,6 +1024,44 @@ impl Assembler {
                 line: left_arm.value.line,
             }),
         }
+    }
+
+    fn to_relative_address(&self, node: &PNode, bundle: &mut Bundle) -> Result<(), EvalError> {
+        if !bundle.resolved {
+            return Ok(());
+        }
+
+        let next = (bundle.address + 2) as u16;
+        let target = u16::from_le_bytes([bundle.bytes[1], bundle.bytes[2]]);
+
+        // println!(
+        //     "NEXT: {:#?} -- TARGET: {:#?} -- BUNDLE: {:#?}",
+        //     next, target, bundle
+        // );
+
+        let byte = if target < next {
+            let diff = target as i16 - next as i16;
+            if diff < -128 {
+                return Err(EvalError {
+                    line: node.value.line,
+                    message: "you cannot branch to this location: it's too far away".to_string(),
+                });
+            }
+            diff.to_le_bytes()[0]
+        } else {
+            let diff = target - next;
+            if diff > 127 {
+                return Err(EvalError {
+                    line: node.value.line,
+                    message: "you cannot branch to this location: it's too far away".to_string(),
+                });
+            }
+            diff.to_le_bytes()[0]
+        };
+
+        bundle.bytes[1] = byte;
+
+        Ok(())
     }
 }
 
@@ -1538,8 +1597,40 @@ nop
         assert_eq!(res[2].bytes[2], 0x00);
     }
 
-    // TODO: anonymous jumps
-    // TODO: labels & anonymous beq/blt/etc.
+    // TODO: anonymous jumps & branches
+
+    #[test]
+    fn conditional_branch_to_labels() {
+        let mut asm = Assembler::new(EMPTY.to_vec());
+        let res = asm
+            .assemble(
+                r#"
+nop
+@hello:
+    beq @hello
+    beq @end
+@end:
+    nop
+"#
+                .as_bytes(),
+            )
+            .unwrap();
+
+        assert_eq!(res.len(), 4);
+
+        // beq @hello
+        assert_eq!(res[1].size, 2);
+        assert_eq!(res[1].bytes[0], 0xF0);
+        assert_eq!(res[1].bytes[1], 0xFE);
+
+        // beq @end
+        assert_eq!(res[2].size, 2);
+        assert_eq!(res[2].bytes[0], 0xF0);
+        assert_eq!(res[2].bytes[1], 0x00);
+    }
+
+    // TODO: function calls
+    // TODO: labels and jumps inside of proc's, macros, etc.
 
     // Control statements
 
