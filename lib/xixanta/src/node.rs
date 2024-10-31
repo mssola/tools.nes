@@ -80,6 +80,45 @@ impl PString {
 
         Ok(())
     }
+
+    /// Returns true if this is an anonymous relative reference (i.e. the ':+'
+    /// in something like "beq :+").
+    pub fn is_anonymous_relative_reference(&self) -> bool {
+        let mut it = self.value.chars();
+
+        // An anonymous relative reference must start with ':'. If that's not
+        // the case, return early.
+        if it.next().unwrap_or(' ') != ':' {
+            return false;
+        }
+
+        // Get the first character of the reference. The rest of the string must
+        // be the same as this character.
+        let init = it.next().unwrap_or(' ');
+        if init != '+' && init != '-' {
+            return false;
+        }
+
+        // The rest of the string should match the initial 'c' character (i.e.
+        // either '+' or '-', but never mixed in).
+        it.all(|current| init == current)
+    }
+
+    // Returns the isize value that can be computed assuming that this is an
+    // anonymous relative reference. References to a previous label will have a
+    // negative value, while references to next labels have a positive one.
+    pub fn to_isize(&self) -> isize {
+        let c = self.value.chars().nth(1).unwrap_or(' ');
+
+        // As stated from the documentation, this *has to be* a valid reference.
+        assert!(c == '+' || c == '-', "bad relative reference");
+
+        let res = self.value.chars().filter(|x| *x == c).count() as isize;
+        if c == '-' {
+            return -res;
+        }
+        res
+    }
 }
 
 /// The type of control function being used. Use this enum in order to detect

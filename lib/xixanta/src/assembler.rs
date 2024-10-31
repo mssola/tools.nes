@@ -32,6 +32,8 @@ pub struct Bundle {
     /// Whether the cost in cycles is affected when crossing a page boundary.
     pub affected_on_page: bool,
 
+    /// Whether the bytes on `bytes` contain the final value or not. This is
+    /// used for internal purposes only.
     resolved: bool,
 }
 
@@ -68,8 +70,8 @@ pub enum Stage {
     Init,
     Parsing,
     Context,
-    Unrolling,
     Bundling,
+    Crunching,
 }
 
 #[derive(Clone, Debug)]
@@ -84,6 +86,7 @@ pub struct PendingNode {
     context: String,
     bundle_index: usize,
     node: PNode,
+    labels_seen: usize,
 }
 
 pub struct Assembler {
@@ -95,13 +98,13 @@ pub struct Assembler {
     segments: Vec<Segment>,
     current_segment: usize,
     pending: Vec<PendingNode>,
+    labels_seen: usize,
 }
 
 impl Assembler {
     pub fn new(segments: Vec<Segment>) -> Self {
         assert!(!segments.is_empty());
 
-        // TODO
         Self {
             context: Context::new(),
             literal_mode: None,
@@ -111,6 +114,7 @@ impl Assembler {
             segments,
             current_segment: 0,
             pending: vec![],
+            labels_seen: 0,
         }
     }
 
@@ -128,15 +132,12 @@ impl Assembler {
         self.stage = Stage::Context;
         self.eval_context(&parser.nodes)?;
 
-        // TODO: unroll macros, fill out labels, etc.
-        self.stage = Stage::Unrolling;
-
         // Finally convert the relevant nodes into binary bundles which can be
         // used by the caller.
         self.stage = Stage::Bundling;
         self.bundle(&parser.nodes)?;
 
-        // TODO
+        self.stage = Stage::Crunching;
         self.crunch_and_resolve_pending()
     }
 
@@ -147,11 +148,13 @@ impl Assembler {
         for (idx, node) in nodes.iter().enumerate() {
             match &node.node_type {
                 NodeType::Label => {
-                    if let Err(err) =
-                        self.context
-                            .set_variable(&node.value, &Bundle::default(), false)
-                    {
-                        errors.push(Error::Context(err));
+                    if !node.value.is_empty() {
+                        if let Err(err) =
+                            self.context
+                                .set_variable(&node.value, &Bundle::default(), false)
+                        {
+                            errors.push(Error::Context(err));
+                        }
                     }
                 }
                 NodeType::Assignment => {
@@ -248,9 +251,12 @@ impl Assembler {
                         resolved: true,
                     };
 
-                    if let Err(err) = self.context.set_variable(&node.value, &bundle, true) {
-                        errors.push(Error::Context(err));
+                    if !node.value.is_empty() {
+                        if let Err(err) = self.context.set_variable(&node.value, &bundle, true) {
+                            errors.push(Error::Context(err));
+                        }
                     }
+                    self.context.add_label(&bundle);
                 }
                 NodeType::Instruction => {
                     if self.can_bundle {
@@ -301,6 +307,7 @@ impl Assembler {
         let mut errors = vec![];
 
         for pn in self.pending.clone() {
+            self.labels_seen = pn.labels_seen;
             self.context.force_context_switch(&pn.context);
 
             match self.evaluate_node(&pn.node) {
@@ -414,6 +421,7 @@ impl Assembler {
                 context: self.context.name().to_string(),
                 bundle_index: current.bundles.len(),
                 node: node.to_owned(),
+                labels_seen: self.context.labels_seen(),
             });
         }
         current.bundles.push(bundle);
@@ -436,9 +444,9 @@ impl Assembler {
                         // variable), we'll assume that non-prefixed literals are
                         // just decimal values.
                         Ok(self.evaluate_decimal(node)?)
+                    } else if node.value.is_anonymous_relative_reference() {
+                        Ok(self.evaluate_anonymous_relative_reference(node)?)
                     } else if node.value.is_valid_identifier(true).is_err() {
-                        // TODO: relative labels
-                        println!("NODE: {:#?}", node);
                         // If this is not a valid identifier, just error out.
                         Err(EvalError {
                             message: "no prefix was given to operand".to_string(),
@@ -467,6 +475,34 @@ impl Assembler {
                 message: format!("unexpected '{}' expression type", node.node_type),
                 line: node.value.line,
             }),
+        }
+    }
+
+    fn evaluate_anonymous_relative_reference(&mut self, node: &PNode) -> Result<Bundle, EvalError> {
+        self.literal_mode = Some(LiteralMode::Plain);
+
+        match &self.stage {
+            Stage::Bundling => Ok(Bundle {
+                bytes: [0, 0, 0],
+                size: 2,
+                address: 0,
+                cycles: 0,
+                affected_on_page: false,
+                resolved: false,
+            }),
+            Stage::Crunching => {
+                match self
+                    .context
+                    .get_relative_label(node.value.to_isize(), self.labels_seen)
+                {
+                    Ok(bundle) => Ok(bundle),
+                    Err(e) => Err(EvalError {
+                        line: node.value.line,
+                        message: e.message,
+                    }),
+                }
+            }
+            _ => panic!("unexpected evaluation of relative reference"),
         }
     }
 
@@ -835,6 +871,8 @@ impl Assembler {
     }
 
     fn evaluate_instruction(&mut self, node: &PNode) -> Result<Bundle, EvalError> {
+        self.literal_mode = None;
+
         let (mode, mut bundle) = match &node.left {
             Some(_) => self.get_addressing_mode_and_bytes(node)?,
             None => (AddressingMode::Implied, Bundle::new(true)),
@@ -1008,7 +1046,9 @@ impl Assembler {
                 }
             }
             Some(LiteralMode::Plain) => {
-                if val.size > 1 {
+                if base.is_branch() {
+                    Ok((AddressingMode::RelativeOrZeropage, val))
+                } else if val.size > 1 {
                     match base.value.value.as_str() {
                         "jmp" | "jsr" => Ok((AddressingMode::Absolute, val)),
                         _ => Err(EvalError {
@@ -1036,11 +1076,6 @@ impl Assembler {
         let next = (bundle.address + 2) as u16;
         let target = u16::from_le_bytes([bundle.bytes[1], bundle.bytes[2]]);
 
-        // println!(
-        //     "NEXT: {:#?} -- TARGET: {:#?} -- BUNDLE: {:#?}",
-        //     next, target, bundle
-        // );
-
         let byte = if target < next {
             let diff = target as i16 - next as i16;
             if diff < -128 {
@@ -1062,6 +1097,7 @@ impl Assembler {
         };
 
         bundle.bytes[1] = byte;
+        bundle.size = 2;
 
         Ok(())
     }
@@ -1599,7 +1635,131 @@ nop
         assert_eq!(res[2].bytes[2], 0x00);
     }
 
-    // TODO: anonymous jumps & branches
+    #[test]
+    fn anonymous_relative_jumps() {
+        let mut asm = Assembler::new(EMPTY.to_vec());
+        let res = asm
+            .assemble(
+                r#"
+nop
+:
+    nop
+@hello:
+    jmp :--
+    jmp :+
+    jmp @hello
+    jmp :+++
+@end:
+    nop
+:
+    nop
+: nop
+"#
+                .as_bytes(),
+            )
+            .unwrap();
+
+        assert_eq!(res.len(), 9);
+
+        // First two nop's
+        assert_eq!(res[0].size, 1);
+        assert_eq!(res[0].bytes[0], 0xEA);
+        assert_eq!(res[1].size, 1);
+        assert_eq!(res[1].bytes[0], 0xEA);
+
+        // jmp :--
+        assert_eq!(res[2].size, 3);
+        assert_eq!(res[2].bytes[0], 0x4C);
+        assert_eq!(res[2].bytes[1], 0x01);
+        assert_eq!(res[2].bytes[2], 0x00);
+
+        // jmp :+
+        assert_eq!(res[3].size, 3);
+        assert_eq!(res[3].bytes[0], 0x4C);
+        assert_eq!(res[3].bytes[1], 0x0E);
+        assert_eq!(res[3].bytes[2], 0x00);
+
+        // jmp @hello
+        assert_eq!(res[4].size, 3);
+        assert_eq!(res[4].bytes[0], 0x4C);
+        assert_eq!(res[4].bytes[1], 0x02);
+        assert_eq!(res[4].bytes[2], 0x00);
+
+        // jmp :+++
+        assert_eq!(res[5].size, 3);
+        assert_eq!(res[5].bytes[0], 0x4C);
+        assert_eq!(res[5].bytes[1], 0x10);
+        assert_eq!(res[5].bytes[2], 0x00);
+
+        // Three last nop's.
+        assert_eq!(res[6].size, 1);
+        assert_eq!(res[6].bytes[0], 0xEA);
+        assert_eq!(res[7].size, 1);
+        assert_eq!(res[7].bytes[0], 0xEA);
+        assert_eq!(res[8].size, 1);
+        assert_eq!(res[8].bytes[0], 0xEA);
+    }
+
+    #[test]
+    fn anonymous_relative_branches() {
+        let mut asm = Assembler::new(EMPTY.to_vec());
+        let res = asm
+            .assemble(
+                r#"
+nop
+:
+    nop
+@hello:
+    beq :--
+    beq :+
+    beq @hello
+    beq :+++
+@end:
+    nop
+:
+    nop
+: nop
+"#
+                .as_bytes(),
+            )
+            .unwrap();
+
+        assert_eq!(res.len(), 9);
+
+        // First two nop's
+        assert_eq!(res[0].size, 1);
+        assert_eq!(res[0].bytes[0], 0xEA);
+        assert_eq!(res[1].size, 1);
+        assert_eq!(res[1].bytes[0], 0xEA);
+
+        // beq :--
+        assert_eq!(res[2].size, 2);
+        assert_eq!(res[2].bytes[0], 0xF0);
+        assert_eq!(res[2].bytes[1], 0xFD);
+
+        // beq :+
+        assert_eq!(res[3].size, 2);
+        assert_eq!(res[3].bytes[0], 0xF0);
+        assert_eq!(res[3].bytes[1], 0x04);
+
+        // beq @hello
+        assert_eq!(res[4].size, 2);
+        assert_eq!(res[4].bytes[0], 0xF0);
+        assert_eq!(res[4].bytes[1], 0xFA);
+
+        // beq :+++
+        assert_eq!(res[5].size, 2);
+        assert_eq!(res[5].bytes[0], 0xF0);
+        assert_eq!(res[5].bytes[1], 0x02);
+
+        // Three last nop's.
+        assert_eq!(res[6].size, 1);
+        assert_eq!(res[6].bytes[0], 0xEA);
+        assert_eq!(res[7].size, 1);
+        assert_eq!(res[7].bytes[0], 0xEA);
+        assert_eq!(res[8].size, 1);
+        assert_eq!(res[8].bytes[0], 0xEA);
+    }
 
     #[test]
     fn conditional_branch_to_labels() {

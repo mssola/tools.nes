@@ -4,15 +4,35 @@ use crate::node::{ControlType, NodeType, PNode, PString};
 use crate::opcodes::CONTROL_FUNCTIONS;
 use std::collections::HashMap;
 
-// The name of the global context as used internally..
+// The name of the global context as used internally.
 const GLOBAL_CONTEXT: &str = "Global";
 
 /// Context holds information about the different scopes being defined, the
 /// current scope, and has a map of all the variables defined for each scope.
 #[derive(Debug)]
 pub struct Context {
+    /// Tracks the contexts that we have entered at any given point. The last
+    /// element is the actual context, and it will be empty if we are in the
+    /// global context.
     stack: Vec<String>,
+
+    /// Map of variables for any given context. The key is the name of the
+    /// context, and the value is another map. This inner map has the variable
+    /// name as the key, and the Bundle as a value.
     map: HashMap<String, HashMap<String, Bundle>>,
+
+    /// Map of labels for any given context. Note that this only keeps track of
+    /// the amount of labels that have been defined, which might include
+    /// anonymous positions. This is primarily used on relative addressing where
+    /// the name of the label might not be provided (e.g. anonymous relative
+    /// reference).
+    labels: HashMap<String, Vec<Bundle>>,
+}
+
+impl Default for Context {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Context {
@@ -21,6 +41,7 @@ impl Context {
         Context {
             stack: vec![],
             map: HashMap::from([(String::from(GLOBAL_CONTEXT), HashMap::new())]),
+            labels: HashMap::from([(String::from(GLOBAL_CONTEXT), vec![])]),
         }
     }
 
@@ -94,6 +115,18 @@ impl Context {
         Ok(())
     }
 
+    /// Add a new label that has the value as given by the `bundle` parameter.
+    /// The actual name of the label does not matter since that is already
+    /// referenced as a "variable". This function needs to be called whenever we
+    /// are sure that we have the proper address for a label and that we should
+    /// track it in order for relative addressing to work.
+    pub fn add_label(&mut self, bundle: &Bundle) {
+        let scope_name = self.name().to_string();
+        let scope = self.labels.get_mut(&scope_name).unwrap();
+
+        scope.push(bundle.clone());
+    }
+
     /// Change the current context given a `node`. Returns a tuple which states:
     ///   0. Whether the context has changed.
     ///   1. Whether a caller can bundle nodes safely.
@@ -131,14 +164,85 @@ impl Context {
         }
     }
 
+    /// Change the current context to the given one identified by `name`,
+    /// disregarding any check. This is to be used when switching a context to
+    /// set a very specific value for that context. You should call
+    /// `force_context_pop` immediately.
     pub fn force_context_switch(&mut self, name: &String) {
         self.stack.push(name.to_owned());
     }
 
+    /// Remove the last context being used if any. In contrast with
+    /// `context_pop`, this one does not error out, but does nothing in case we
+    /// are in the global context. This is to be used in conjunction with
+    /// `force_context_switch`.
     pub fn force_context_pop(&mut self) {
         if !self.stack.is_empty() {
             self.stack.truncate(self.stack.len() - 1);
         }
+    }
+
+    /// Returns the amount of labels that have been submitted so far for the
+    /// current scope.
+    pub fn labels_seen(&self) -> usize {
+        let scope_name = self.name().to_string();
+
+        match self.labels.get(&scope_name) {
+            Some(labels) => labels.len(),
+            None => 0,
+        }
+    }
+
+    /// Returns the bundle which is representative for the label being
+    /// referenced in a relative way. The relation is given on the `rel`
+    /// parameter, with a value between -4 or +4 where negative values represent
+    /// previous labels and positive values next ones (e.g. -2 means "2 labels
+    /// before"). This is in relation to `labels_seen`, which states how many
+    /// labels have been seen by the caller at this point.
+    pub fn get_relative_label(
+        &self,
+        rel: isize,
+        labels_seen: usize,
+    ) -> Result<Bundle, ContextError> {
+        // Bound check: the given 'rel' parameter has a proper value.
+        assert!(
+            rel < 5 && rel > -5 && rel != 0,
+            "bad parameter for relative label"
+        );
+
+        // Bound check: you cannot reference a past label that doesn't exist.
+        // This is the programmer's to blame, not on us, so don't assert.
+        if labels_seen == 0 && rel < 0 {
+            return Err(ContextError {
+                line: 0,
+                message: "cannot reference an unknown previous label".to_string(),
+                reason: ContextErrorReason::Label,
+            });
+        }
+
+        // Get the labels as referenced in the current context, and also the
+        // index that we will be using.
+        let scope_name = self.name().to_string();
+        let labels = self.labels.get(&scope_name).unwrap();
+        let idx = if rel > 0 {
+            labels_seen as isize + rel - 1
+        } else {
+            labels_seen as isize + rel
+        };
+
+        // Bound check: is the programmer referencing an "out of bounds" label?
+        // If so then it's a mistake on their part.
+        if idx < 0 || idx >= labels.len() as isize {
+            return Err(ContextError {
+                line: 0,
+                message: "cannot reference bogus label (out of bounds)".to_string(),
+                reason: ContextErrorReason::Label,
+            });
+        }
+
+        // Everything should be fine from here on, simply return the bundle that
+        // was being referenced.
+        Ok(labels[idx as usize].clone())
     }
 
     // Pushes a new context given a `node`, which holds the identifier of the
@@ -152,7 +256,8 @@ impl Context {
         // Actually push the name to the stack and initialize it on the variable
         // map.
         self.stack.push(name.clone());
-        self.map.entry(name).or_default();
+        self.map.entry(name.clone()).or_default();
+        self.labels.entry(name).or_default();
     }
 
     // Pops out the latest context that was pushed.
@@ -192,11 +297,5 @@ impl Context {
         } else {
             format!("'{}'", name)
         }
-    }
-}
-
-impl Default for Context {
-    fn default() -> Self {
-        Self::new()
     }
 }

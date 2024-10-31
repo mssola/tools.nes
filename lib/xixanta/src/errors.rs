@@ -45,6 +45,7 @@ pub enum ContextErrorReason {
     Redefinition,
     UnknownVariable,
     BadScope,
+    Label,
     Other,
 }
 
