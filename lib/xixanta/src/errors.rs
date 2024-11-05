@@ -84,6 +84,7 @@ impl fmt::Display for ContextError {
 pub struct EvalError {
     pub line: usize,
     pub message: String,
+    pub global: bool,
 }
 
 impl std::error::Error for EvalError {}
@@ -93,6 +94,7 @@ impl From<std::io::Error> for EvalError {
         EvalError {
             line: 0,
             message: err.to_string(),
+            global: true,
         }
     }
 }
@@ -102,17 +104,22 @@ impl From<ContextError> for EvalError {
         EvalError {
             line: err.line,
             message: err.message,
+            global: false,
         }
     }
 }
 
 impl fmt::Display for EvalError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "Evaluation error (line {}): {}.",
-            self.line + 1,
-            self.message
-        )
+        if self.global {
+            write!(f, "Evaluation error: {}.", self.message)
+        } else {
+            write!(
+                f,
+                "Evaluation error (line {}): {}.",
+                self.line + 1,
+                self.message
+            )
+        }
     }
 }

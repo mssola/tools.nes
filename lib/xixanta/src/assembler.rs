@@ -164,6 +164,7 @@ impl Assembler {
                             message: "cannot have assignments inside of macro definitions"
                                 .to_string(),
                             line: node.value.line,
+                            global: false,
                         }));
                         continue;
                     }
@@ -241,6 +242,7 @@ impl Assembler {
             match node.node_type {
                 NodeType::Label => {
                     let segment = &self.segments[self.current_segment];
+                    // println!("SEGMENT: {:#?}", segment)
                     let value = (segment.start as usize + segment.offset).to_le_bytes();
                     let bundle = Bundle {
                         bytes: [value[0], value[1], value[2]],
@@ -266,7 +268,7 @@ impl Assembler {
                                 if node.is_branch() {
                                     // TODO: it's a bit of a pity...
                                     let current = &mut self.segments[self.current_segment];
-                                    bundle.address = current.offset;
+                                    bundle.address = current.start as usize + current.offset;
 
                                     if let Err(e) = self.to_relative_address(node, &mut bundle) {
                                         errors.push(Error::Eval(e));
@@ -332,14 +334,30 @@ impl Assembler {
 
         let mut res = vec![];
         for segment in &mut self.segments {
+            if segment.bundles.is_empty() {
+                errors.push(Error::Eval(EvalError {
+                    line: 0,
+                    message: format!("segment '{}' is empty", segment.name),
+                    global: true,
+                }));
+            }
+
             res.append(&mut segment.bundles);
 
-            if let Some(_fill) = segment.fill {
-                // TODO
+            if let Some(fill) = segment.fill {
+                let mut diff = segment.size - segment.offset;
+                while diff > 0 {
+                    res.push(Bundle::fill(fill));
+                    diff -= 1;
+                }
             }
         }
 
-        Ok(res)
+        if errors.is_empty() {
+            Ok(res)
+        } else {
+            Err(errors)
+        }
     }
 
     fn bundle_call(&mut self, node: &PNode, nodes: &[PNode]) -> Result<(), EvalError> {
@@ -353,6 +371,7 @@ impl Assembler {
                     "could not find a macro with the name '{}'",
                     node.value.value
                 ),
+                global: false,
             })?
             .clone();
 
@@ -372,6 +391,7 @@ impl Assembler {
                     mcr.args.len(),
                     nargs
                 ),
+                global: false,
             });
         }
 
@@ -402,7 +422,7 @@ impl Assembler {
     // TODO: move
     fn push_bundle(&mut self, mut bundle: Bundle, node: &PNode) -> Result<(), EvalError> {
         let current = &mut self.segments[self.current_segment];
-        bundle.address = current.offset;
+        bundle.address = current.start as usize + current.offset; // TODO: here
         current.offset += bundle.size as usize;
 
         if current.offset > current.size {
@@ -412,6 +432,7 @@ impl Assembler {
                     "exceeding segment size for '{}' ({} bytes)",
                     current.name, current.size
                 ),
+                global: false,
             });
         }
 
@@ -451,6 +472,7 @@ impl Assembler {
                         Err(EvalError {
                             message: "no prefix was given to operand".to_string(),
                             line: node.value.line,
+                            global: false,
                         })
                     } else {
                         // This is actually a valid identifier! Try to fetch the
@@ -466,6 +488,7 @@ impl Assembler {
                                     err.message
                                 ),
                                 line: node.value.line,
+                                global: false,
                             }),
                         }
                     }
@@ -474,6 +497,7 @@ impl Assembler {
             _ => Err(EvalError {
                 message: format!("unexpected '{}' expression type", node.node_type),
                 line: node.value.line,
+                global: false,
             }),
         }
     }
@@ -499,6 +523,7 @@ impl Assembler {
                     Err(e) => Err(EvalError {
                         line: node.value.line,
                         message: e.message,
+                        global: false,
                     }),
                 }
             }
@@ -542,11 +567,13 @@ impl Assembler {
                             node.value.value
                         ),
                         line: node.value.line,
+                        global: false,
                     });
                 }
                 return Err(EvalError {
                     message: "expecting a number of 1 to 4 hexadecimal digits".to_string(),
                     line: node.value.line,
+                    global: false,
                 });
             }
         }
@@ -578,11 +605,13 @@ impl Assembler {
                             string
                         ),
                         line: node.value.line,
+                        global: false,
                     });
                 }
                 return Err(EvalError {
                     message: format!("bad binary format for '{}'", string),
                     line: node.value.line,
+                    global: false,
                 });
             }
 
@@ -593,10 +622,12 @@ impl Assembler {
             Ordering::Less => Err(EvalError {
                 message: "missing binary digits to get a full byte".to_string(),
                 line: node.value.line,
+                global: false,
             }),
             Ordering::Greater => Err(EvalError {
                 message: "too many binary digits for a single byte".to_string(),
                 line: node.value.line,
+                global: false,
             }),
             Ordering::Equal => Ok(Bundle {
                 bytes: [value as u8, 0, 0],
@@ -615,6 +646,7 @@ impl Assembler {
             return Err(EvalError {
                 message: "empty decimal literal".to_string(),
                 line: node.value.line,
+                global: false,
             });
         }
 
@@ -626,6 +658,7 @@ impl Assembler {
                 return Err(EvalError {
                     message: "decimal value is too big".to_string(),
                     line: node.value.line,
+                    global: false,
                 });
             }
             if c != '0' {
@@ -643,6 +676,7 @@ impl Assembler {
                                     string
                                 ),
                                 line: node.value.line,
+                                global: false,
                             });
                         }
                         match self.evaluate_variable(&node.value) {
@@ -654,6 +688,7 @@ impl Assembler {
                                         c, err.message
                                     ),
                                     line: node.value.line,
+                                    global: false,
                                 })
                             }
                         }
@@ -667,6 +702,7 @@ impl Assembler {
             return Err(EvalError {
                 message: "decimal value is too big".to_string(),
                 line: node.value.line,
+                global: false,
             });
         }
 
@@ -697,6 +733,7 @@ impl Assembler {
                 return Err(EvalError {
                     message: "literal cannot embed another literal".to_string(),
                     line: node.value.line,
+                    global: false,
                 });
             }
         } else if val.starts_with('%') {
@@ -705,6 +742,7 @@ impl Assembler {
                 return Err(EvalError {
                     message: "literal cannot embed another literal".to_string(),
                     line: node.value.line,
+                    global: false,
                 });
             }
         } else {
@@ -733,17 +771,20 @@ impl Assembler {
                                 source.value.value
                             ),
                             line: source.value.line,
+                            global: false,
                         });
                     }
                     Err(EvalError {
                         message: "could not convert digit to hexadecimal".to_string(),
                         line: source.value.line,
+                        global: false,
                     })
                 }
             },
             None => Err(EvalError {
                 message: "digit out of bounds".to_string(),
                 line: source.value.line,
+                global: false,
             }),
         }
     }
@@ -766,12 +807,14 @@ impl Assembler {
             NodeType::Control(ControlType::Addr) | NodeType::Control(ControlType::Word) => {
                 self.push_evaluated_arguments(node, 2)
             }
+            NodeType::Control(ControlType::Segment) => self.switch_to_segment(node),
             _ => Err(EvalError {
                 line: node.value.line,
                 message: format!(
                     "cannot handle control statement '{}' in this context",
                     node.value.value
                 ),
+                global: false,
             }),
         }
     }
@@ -786,6 +829,7 @@ impl Assembler {
                     "cannot handle control statement '{}' as an expression in this context",
                     node.value.value
                 ),
+                global: false,
             }),
         }
     }
@@ -833,6 +877,7 @@ impl Assembler {
                                     line: arg.value.line,
                                     message: "expecting an argument that fits into a byte"
                                         .to_string(),
+                                    global: false,
                                 })
                             }
                             2 => {
@@ -853,10 +898,75 @@ impl Assembler {
                         "expecting at least one argument for '{}'",
                         node.value.value.as_str(),
                     ),
+                    global: false,
                 })
             }
         }
 
+        Ok(())
+    }
+
+    fn switch_to_segment(&mut self, node: &PNode) -> Result<(), EvalError> {
+        // First of all, fetch the argument for the ".segment" statement and
+        // validate that it has some basic format. Note that the existence of
+        // exactly one argument is guaranteed by the parser and, thus,
+        // `unwrap()` calls are not dangerous in this context.
+        let arg = &node.args.as_ref().unwrap().first().unwrap();
+        let val = &arg.value.value;
+        if val.len() < 3 || !val.starts_with('"') || !val.ends_with('"') {
+            return Err(EvalError {
+                line: node.value.line,
+                message: format!(
+                    "segment declaration has to be written inside of double quotes ('{}' given instead)",
+                    val,
+                ),
+                            global: false,
+            });
+        }
+
+        // Validate the segment name.
+        let name = &val[1..val.len() - 1];
+        if name
+            .chars()
+            .any(|ch| !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '-'))
+        {
+            return Err(EvalError {
+                line: node.value.line,
+                message: "segment name contains bad characters".to_string(),
+                global: false,
+            });
+        }
+
+        // You cannot change the segment if you are not in the global context.
+        if !self.context.is_global() {
+            return Err(EvalError {
+                line: node.value.line,
+                message: format!(
+                    "cannot switch to segment '{}' if we are still inside of a scope ('{}')",
+                    name,
+                    self.context.name()
+                ),
+                global: false,
+            });
+        }
+
+        // Find the segment being referenced and update the
+        // `self.current_segment` accordingly.
+        let mut found = false;
+        for (idx, segment) in self.segments.iter().enumerate() {
+            if segment.name == name {
+                self.current_segment = idx;
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            return Err(EvalError {
+                line: node.value.line,
+                message: format!("unknown segment '{}'", name),
+                global: false,
+            });
+        }
         Ok(())
     }
 
@@ -866,6 +976,7 @@ impl Assembler {
             Err(e) => Err(EvalError {
                 message: e.message,
                 line: id.line,
+                global: false,
             }),
         }
     }
@@ -896,6 +1007,7 @@ impl Assembler {
                             mode, mnemonic
                         ),
                         line: node.value.line,
+                        global: false,
                     })
                 }
             },
@@ -903,6 +1015,7 @@ impl Assembler {
                 return Err(EvalError {
                     message: format!("unknown instruction {}", mnemonic),
                     line: node.value.line,
+                    global: false,
                 });
             }
         }
@@ -936,6 +1049,7 @@ impl Assembler {
                                 "it has to be either X addressing or Y addressing, not all at once"
                                     .to_string(),
                             line: node.value.line,
+                            global: false,
                         });
                     }
 
@@ -945,6 +1059,7 @@ impl Assembler {
                             message: "address can only be one byte long on indirect Y addressing"
                                 .to_string(),
                             line: node.value.line,
+                            global: false,
                         });
                     }
                     return Ok((AddressingMode::IndirectY, val));
@@ -952,6 +1067,7 @@ impl Assembler {
                 Err(EvalError {
                     message: "only the Y index is allowed on indirect Y addressing".to_string(),
                     line: node.value.line,
+                    global: false,
                 })
             }
             None => match left.right.as_ref() {
@@ -964,6 +1080,7 @@ impl Assembler {
                                     "address can only be one byte long on indirect X addressing"
                                         .to_string(),
                                 line: node.value.line,
+                                global: false,
                             });
                         }
                         return Ok((AddressingMode::IndirectX, val));
@@ -971,6 +1088,7 @@ impl Assembler {
                     Err(EvalError {
                         message: "only the X index is allowed on indirect X addressing".to_string(),
                         line: node.value.line,
+                        global: false,
                     })
                 }
                 None => {
@@ -979,6 +1097,7 @@ impl Assembler {
                         return Err(EvalError {
                             message: "expecting a full 16-bit address".to_string(),
                             line: node.value.line,
+                            global: false,
                         });
                     }
                     Ok((AddressingMode::Indirect, val))
@@ -999,6 +1118,7 @@ impl Assembler {
                 return Err(EvalError {
                     message: "indexed addressing only works with addresses".to_string(),
                     line: node.value.line,
+                    global: false,
                 });
             }
         }
@@ -1023,6 +1143,7 @@ impl Assembler {
             _ => Err(EvalError {
                 message: "can only use X and Y as indices".to_string(),
                 line: node.value.line,
+                global: false,
             }),
         }
     }
@@ -1054,6 +1175,7 @@ impl Assembler {
                         _ => Err(EvalError {
                             message: "immediate is too big".to_string(),
                             line: left_arm.value.line,
+                            global: false,
                         }),
                     }
                 } else {
@@ -1064,6 +1186,7 @@ impl Assembler {
                 message: "left arm of instruction is neither an address nor an immediate"
                     .to_string(),
                 line: left_arm.value.line,
+                global: false,
             }),
         }
     }
@@ -1082,15 +1205,21 @@ impl Assembler {
                 return Err(EvalError {
                     line: node.value.line,
                     message: "you cannot branch to this location: it's too far away".to_string(),
+                    global: false,
                 });
             }
             diff.to_le_bytes()[0]
         } else {
             let diff = target - next;
             if diff > 127 {
+                println!(
+                    "DIFF: {:#?} -- TARGET: {:#?} -- NEXT: {:#?} -- NODE: {:#?} -- BUNDLE: {:#?}",
+                    diff, target, next, node, bundle
+                );
                 return Err(EvalError {
                     line: node.value.line,
                     message: "you cannot branch to this location: it's too far away".to_string(),
+                    global: false,
                 });
             }
             diff.to_le_bytes()[0]
@@ -1108,6 +1237,27 @@ mod tests {
     use super::*;
     use crate::mapping::EMPTY;
 
+    fn one_two() -> Vec<Segment> {
+        vec![
+            Segment {
+                name: String::from("ONE"),
+                start: 0x0000,
+                size: 0x0010,
+                offset: 0,
+                fill: Some(0x00),
+                bundles: vec![],
+            },
+            Segment {
+                name: String::from("TWO"),
+                start: 0x0010,
+                size: 0x0020,
+                offset: 0,
+                fill: None,
+                bundles: vec![],
+            },
+        ]
+    }
+
     fn assert_instruction(line: &str, hex: &[u8]) {
         let mut asm = Assembler::new(EMPTY.to_vec());
         let res = asm.assemble(line.as_bytes()).unwrap();
@@ -1121,6 +1271,16 @@ mod tests {
 
     fn assert_error(line: &str, id: &str, line_num: usize, message: &str) {
         let mut asm = Assembler::new(EMPTY.to_vec());
+        assert_error_with_assembler(&mut asm, line, id, line_num, message);
+    }
+
+    fn assert_error_with_assembler(
+        asm: &mut Assembler,
+        line: &str,
+        id: &str,
+        line_num: usize,
+        message: &str,
+    ) {
         let res = asm.assemble(line.as_bytes());
         let msg = format!("{} error (line {}): {}.", id, line_num, message);
         assert_eq!(res.unwrap_err().first().unwrap().to_string().as_str(), msg);
@@ -1139,9 +1299,7 @@ mod tests {
     #[test]
     fn empty_line() {
         for line in vec!["", "  ", ";; Comment", "  ;; Comment"].into_iter() {
-            let mut assembler = Assembler::new(EMPTY.to_vec());
-            let bundles = assembler.assemble(line.as_bytes()).unwrap();
-            assert!(bundles.is_empty());
+            assert_error(line, "Evaluation", 1, "segment 'CODE' is empty");
         }
     }
 
@@ -2083,5 +2241,101 @@ WRITE_PPU_DATA $20B9, $04
     }
 
     // Segments
-    // TODO: segments as is, fill data, jmp's
+
+    #[test]
+    fn error_on_unknown_segment() {
+        let mut asm = Assembler::new(one_two().to_vec());
+        let line = r#"
+.segment "THREE"
+
+.segment "TWO"
+nop
+"#;
+        assert_error_with_assembler(&mut asm, line, "Evaluation", 2, "unknown segment 'THREE'")
+    }
+
+    #[test]
+    fn error_on_empty_segment() {
+        let mut asm = Assembler::new(one_two().to_vec());
+        let line = r#"
+.segment "ONE"
+
+.segment "TWO"
+nop
+"#;
+        assert_error_with_assembler(&mut asm, line, "Evaluation", 1, "segment 'ONE' is empty")
+    }
+
+    #[test]
+    fn jmp_and_beq_inside_segment() {
+        let mut asm = Assembler::new(one_two().to_vec());
+        let res = asm
+            .assemble(
+                r#"
+.segment "ONE"
+nop
+
+.segment "TWO"
+nop
+:
+    nop
+@hello:
+    beq :--
+    beq :+
+    jmp @hello
+    beq :+++
+@end:
+    nop
+:
+    nop
+: nop
+"#
+                .as_bytes(),
+            )
+            .unwrap();
+
+        // Let's ignore the instructions + fill of "ONE".
+        let bundles = &res[16..res.len()];
+        println!("{:#?}", bundles);
+
+        // First two nop's
+        assert_eq!(bundles[0].size, 1);
+        assert_eq!(bundles[0].bytes[0], 0xEA);
+        assert_eq!(bundles[1].size, 1);
+        assert_eq!(bundles[1].bytes[0], 0xEA);
+
+        // beq :--
+        assert_eq!(bundles[2].size, 2);
+        assert_eq!(bundles[2].bytes[0], 0xF0);
+        assert_eq!(bundles[2].bytes[1], 0xFD);
+
+        // beq :+
+        assert_eq!(bundles[3].size, 2);
+        assert_eq!(bundles[3].bytes[0], 0xF0);
+        assert_eq!(bundles[3].bytes[1], 0x04);
+
+        // beq @hello
+        assert_eq!(bundles[4].size, 2);
+        assert_eq!(bundles[4].bytes[0], 0x4C);
+        assert_eq!(bundles[4].bytes[1], 0x02);
+        assert_eq!(bundles[4].bytes[2], 0x00);
+
+        // beq :+++
+        assert_eq!(bundles[5].size, 2);
+        assert_eq!(bundles[5].bytes[0], 0xF0);
+        assert_eq!(bundles[5].bytes[1], 0x02);
+
+        // Three last nop's.
+        assert_eq!(bundles[6].size, 1);
+        assert_eq!(bundles[6].bytes[0], 0xEA);
+        assert_eq!(bundles[7].size, 1);
+        assert_eq!(bundles[7].bytes[0], 0xEA);
+        assert_eq!(bundles[8].size, 1);
+        assert_eq!(bundles[8].bytes[0], 0xEA);
+    }
+
+    // TODO: jmp's and beq's inside of segment
+    // TODO: jmp's between segments
+    // TODO: Error on trying segment inside of another scope
+    // TODO: fill data
 }

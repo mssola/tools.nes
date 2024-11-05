@@ -51,7 +51,7 @@ pub struct Segment {
     pub start: u16,
     pub size: usize,
     pub offset: usize,
-    pub fill: Option<usize>,
+    pub fill: Option<u8>,
     pub bundles: Vec<Bundle>,
 }
 

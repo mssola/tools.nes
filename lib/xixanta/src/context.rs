@@ -124,6 +124,8 @@ impl Context {
         let scope_name = self.name().to_string();
         let scope = self.labels.get_mut(&scope_name).unwrap();
 
+        // println!("PUSHING: {:#?}", bundle);
+
         scope.push(bundle.clone());
     }
 
@@ -274,12 +276,17 @@ impl Context {
         Ok(())
     }
 
-    // Returns the name of the current context.
+    /// Returns the name of the current context.
     pub fn name(&self) -> &str {
         match self.stack.last() {
             Some(name) => name,
             None => GLOBAL_CONTEXT,
         }
+    }
+
+    /// Returns true if we are in the global scope.
+    pub fn is_global(&self) -> bool {
+        self.stack.is_empty()
     }
 
     // Returns a human-readable string representing the current context.
