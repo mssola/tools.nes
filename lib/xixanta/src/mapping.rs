@@ -43,6 +43,48 @@ lazy_static! {
             bundles: vec![],
         }
     ];
+    pub static ref NROM65: Vec<Segment> = vec![
+        Segment {
+            name: String::from("HEADER"),
+            start: 0x0000,
+            size: 0x0010,
+            offset: 0,
+            fill: Some(0x00),
+            bundles: vec![],
+        },
+        Segment {
+            name: String::from("VECTORS"),
+            start: 0xFFFA,
+            size: 0x0006,
+            offset: 0,
+            fill: Some(0x00),
+            bundles: vec![],
+        },
+        Segment {
+            name: String::from("STARTUP"),
+            start: 0x8000,
+            size: 0x7FFA,
+            offset: 0,
+            fill: Some(0x00),
+            bundles: vec![],
+        },
+        Segment {
+            name: String::from("CODE"),
+            start: 0x8000,
+            size: 0x7FFA,
+            offset: 0,
+            fill: Some(0x00),
+            bundles: vec![],
+        },
+        Segment {
+            name: String::from("CHARS"),
+            start: 0x0000,
+            size: 0x2000,
+            offset: 0,
+            fill: Some(0x00),
+            bundles: vec![],
+        }
+    ];
 }
 
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]

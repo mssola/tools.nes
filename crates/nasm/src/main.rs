@@ -3,7 +3,7 @@ use clap::Parser as ClapParser;
 use std::fs::File;
 use std::io::{self, Read, Write};
 use xixanta::assembler::Assembler;
-use xixanta::mapping::NROM;
+use xixanta::mapping::{Segment, EMPTY, NROM, NROM65};
 
 /// Assembler for the 6502 microprocessor that targets the NES.
 #[derive(ClapParser, Debug)]
@@ -12,6 +12,10 @@ struct Args {
     /// Assemble the instructions given on this file. The standard input is used
     /// when this argument is not given.
     file: Option<String>,
+
+    /// Linker configuration to be used. Defaults to 'nrom'.
+    #[arg(short = 'c', long)]
+    config: Option<String>,
 
     /// Disassemble instead of assembling. Disabled by default.
     #[arg(short, long, default_value_t = false)]
@@ -31,7 +35,6 @@ struct Args {
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    let mut assembler = Assembler::new(NROM.to_vec());
 
     // Select the input stream.
     let input: Box<dyn Read> = match args.file {
@@ -52,6 +55,23 @@ fn main() -> Result<()> {
             })?),
         }
     };
+
+    // Select the linker configuration.
+    let segments: Vec<Segment> = match args.config {
+        Some(c) => match c.to_lowercase().as_str() {
+            "empty" => EMPTY.to_vec(),
+            "nrom" => NROM.to_vec(),
+            "nrom65" => NROM65.to_vec(),
+            _ => {
+                println!("Unnown linker configuration '{}'", c);
+                std::process::exit(1);
+            }
+        },
+        None => NROM.to_vec(),
+    };
+
+    // Initialize the assembler with the given linker configuration.
+    let mut assembler = Assembler::new(segments);
 
     // After the parse operation, just print the results.
     if args.disassemble {
