@@ -429,8 +429,8 @@ impl Assembler {
             return Err(EvalError {
                 line: 0,
                 message: format!(
-                    "exceeding segment size for '{}' ({} bytes)",
-                    current.name, current.size
+                    "exceeding segment size for '{}'; expecting {} bytes and {} bytes have already been seen",
+                    current.name, current.size, current.offset,
                 ),
                 global: false,
             });
