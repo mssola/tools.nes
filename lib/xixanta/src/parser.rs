@@ -4,8 +4,6 @@ use crate::opcodes::{CONTROL_FUNCTIONS, INSTRUCTIONS};
 use std::cmp::Ordering;
 use std::io::{self, BufRead, Read};
 
-// TODO: allow for labels a la ".Lwhatever:"
-
 /// The Parser struct holds basic data for the current parsing session.
 #[derive(Default)]
 pub struct Parser {
@@ -665,6 +663,8 @@ impl Parser {
             self.parse_control(id, line)
         } else if line.starts_with('$') || line.starts_with('#') || line.starts_with('%') {
             self.parse_literal(id, line)
+        } else if line.starts_with('\'') {
+            self.parse_char(id)
         } else {
             // If there is an indication that it might be a macro call, process
             // it as such.
@@ -772,6 +772,47 @@ impl Parser {
             node_type: NodeType::Literal,
             value: id,
             left: Some(Box::new(left)),
+            right: None,
+            args: None,
+        })
+    }
+
+    // Returns a NodeType::Literal node with the given `id` parsed as a
+    // character literal. This literal will have on the left node a value which
+    // is the character transformed into a decimal value.
+    fn parse_char(&mut self, id: PString) -> Result<PNode, ParseError> {
+        if id.value.len() != 3 {
+            return Err(self.parser_error("bad character literal"));
+        }
+
+        let mut chars = id.value.chars();
+        let del = chars.next().unwrap();
+        let ch = chars.next().unwrap();
+
+        if del != '\'' || chars.next().unwrap() != '\'' {
+            return Err(self.parser_error("bad character literal"));
+        }
+        if !ch.is_ascii_alphanumeric() {
+            return Err(self.parser_error(
+                "only alphanumeric ASCII characters are allowed on character literals",
+            ));
+        }
+
+        Ok(PNode {
+            node_type: NodeType::Literal,
+            value: id.clone(),
+            left: Some(Box::new(PNode {
+                node_type: NodeType::Value,
+                value: PString {
+                    value: (ch as u8).to_string(),
+                    line: id.line,
+                    start: id.start + 1,
+                    end: id.end - 1,
+                },
+                left: None,
+                right: None,
+                args: None,
+            })),
             right: None,
             args: None,
         })
@@ -1425,6 +1466,39 @@ mod tests {
             assert_node(args.first().unwrap(), NodeType::Literal, line, "$10");
             assert_node(args.last().unwrap(), NodeType::Literal, line, "$20");
         }
+    }
+
+    #[test]
+    fn parse_byte_with_character_literals() {
+        let line = ".byte 'N', 'E', 'S', $1A";
+        let mut parser = Parser::default();
+        assert!(parser.parse(line.as_bytes()).is_ok());
+
+        let args = parser.nodes.first().unwrap().args.clone().unwrap();
+        assert_eq!(args.len(), 4);
+
+        let mut it = args.into_iter();
+
+        let mut cur = it.next().unwrap();
+        let mut left = cur.left.as_ref().unwrap();
+        assert_node(&cur, NodeType::Literal, line, "'N'");
+        assert_eq!(&left.node_type, &NodeType::Value);
+        assert_eq!(&left.value.value, "78");
+        assert_eq!(line.get(left.value.start..left.value.end).unwrap(), "N");
+
+        cur = it.next().unwrap();
+        left = cur.left.as_ref().unwrap();
+        assert_node(&cur, NodeType::Literal, line, "'E'");
+        assert_eq!(&left.node_type, &NodeType::Value);
+        assert_eq!(&left.value.value, "69");
+        assert_eq!(line.get(left.value.start..left.value.end).unwrap(), "E");
+
+        cur = it.next().unwrap();
+        left = cur.left.as_ref().unwrap();
+        assert_node(&cur, NodeType::Literal, line, "'S'");
+        assert_eq!(&left.node_type, &NodeType::Value);
+        assert_eq!(&left.value.value, "83");
+        assert_eq!(line.get(left.value.start..left.value.end).unwrap(), "S");
     }
 
     #[test]
