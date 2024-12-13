@@ -789,13 +789,13 @@ impl Parser {
         let del = chars.next().unwrap();
         let ch = chars.next().unwrap();
 
-        if del != '\'' || chars.next().unwrap() != '\'' {
-            return Err(self.parser_error("bad character literal"));
-        }
         if !ch.is_ascii_alphanumeric() {
             return Err(self.parser_error(
                 "only alphanumeric ASCII characters are allowed on character literals",
             ));
+        }
+        if del != '\'' || chars.next().unwrap() != '\'' {
+            return Err(self.parser_error("bad character literal"));
         }
 
         Ok(PNode {
