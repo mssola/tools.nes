@@ -26,7 +26,7 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --all-targets --all-features
 
-  fuzz:
+  fuzz_parser:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,7 +42,28 @@ jobs:
       - name: Build with nightly
         run: cargo build --verbose
 
-      - name: Fuzzy testing
+      - name: Fuzzy test the parser
         run: |
           cd lib/xixanta
           cargo +nightly fuzz run fuzz_target_1 -- -max_total_time=180
+
+  fuzz_assembler:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update rust toolchain to nightly
+        run: |
+          rustup update nightly
+          rustup default nightly
+
+      - name: Install cargo fuzz
+        run: cargo install cargo-fuzz
+
+      - name: Build with nightly
+        run: cargo build --verbose
+
+      - name: Fuzzy test the assembler
+        run: |
+          cd lib/xixanta
+          cargo +nightly fuzz run fuzz_target_2 -- -max_total_time=180
