@@ -75,6 +75,7 @@ fn main() -> Result<()> {
 
     // After the parse operation, just print the results.
     if args.disassemble {
+        println!("TBD");
         // let instructions = assembler.disassemble(input)?;
 
         // for instr in instructions {

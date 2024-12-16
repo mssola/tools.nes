@@ -1,5 +1,6 @@
 This project uses [Rust](https://www.rust-lang.org/), so use the usual
-[cargo](https://doc.rust-lang.org/cargo/) commands in order to build and run 
+[cargo](https://doc.rust-lang.org/cargo/) commands in order to build and run the
+desired binaries/tests.
 
 ## Issue reporting
 

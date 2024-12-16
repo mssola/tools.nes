@@ -412,7 +412,7 @@ impl Assembler {
 
     fn push_bundle(&mut self, mut bundle: Bundle, node: &PNode) -> Result<(), EvalError> {
         let current = &mut self.mappings[self.current_mapping];
-        bundle.address = current.start as usize + current.offset; // TODO: here
+        bundle.address = current.start as usize + current.offset;
         current.offset += bundle.size as usize;
         current.segments[self.current_segment].offset += bundle.size as usize;
 
