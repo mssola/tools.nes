@@ -3,7 +3,7 @@ use clap::Parser as ClapParser;
 use std::fs::File;
 use std::io::{self, Read, Write};
 use xixanta::assembler::Assembler;
-use xixanta::mapping::{Segment, EMPTY, NROM, NROM65};
+use xixanta::mapping::{Mapping, EMPTY, NROM, NROM65};
 
 /// Assembler for the 6502 microprocessor that targets the NES.
 #[derive(ClapParser, Debug)]
@@ -57,7 +57,7 @@ fn main() -> Result<()> {
     };
 
     // Select the linker configuration.
-    let segments: Vec<Segment> = match args.config {
+    let mapping: Vec<Mapping> = match args.config {
         Some(c) => match c.to_lowercase().as_str() {
             "empty" => EMPTY.to_vec(),
             "nrom" => NROM.to_vec(),
@@ -71,7 +71,7 @@ fn main() -> Result<()> {
     };
 
     // Initialize the assembler with the given linker configuration.
-    let mut assembler = Assembler::new(segments);
+    let mut assembler = Assembler::new(mapping);
 
     // After the parse operation, just print the results.
     if args.disassemble {

@@ -1,61 +1,13 @@
-use crate::context::Context;
 use crate::errors::{Error, EvalError};
-use crate::mapping::Segment;
+use crate::mapping::Mapping;
 use crate::node::{ControlType, NodeType, PNode, PString};
+pub use crate::object::{Bundle, Context, Object, ObjectType};
 use crate::opcodes::{AddressingMode, INSTRUCTIONS};
 use crate::parser::Parser;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::io::Read;
 use std::ops::Range;
-
-/// A Bundle represents a set of bytes that can be encoded as binary data.
-/// TODO: maybe inside of Mapping?
-#[derive(Debug, Default, Clone, Eq, Ord, PartialEq, PartialOrd)]
-pub struct Bundle {
-    /// The bytes which make up any encodable element for the application. The
-    /// capacity is of three bytes maximum, but the actual size is encoded in
-    /// the `size` property.
-    pub bytes: [u8; 3],
-
-    /// The amount of bytes which have actually been set on this bundle.
-    pub size: u8,
-
-    /// The address where the given bytes are to be placed on the resulting
-    /// binary file.
-    pub address: usize,
-
-    /// If this bundle encodes an instruction, the amount of cycles it takes for
-    /// the CPU to actually execute it.
-    pub cycles: u8,
-
-    /// Whether the cost in cycles is affected when crossing a page boundary.
-    pub affected_on_page: bool,
-
-    /// Whether the bytes on `bytes` contain the final value or not. This is
-    /// used for internal purposes only.
-    resolved: bool,
-}
-
-impl Bundle {
-    pub fn new(resolved: bool) -> Self {
-        Self {
-            resolved,
-            ..Default::default()
-        }
-    }
-
-    pub fn fill(value: u8) -> Self {
-        Self {
-            bytes: [value, 0, 0],
-            size: 1,
-            address: 0,
-            cycles: 0,
-            affected_on_page: false,
-            resolved: true,
-        }
-    }
-}
 
 #[derive(Clone, PartialEq)]
 pub enum LiteralMode {
@@ -82,6 +34,7 @@ pub struct Macro {
 
 #[derive(Clone, Debug)]
 pub struct PendingNode {
+    mapping: usize,
     segment: usize,
     context: String,
     bundle_index: usize,
@@ -95,15 +48,16 @@ pub struct Assembler {
     stage: Stage,
     macros: HashMap<String, Macro>,
     can_bundle: bool,
-    segments: Vec<Segment>,
+    mappings: Vec<Mapping>,
+    current_mapping: usize,
     current_segment: usize,
     pending: Vec<PendingNode>,
     labels_seen: usize,
 }
 
 impl Assembler {
-    pub fn new(segments: Vec<Segment>) -> Self {
-        assert!(!segments.is_empty());
+    pub fn new(mappings: Vec<Mapping>) -> Self {
+        crate::mapping::assert(&mappings);
 
         Self {
             context: Context::new(),
@@ -111,7 +65,8 @@ impl Assembler {
             stage: Stage::Init,
             macros: HashMap::new(),
             can_bundle: true,
-            segments,
+            mappings,
+            current_mapping: 0,
             current_segment: 0,
             pending: vec![],
             labels_seen: 0,
@@ -149,10 +104,15 @@ impl Assembler {
             match &node.node_type {
                 NodeType::Label => {
                     if !node.value.is_empty() {
-                        if let Err(err) =
-                            self.context
-                                .set_variable(&node.value, &Bundle::default(), false)
-                        {
+                        if let Err(err) = self.context.set_variable(
+                            &node.value,
+                            &Object::new(
+                                self.current_mapping,
+                                self.current_segment,
+                                ObjectType::Address,
+                            ),
+                            false,
+                        ) {
                             errors.push(Error::Context(err));
                         }
                     }
@@ -170,8 +130,16 @@ impl Assembler {
                     }
                     match self.evaluate_node(node.left.as_ref().unwrap()) {
                         Ok(value) => {
-                            if let Err(err) = self.context.set_variable(&node.value, &value, false)
-                            {
+                            if let Err(err) = self.context.set_variable(
+                                &node.value,
+                                &Object {
+                                    bundle: value,
+                                    mapping: self.current_mapping,
+                                    segment: self.current_segment,
+                                    object_type: ObjectType::Value,
+                                },
+                                false,
+                            ) {
                                 errors.push(Error::Context(err));
                             }
                         }
@@ -241,39 +209,35 @@ impl Assembler {
         for node in nodes {
             match node.node_type {
                 NodeType::Label => {
-                    let segment = &self.segments[self.current_segment];
-                    // println!("SEGMENT: {:#?}", segment)
-                    let value = (segment.start as usize + segment.offset).to_le_bytes();
-                    let bundle = Bundle {
-                        bytes: [value[0], value[1], value[2]],
-                        size: 2,
-                        address: 0,
-                        cycles: 0,
-                        affected_on_page: false,
-                        resolved: true,
+                    let segment =
+                        &self.mappings[self.current_mapping].segments[self.current_segment];
+                    let value = segment.offset.to_le_bytes();
+                    let object = Object {
+                        bundle: Bundle {
+                            bytes: [value[0], value[1], value[2]],
+                            size: 2,
+                            address: 0,
+                            cycles: 0,
+                            affected_on_page: false,
+                            resolved: false,
+                        },
+                        mapping: self.current_mapping,
+                        segment: self.current_segment,
+                        object_type: ObjectType::Address,
                     };
 
                     if !node.value.is_empty() {
-                        if let Err(err) = self.context.set_variable(&node.value, &bundle, true) {
+                        if let Err(err) = self.context.set_variable(&node.value, &object, true) {
                             errors.push(Error::Context(err));
                         }
                     }
-                    self.context.add_label(&bundle);
+                    self.context.add_label(&object);
                 }
                 NodeType::Instruction => {
                     if self.can_bundle {
                         self.literal_mode = None;
                         match self.evaluate_node(node) {
-                            Ok(mut bundle) => {
-                                if node.is_branch() {
-                                    // TODO: it's a bit of a pity...
-                                    let current = &mut self.segments[self.current_segment];
-                                    bundle.address = current.start as usize + current.offset;
-
-                                    if let Err(e) = self.to_relative_address(node, &mut bundle) {
-                                        errors.push(Error::Eval(e));
-                                    }
-                                }
+                            Ok(bundle) => {
                                 if let Err(e) = self.push_bundle(bundle, node) {
                                     errors.push(Error::Eval(e));
                                 }
@@ -314,17 +278,18 @@ impl Assembler {
 
             match self.evaluate_node(&pn.node) {
                 Ok(mut bundle) => {
-                    // TODO: oh boy
-                    bundle.address = self.segments[pn.segment].bundles[pn.bundle_index].address;
+                    let current = &self.mappings[pn.mapping].segments[pn.segment];
+                    bundle.address = current.bundles[pn.bundle_index].address;
 
                     if pn.node.is_branch() {
+                        bundle.resolved = true;
                         if let Err(e) = self.to_relative_address(&pn.node, &mut bundle) {
                             errors.push(Error::Eval(e));
                         }
                     }
 
-                    let current = &mut self.segments[pn.segment];
-                    current.bundles[pn.bundle_index].bytes = bundle.bytes;
+                    let current_mut = &mut self.mappings[pn.mapping].segments[pn.segment];
+                    current_mut.bundles[pn.bundle_index].bytes = bundle.bytes;
                 }
                 Err(e) => errors.push(Error::Eval(e)),
             }
@@ -332,20 +297,41 @@ impl Assembler {
             self.context.force_context_pop();
         }
 
+        // Validate the mappings that have been evaluated before spitting it
+        // out.
+        if let Err(e) = crate::mapping::validate(&self.mappings) {
+            return Err(vec![Error::Eval(e)]);
+        }
+
         let mut res = vec![];
-        for segment in &mut self.segments {
-            if segment.bundles.is_empty() {
-                errors.push(Error::Eval(EvalError {
-                    line: 0,
-                    message: format!("segment '{}' is empty", segment.name),
-                    global: true,
+        // TODO: trainer support.
+
+        for mapping in &mut self.mappings {
+            for segment in mapping.segments.iter_mut() {
+                // TODO: return a warning instead.
+                if segment.is_empty() {
+                    return Err(vec![Error::Eval(EvalError {
+                        line: 0,
+                        message: format!("segment '{}' is empty", segment.name),
+                        global: true,
+                    })]);
+                }
+                res.append(&mut segment.bundles);
+            }
+
+            let mut diff = mapping.size as isize - mapping.offset as isize;
+            if diff < 0 {
+                errors.push(Error::Eval(EvalError{
+                        line: 0,
+                        message: format!(
+                            "exceeding segment size for '{}'; expecting {} bytes and {} bytes have already been seen",
+                            mapping.name, mapping.size, mapping.offset,
+                        ),
+                        global: false,
                 }));
             }
 
-            res.append(&mut segment.bundles);
-
-            if let Some(fill) = segment.fill {
-                let mut diff = segment.size - segment.offset;
+            if let Some(fill) = mapping.fill {
                 while diff > 0 {
                     res.push(Bundle::fill(fill));
                     diff -= 1;
@@ -400,9 +386,14 @@ impl Assembler {
             let mut margs = mcr.args.iter();
 
             for arg in args.unwrap().iter() {
-                let bundle = self.evaluate_node(arg)?;
+                let obj = Object {
+                    bundle: self.evaluate_node(arg)?,
+                    mapping: self.current_mapping,
+                    segment: self.current_segment,
+                    object_type: ObjectType::Value,
+                };
                 self.context
-                    .set_variable(margs.next().unwrap(), &bundle, false)?;
+                    .set_variable(margs.next().unwrap(), &obj, false)?;
             }
         }
 
@@ -419,33 +410,23 @@ impl Assembler {
         Ok(())
     }
 
-    // TODO: move
     fn push_bundle(&mut self, mut bundle: Bundle, node: &PNode) -> Result<(), EvalError> {
-        let current = &mut self.segments[self.current_segment];
+        let current = &mut self.mappings[self.current_mapping];
         bundle.address = current.start as usize + current.offset; // TODO: here
         current.offset += bundle.size as usize;
-
-        if current.offset > current.size {
-            return Err(EvalError {
-                line: 0,
-                message: format!(
-                    "exceeding segment size for '{}'; expecting {} bytes and {} bytes have already been seen",
-                    current.name, current.size, current.offset,
-                ),
-                global: false,
-            });
-        }
+        current.segments[self.current_segment].offset += bundle.size as usize;
 
         if !bundle.resolved {
             self.pending.push(PendingNode {
+                mapping: self.current_mapping,
                 segment: self.current_segment,
                 context: self.context.name().to_string(),
-                bundle_index: current.bundles.len(),
+                bundle_index: current.segments[self.current_segment].bundles.len(),
                 node: node.to_owned(),
                 labels_seen: self.context.labels_seen(),
             });
         }
-        current.bundles.push(bundle);
+        current.segments[self.current_segment].bundles.push(bundle);
 
         Ok(())
     }
@@ -515,11 +496,12 @@ impl Assembler {
                 resolved: false,
             }),
             Stage::Crunching => {
-                match self
-                    .context
-                    .get_relative_label(node.value.to_isize(), self.labels_seen)
-                {
-                    Ok(bundle) => Ok(bundle),
+                match self.context.get_relative_label(
+                    node.value.to_isize(),
+                    self.labels_seen,
+                    &self.mappings,
+                ) {
+                    Ok(object) => Ok(object.bundle),
                     Err(e) => Err(EvalError {
                         line: node.value.line,
                         message: e.message,
@@ -953,11 +935,14 @@ impl Assembler {
         // Find the segment being referenced and update the
         // `self.current_segment` accordingly.
         let mut found = false;
-        for (idx, segment) in self.segments.iter().enumerate() {
-            if segment.name == name {
-                self.current_segment = idx;
-                found = true;
-                break;
+        for (mapping_idx, mapping) in self.mappings.iter().enumerate() {
+            for (segment_idx, segment) in mapping.segments.iter().enumerate() {
+                if segment.name == name {
+                    self.current_mapping = mapping_idx;
+                    self.current_segment = segment_idx;
+                    found = true;
+                    break;
+                }
             }
         }
         if !found {
@@ -971,8 +956,8 @@ impl Assembler {
     }
 
     fn evaluate_variable(&mut self, id: &PString) -> Result<Bundle, EvalError> {
-        match self.context.get_variable(id) {
-            Ok(value) => Ok(value),
+        match self.context.get_variable(id, &self.mappings) {
+            Ok(value) => Ok(value.bundle),
             Err(e) => Err(EvalError {
                 message: e.message,
                 line: id.line,
@@ -1212,10 +1197,6 @@ impl Assembler {
         } else {
             let diff = target - next;
             if diff > 127 {
-                println!(
-                    "DIFF: {:#?} -- TARGET: {:#?} -- NEXT: {:#?} -- NODE: {:#?} -- BUNDLE: {:#?}",
-                    diff, target, next, node, bundle
-                );
                 return Err(EvalError {
                     line: node.value.line,
                     message: "you cannot branch to this location: it's too far away".to_string(),
@@ -1226,6 +1207,7 @@ impl Assembler {
         };
 
         bundle.bytes[1] = byte;
+        bundle.bytes[2] = 0;
         bundle.size = 2;
 
         Ok(())
@@ -1235,32 +1217,71 @@ impl Assembler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mapping::EMPTY;
+    use crate::mapping::{SectionType, Segment, EMPTY};
 
-    fn one_two() -> Vec<Segment> {
+    fn one_two() -> Vec<Mapping> {
         vec![
-            Segment {
-                name: String::from("ONE"),
+            Mapping {
+                name: String::from("HEADER"),
                 start: 0x0000,
                 size: 0x0010,
                 offset: 0,
                 fill: Some(0x00),
-                bundles: vec![],
+                section_type: SectionType::Header,
+                segments: vec![Segment {
+                    name: String::from("HEADER"),
+                    len: 0,
+                    offset: 0,
+                    bundles: vec![],
+                }],
             },
-            Segment {
-                name: String::from("TWO"),
-                start: 0x0010,
-                size: 0x0020,
+            Mapping {
+                name: String::from("ROM0"),
+                start: 0x8000,
+                size: 0x8000,
                 offset: 0,
                 fill: None,
-                bundles: vec![],
+                section_type: SectionType::PrgRom,
+                segments: vec![
+                    Segment {
+                        name: String::from("ONE"),
+                        len: 0,
+                        offset: 0,
+                        bundles: vec![],
+                    },
+                    Segment {
+                        name: String::from("TWO"),
+                        len: 0,
+                        offset: 0,
+                        bundles: vec![],
+                    },
+                ],
             },
         ]
     }
 
+    fn minimal_header() -> Vec<Bundle> {
+        vec![
+            Bundle::fill(0x4E), // N
+            Bundle::fill(0x45), // E
+            Bundle::fill(0x53), // S
+            Bundle::fill(0x1A), // MS-DOS \0
+            Bundle::fill(0x01), // 1 * 8KB of PRG ROM
+            Bundle::fill(0x00), // No CHR ROM
+        ]
+    }
+
     fn assert_instruction(line: &str, hex: &[u8]) {
+        // Set up the empty mapper, but we have to push a minimal header
+        // (otherwise an early assertion will fail), and we need to point to the
+        // "CODE" segment (which is in the mapping indexed by 1).
         let mut asm = Assembler::new(EMPTY.to_vec());
-        let res = asm.assemble(line.as_bytes()).unwrap();
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+
+        // Grab the result passed the initial header.
+        let res = &asm.assemble(line.as_bytes()).unwrap()[0x10..];
 
         assert_eq!(res.len(), 1);
 
@@ -1269,9 +1290,13 @@ mod tests {
         }
     }
 
-    fn assert_error(line: &str, id: &str, line_num: usize, message: &str) {
+    fn assert_error(line: &str, id: &str, line_num: usize, global: bool, message: &str) {
         let mut asm = Assembler::new(EMPTY.to_vec());
-        assert_error_with_assembler(&mut asm, line, id, line_num, message);
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+
+        assert_error_with_assembler(&mut asm, line, id, line_num, global, message);
     }
 
     fn assert_error_with_assembler(
@@ -1279,19 +1304,24 @@ mod tests {
         line: &str,
         id: &str,
         line_num: usize,
+        global: bool,
         message: &str,
     ) {
         let res = asm.assemble(line.as_bytes());
-        let msg = format!("{} error (line {}): {}.", id, line_num, message);
+        let msg = if global {
+            format!("{} error: {}.", id, message)
+        } else {
+            format!("{} error (line {}): {}.", id, line_num, message)
+        };
         assert_eq!(res.unwrap_err().first().unwrap().to_string().as_str(), msg);
     }
 
     fn assert_eval_error(line: &str, message: &str) {
-        assert_error(line, "Evaluation", 1, message);
+        assert_error(line, "Evaluation", 1, false, message);
     }
 
     fn assert_context_error(line: &str, message: &str, line_num: usize) {
-        assert_error(line, "Context", line_num, message);
+        assert_error(line, "Context", line_num, false, message);
     }
 
     // Empty
@@ -1299,7 +1329,7 @@ mod tests {
     #[test]
     fn empty_line() {
         for line in vec!["", "  ", ";; Comment", "  ;; Comment"].into_iter() {
-            assert_error(line, "Evaluation", 1, "segment 'CODE' is empty");
+            assert_error(line, "Evaluation", 1, true, "segment 'CODE' is empty");
         }
     }
 
@@ -1320,6 +1350,7 @@ adc %Variable
 "#,
             "Evaluation",
             3,
+            false,
             "you cannot use variables like 'Variable' in binary literals",
         );
         assert_instruction("adc #%10100010", &[0x69, 0xA2]);
@@ -1339,6 +1370,7 @@ adc $Variable
 "#,
             "Evaluation",
             3,
+            false,
             "you cannot use variables like 'Variable' in hexadecimal literals",
         );
         assert_error(
@@ -1348,6 +1380,7 @@ adc $Four
 "#,
             "Evaluation",
             3,
+            false,
             "you cannot use variables like 'Four' in hexadecimal literals",
         );
         assert_instruction("adc $AA", &[0x65, 0xAA]);
@@ -1371,7 +1404,10 @@ adc $Four
     #[test]
     fn scoped_variable() {
         let mut asm = Assembler::new(EMPTY.to_vec());
-        let res = asm
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
             .assemble(
                 r#"
 .scope One   ; This is a comment
@@ -1392,7 +1428,7 @@ adc #Another::Variable
 "#
                 .as_bytes(),
             )
-            .unwrap();
+            .unwrap()[0x10..];
 
         assert_eq!(res.len(), 4);
         let instrs: Vec<[u8; 2]> = vec![[0x69, 0x20], [0x69, 0x30], [0x69, 0x20], [0x69, 0x40]];
@@ -1407,7 +1443,10 @@ adc #Another::Variable
     #[test]
     fn bare_variables() {
         let mut asm = Assembler::new(EMPTY.to_vec());
-        let res = asm
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
             .assemble(
                 r#"
 Variable = 4
@@ -1415,7 +1454,7 @@ adc Variable
 "#
                 .as_bytes(),
             )
-            .unwrap();
+            .unwrap()[0x10..];
 
         assert_eq!(res.len(), 1);
 
@@ -1473,6 +1512,7 @@ lda #Scope::Variable
 "#,
             "Evaluation",
             4,
+            false,
             "'e' is not a decimal value and could not find variable 'Variable' in 'Scope' either",
         );
     }
@@ -1764,7 +1804,10 @@ lda #Scope::Variable
     #[test]
     fn same_segment_labels() {
         let mut asm = Assembler::new(EMPTY.to_vec());
-        let res = asm
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
             .assemble(
                 r#"
 nop
@@ -1776,7 +1819,7 @@ nop
 "#
                 .as_bytes(),
             )
-            .unwrap();
+            .unwrap()[0x10..];
 
         assert_eq!(res.len(), 4);
 
@@ -1784,19 +1827,22 @@ nop
         assert_eq!(res[1].size, 3);
         assert_eq!(res[1].bytes[0], 0x4C);
         assert_eq!(res[1].bytes[1], 0x01);
-        assert_eq!(res[1].bytes[2], 0x00);
+        assert_eq!(res[1].bytes[2], 0x80);
 
         // jmp @end
         assert_eq!(res[2].size, 3);
         assert_eq!(res[2].bytes[0], 0x4C);
         assert_eq!(res[2].bytes[1], 0x07);
-        assert_eq!(res[2].bytes[2], 0x00);
+        assert_eq!(res[2].bytes[2], 0x80);
     }
 
     #[test]
     fn anonymous_relative_jumps() {
         let mut asm = Assembler::new(EMPTY.to_vec());
-        let res = asm
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
             .assemble(
                 r#"
 nop
@@ -1815,7 +1861,7 @@ nop
 "#
                 .as_bytes(),
             )
-            .unwrap();
+            .unwrap()[0x10..];
 
         assert_eq!(res.len(), 9);
 
@@ -1829,25 +1875,25 @@ nop
         assert_eq!(res[2].size, 3);
         assert_eq!(res[2].bytes[0], 0x4C);
         assert_eq!(res[2].bytes[1], 0x01);
-        assert_eq!(res[2].bytes[2], 0x00);
+        assert_eq!(res[2].bytes[2], 0x80);
 
         // jmp :+
         assert_eq!(res[3].size, 3);
         assert_eq!(res[3].bytes[0], 0x4C);
         assert_eq!(res[3].bytes[1], 0x0E);
-        assert_eq!(res[3].bytes[2], 0x00);
+        assert_eq!(res[3].bytes[2], 0x80);
 
         // jmp @hello
         assert_eq!(res[4].size, 3);
         assert_eq!(res[4].bytes[0], 0x4C);
         assert_eq!(res[4].bytes[1], 0x02);
-        assert_eq!(res[4].bytes[2], 0x00);
+        assert_eq!(res[4].bytes[2], 0x80);
 
         // jmp :+++
         assert_eq!(res[5].size, 3);
         assert_eq!(res[5].bytes[0], 0x4C);
         assert_eq!(res[5].bytes[1], 0x10);
-        assert_eq!(res[5].bytes[2], 0x00);
+        assert_eq!(res[5].bytes[2], 0x80);
 
         // Three last nop's.
         assert_eq!(res[6].size, 1);
@@ -1861,7 +1907,10 @@ nop
     #[test]
     fn anonymous_relative_branches() {
         let mut asm = Assembler::new(EMPTY.to_vec());
-        let res = asm
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
             .assemble(
                 r#"
 nop
@@ -1880,7 +1929,7 @@ nop
 "#
                 .as_bytes(),
             )
-            .unwrap();
+            .unwrap()[0x10..];
 
         assert_eq!(res.len(), 9);
 
@@ -1922,7 +1971,10 @@ nop
     #[test]
     fn conditional_branch_to_labels() {
         let mut asm = Assembler::new(EMPTY.to_vec());
-        let res = asm
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
             .assemble(
                 r#"
 nop
@@ -1934,7 +1986,7 @@ nop
 "#
                 .as_bytes(),
             )
-            .unwrap();
+            .unwrap()[0x10..];
 
         assert_eq!(res.len(), 4);
 
@@ -1957,7 +2009,10 @@ nop
     #[test]
     fn byte_literals() {
         let mut asm = Assembler::new(EMPTY.to_vec());
-        let res = asm
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
             .assemble(
                 r#"
 .scope Vars
@@ -1969,7 +2024,7 @@ nop
 "#
                 .as_bytes(),
             )
-            .unwrap();
+            .unwrap()[0x10..];
 
         assert_eq!(res.len(), 3);
 
@@ -1992,7 +2047,10 @@ nop
     #[test]
     fn hi_lo_byte() {
         let mut asm = Assembler::new(EMPTY.to_vec());
-        let res = asm
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
             .assemble(
                 r#"
 Var = $2002
@@ -2001,7 +2059,7 @@ lda #.hibyte(Var)
 "#
                 .as_bytes(),
             )
-            .unwrap();
+            .unwrap()[0x10..];
 
         assert_eq!(res.len(), 2);
         let instrs: Vec<[u8; 2]> = vec![[0xA9, 0x02], [0xA9, 0x20]];
@@ -2018,7 +2076,10 @@ lda #.hibyte(Var)
     #[test]
     fn macro_no_arguments() {
         let mut asm = Assembler::new(EMPTY.to_vec());
-        let res = asm
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
             .assemble(
                 r#"
 lda #42
@@ -2032,7 +2093,7 @@ MACRO
 "#
                 .as_bytes(),
             )
-            .unwrap();
+            .unwrap()[0x10..];
 
         assert_eq!(res.len(), 3);
         let instrs: Vec<[u8; 2]> = vec![[0xA9, 0x2A], [0xA9, 0x01], [0xA9, 0x02]];
@@ -2047,6 +2108,9 @@ MACRO
     #[test]
     fn macro_not_enough_arguments() {
         let mut asm = Assembler::new(EMPTY.to_vec());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
         let res = asm
             .assemble(
                 r#"
@@ -2072,6 +2136,9 @@ MACRO
     #[test]
     fn macro_too_many_arguments() {
         let mut asm = Assembler::new(EMPTY.to_vec());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
         let res = asm
             .assemble(
                 r#"
@@ -2097,7 +2164,10 @@ MACRO(1, 2)
     #[test]
     fn macro_with_one_argument() {
         let mut asm = Assembler::new(EMPTY.to_vec());
-        let res = asm
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
             .assemble(
                 r#"
 lda #42
@@ -2111,7 +2181,7 @@ MACRO(2)
 "#
                 .as_bytes(),
             )
-            .unwrap();
+            .unwrap()[0x10..];
 
         assert_eq!(res.len(), 3);
         let instrs: Vec<[u8; 2]> = vec![[0xA9, 0x2A], [0xA9, 0x01], [0xA9, 0x02]];
@@ -2126,6 +2196,9 @@ MACRO(2)
     #[test]
     fn macro_unknown_arguments() {
         let mut asm = Assembler::new(EMPTY.to_vec());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
         let res = asm
             .assemble(
                 r#"
@@ -2152,6 +2225,9 @@ MACRO(1)
     #[test]
     fn macro_shadow_argument() {
         let mut asm = Assembler::new(EMPTY.to_vec());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
         let res = asm
             .assemble(
                 r#"
@@ -2179,7 +2255,10 @@ MACRO(1)
     #[test]
     fn macro_multiple_arguments() {
         let mut asm = Assembler::new(EMPTY.to_vec());
-        let res = asm
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
             .assemble(
                 r#"
 .macro WRITE_PPU_DATA address, value
@@ -2196,7 +2275,7 @@ WRITE_PPU_DATA $20B9, $04
 "#
                 .as_bytes(),
             )
-            .unwrap();
+            .unwrap()[0x10..];
 
         assert_eq!(res.len(), 7);
 
@@ -2245,31 +2324,52 @@ WRITE_PPU_DATA $20B9, $04
     #[test]
     fn error_on_unknown_segment() {
         let mut asm = Assembler::new(one_two().to_vec());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+
         let line = r#"
 .segment "THREE"
 
 .segment "TWO"
 nop
 "#;
-        assert_error_with_assembler(&mut asm, line, "Evaluation", 2, "unknown segment 'THREE'")
+        assert_error_with_assembler(
+            &mut asm,
+            line,
+            "Evaluation",
+            2,
+            false,
+            "unknown segment 'THREE'",
+        )
     }
 
     #[test]
     fn error_on_empty_segment() {
         let mut asm = Assembler::new(one_two().to_vec());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
         let line = r#"
 .segment "ONE"
 
 .segment "TWO"
 nop
 "#;
-        assert_error_with_assembler(&mut asm, line, "Evaluation", 1, "segment 'ONE' is empty")
+        assert_error_with_assembler(
+            &mut asm,
+            line,
+            "Evaluation",
+            1,
+            true,
+            "segment 'ONE' is empty",
+        )
     }
 
     #[test]
     fn jmp_and_beq_inside_segment() {
         let mut asm = Assembler::new(one_two().to_vec());
-        let res = asm
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        let bundles = &asm
             .assemble(
                 r#"
 .segment "ONE"
@@ -2283,7 +2383,9 @@ nop
     beq :--
     beq :+
     jmp @hello
+    beq @hello
     beq :+++
+    beq @end
 @end:
     nop
 :
@@ -2292,11 +2394,7 @@ nop
 "#
                 .as_bytes(),
             )
-            .unwrap();
-
-        // Let's ignore the instructions + fill of "ONE".
-        let bundles = &res[16..res.len()];
-        println!("{:#?}", bundles);
+            .unwrap()[0x11..]; // Ignoring HEADER + nop from ONE
 
         // First two nop's
         assert_eq!(bundles[0].size, 1);
@@ -2312,30 +2410,106 @@ nop
         // beq :+
         assert_eq!(bundles[3].size, 2);
         assert_eq!(bundles[3].bytes[0], 0xF0);
-        assert_eq!(bundles[3].bytes[1], 0x04);
+        assert_eq!(bundles[3].bytes[1], 0x09);
+
+        // jmp @hello
+        assert_eq!(bundles[4].size, 3);
+        assert_eq!(bundles[4].bytes[0], 0x4C);
+        assert_eq!(bundles[4].bytes[1], 0x03);
+        assert_eq!(bundles[4].bytes[2], 0x80);
 
         // beq @hello
-        assert_eq!(bundles[4].size, 2);
-        assert_eq!(bundles[4].bytes[0], 0x4C);
-        assert_eq!(bundles[4].bytes[1], 0x02);
-        assert_eq!(bundles[4].bytes[2], 0x00);
-
-        // beq :+++
         assert_eq!(bundles[5].size, 2);
         assert_eq!(bundles[5].bytes[0], 0xF0);
-        assert_eq!(bundles[5].bytes[1], 0x02);
+        assert_eq!(bundles[5].bytes[1], 0xF7);
+
+        // beq :+++
+        assert_eq!(bundles[6].size, 2);
+        assert_eq!(bundles[6].bytes[0], 0xF0);
+        assert_eq!(bundles[6].bytes[1], 0x04);
+
+        // beq @end
+        assert_eq!(bundles[7].size, 2);
+        assert_eq!(bundles[7].bytes[0], 0xF0);
+        assert_eq!(bundles[7].bytes[1], 0x00);
 
         // Three last nop's.
-        assert_eq!(bundles[6].size, 1);
-        assert_eq!(bundles[6].bytes[0], 0xEA);
-        assert_eq!(bundles[7].size, 1);
-        assert_eq!(bundles[7].bytes[0], 0xEA);
         assert_eq!(bundles[8].size, 1);
         assert_eq!(bundles[8].bytes[0], 0xEA);
+        assert_eq!(bundles[9].size, 1);
+        assert_eq!(bundles[9].bytes[0], 0xEA);
+        assert_eq!(bundles[10].size, 1);
+        assert_eq!(bundles[10].bytes[0], 0xEA);
     }
 
-    // TODO: jmp's and beq's inside of segment
-    // TODO: jmp's between segments
-    // TODO: Error on trying segment inside of another scope
-    // TODO: fill data
+    #[test]
+    fn jmp_on_different_segments_intertwined() {
+        let mut asm = Assembler::new(one_two().to_vec());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        let bundles = &asm
+            .assemble(
+                r#"
+.segment "ONE"
+lala:
+    rts
+
+.segment "TWO"
+code:
+    jsr lala
+    jsr code
+    rts
+
+.segment "ONE"
+    jsr code
+"#
+                .as_bytes(),
+            )
+            .unwrap()[0x11..]; // Ignoring HEADER + rts from ONE
+
+        // "jsr code" from ONE (notice that it's intertwined!)
+        assert_eq!(bundles[0].size, 3);
+        assert_eq!(bundles[0].bytes[0], 0x20);
+        assert_eq!(bundles[0].bytes[1], 0x04);
+        assert_eq!(bundles[0].bytes[2], 0x80);
+
+        // "jsr lala" from TWO
+        assert_eq!(bundles[1].size, 3);
+        assert_eq!(bundles[1].bytes[0], 0x20);
+        assert_eq!(bundles[1].bytes[1], 0x00);
+        assert_eq!(bundles[1].bytes[2], 0x80);
+
+        // "jsr code" from TWO (again, notice that it's intertwined)
+        assert_eq!(bundles[2].size, 3);
+        assert_eq!(bundles[2].bytes[0], 0x20);
+        assert_eq!(bundles[2].bytes[1], 0x04);
+        assert_eq!(bundles[2].bytes[2], 0x80);
+    }
+
+    #[test]
+    fn cannot_switch_to_segment_inside_of_scope() {
+        let mut asm = Assembler::new(EMPTY.to_vec());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
+            .assemble(
+                r#"
+.scope Vars
+.segment "CODE"
+  nop
+.endscope
+"#
+                .as_bytes(),
+            )
+            .unwrap_err();
+
+        assert_eq!(
+            res.first().unwrap().to_string(),
+            "Evaluation error (line 3): cannot switch to segment 'CODE' \
+             if we are still inside of a scope ('Vars')."
+        );
+    }
+
+    // TODO: jmp/beq outside of allocated PRG ROM
 }

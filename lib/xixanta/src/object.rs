@@ -1,11 +1,101 @@
-use crate::assembler::Bundle;
 use crate::errors::{ContextError, ContextErrorReason};
+use crate::mapping::Mapping;
 use crate::node::{ControlType, NodeType, PNode, PString};
 use crate::opcodes::CONTROL_FUNCTIONS;
 use std::collections::HashMap;
 
-// The name of the global context as used internally.
+/// The name of the global context as used internally.
 const GLOBAL_CONTEXT: &str = "Global";
+
+/// A Bundle represents a set of bytes that can be encoded as binary data.
+#[derive(Debug, Default, Clone, Eq, Ord, PartialEq, PartialOrd)]
+pub struct Bundle {
+    /// The bytes which make up any encodable element for the application. The
+    /// capacity is of three bytes maximum, but the actual size is encoded in
+    /// the `size` property.
+    pub bytes: [u8; 3],
+
+    /// The amount of bytes which have actually been set on this bundle.
+    pub size: u8,
+
+    /// The address where the given bytes are to be placed on the resulting
+    /// binary file.
+    pub address: usize,
+
+    /// If this bundle encodes an instruction, the amount of cycles it takes for
+    /// the CPU to actually execute it.
+    pub cycles: u8,
+
+    /// Whether the cost in cycles is affected when crossing a page boundary.
+    pub affected_on_page: bool,
+
+    /// Whether the bytes on `bytes` contain the final value or not. This is
+    /// used for internal purposes only.
+    pub resolved: bool,
+}
+
+impl Bundle {
+    /// Create a default bundle but with the given `resolved` status.
+    pub fn new(resolved: bool) -> Self {
+        Self {
+            resolved,
+            ..Default::default()
+        }
+    }
+
+    /// Create a bundle tailored for filling purposes.
+    pub fn fill(value: u8) -> Self {
+        Self {
+            bytes: [value, 0, 0],
+            size: 1,
+            address: 0,
+            cycles: 0,
+            affected_on_page: false,
+            resolved: true,
+        }
+    }
+}
+
+/// The type of object being referenced, which is either a value as-is, or an
+/// address that needs to be interpreted when fetching it.
+#[derive(Debug, Clone)]
+pub enum ObjectType {
+    Address,
+    Value,
+}
+
+/// Bundle and metadata which is stored on the context table for a given
+/// variable or label.
+#[derive(Debug, Clone)]
+pub struct Object {
+    /// Bundle representing the actual value.
+    pub bundle: Bundle,
+
+    /// The mapping index where the object was found. Note that this index
+    /// doesn't mean much on the table, but it has to mean something by the
+    /// caller.
+    pub mapping: usize,
+
+    /// The segment index within the referenced mapping where the object was
+    /// found. Note that this index doesn't mean much on the table, but it has
+    /// to mean something by the caller.
+    pub segment: usize,
+
+    /// The type for this object.
+    pub object_type: ObjectType,
+}
+
+impl Object {
+    /// Create a default bundle with the given metadata parameters.
+    pub fn new(mapping: usize, segment: usize, object_type: ObjectType) -> Self {
+        Self {
+            bundle: Bundle::default(),
+            mapping,
+            segment,
+            object_type,
+        }
+    }
+}
 
 /// Context holds information about the different scopes being defined, the
 /// current scope, and has a map of all the variables defined for each scope.
@@ -16,17 +106,17 @@ pub struct Context {
     /// global context.
     stack: Vec<String>,
 
-    /// Map of variables for any given context. The key is the name of the
+    /// Map of objects for any given context. The key is the name of the
     /// context, and the value is another map. This inner map has the variable
     /// name as the key, and the Bundle as a value.
-    map: HashMap<String, HashMap<String, Bundle>>,
+    pub map: HashMap<String, HashMap<String, Object>>,
 
     /// Map of labels for any given context. Note that this only keeps track of
     /// the amount of labels that have been defined, which might include
     /// anonymous positions. This is primarily used on relative addressing where
     /// the name of the label might not be provided (e.g. anonymous relative
     /// reference).
-    labels: HashMap<String, Vec<Bundle>>,
+    pub labels: HashMap<String, Vec<Object>>,
 }
 
 impl Default for Context {
@@ -45,10 +135,11 @@ impl Context {
         }
     }
 
-    /// Returns the value of the variable represented by the given `id`. Note
-    /// that this `id` can be scoped or not, and this function will try to pick
-    /// the variable from the right scope.
-    pub fn get_variable(&self, id: &PString) -> Result<Bundle, ContextError> {
+    /// Returns the value of the object represented by the given `id`. Note that
+    /// this `id` can be scoped or not, and this function will try to pick the
+    /// variable from the right scope. The value itself will be resolved if the
+    /// type is ObjectType::Address.
+    pub fn get_variable(&self, id: &PString, mappings: &[Mapping]) -> Result<Object, ContextError> {
         // First of all, figure out the name of the scope and the real name of
         // the variable. If this was not scoped at all (None case when trying to
         // rsplit by the "::" operator), then we assume it's a global variable.
@@ -61,7 +152,10 @@ impl Context {
         // variable in it.
         match self.map.get(scope_name) {
             Some(scope) => match scope.get(var_name) {
-                Some(var) => Ok(var.clone()),
+                Some(var) => match var.object_type {
+                    ObjectType::Value => Ok(var.clone()),
+                    ObjectType::Address => Ok(self.resolve_label(mappings, var)),
+                },
                 None => Err(ContextError {
                     message: format!(
                         "could not find variable '{}' in {}",
@@ -80,13 +174,34 @@ impl Context {
         }
     }
 
-    /// Sets a value for a variable defined in the assignment `node`. If
-    /// `overwrite` is set to true, then this value will be set even if the
-    /// variable already existed, otherwise it will return a ContextError
+    /// Given an `object` which is located via `mappings`, resolve the effective
+    /// address.
+    ///
+    /// NOTE: this function asserts that the given `object` is of type
+    /// ObjectType::Address, otherwise it doesn't make sense to call it.
+    pub fn resolve_label(&self, mappings: &[Mapping], object: &Object) -> Object {
+        assert!(matches!(object.object_type, ObjectType::Address));
+
+        let mut ret = object.clone();
+
+        let mapping = &mappings[ret.mapping];
+        let internal_offset = u16::from_le_bytes([ret.bundle.bytes[0], ret.bundle.bytes[1]]);
+        let segment_offset = crate::mapping::segment_offset(mapping, ret.segment);
+        let addr = (mapping.start + segment_offset + internal_offset).to_le_bytes();
+
+        ret.bundle.bytes[0] = addr[0];
+        ret.bundle.bytes[1] = addr[1];
+
+        ret
+    }
+
+    /// Sets a value for an object identified by `id`. If `overwrite` is set to
+    /// true, then this value will be set even if the id already existed,
+    /// otherwise it will return a ContextError
     pub fn set_variable(
         &mut self,
         id: &PString,
-        bundle: &Bundle,
+        object: &Object,
         overwrite: bool,
     ) -> Result<(), ContextError> {
         let scope_name = self.name().to_string();
@@ -105,28 +220,22 @@ impl Context {
                         reason: ContextErrorReason::Redefinition,
                     });
                 }
-                *sc = bundle.clone();
+                *sc = object.clone();
             }
             None => {
-                scope.insert(id.value.clone(), bundle.to_owned());
+                scope.insert(id.value.clone(), object.to_owned());
             }
         }
 
         Ok(())
     }
 
-    /// Add a new label that has the value as given by the `bundle` parameter.
-    /// The actual name of the label does not matter since that is already
-    /// referenced as a "variable". This function needs to be called whenever we
-    /// are sure that we have the proper address for a label and that we should
-    /// track it in order for relative addressing to work.
-    pub fn add_label(&mut self, bundle: &Bundle) {
+    /// Add a new label to the list of known labels.
+    pub fn add_label(&mut self, object: &Object) {
         let scope_name = self.name().to_string();
         let scope = self.labels.get_mut(&scope_name).unwrap();
 
-        // println!("PUSHING: {:#?}", bundle);
-
-        scope.push(bundle.clone());
+        scope.push(object.clone());
     }
 
     /// Change the current context given a `node`. Returns a tuple which states:
@@ -205,7 +314,8 @@ impl Context {
         &self,
         rel: isize,
         labels_seen: usize,
-    ) -> Result<Bundle, ContextError> {
+        mappings: &[Mapping],
+    ) -> Result<Object, ContextError> {
         // Bound check: the given 'rel' parameter has a proper value.
         assert!(
             rel < 5 && rel > -5 && rel != 0,
@@ -244,7 +354,7 @@ impl Context {
 
         // Everything should be fine from here on, simply return the bundle that
         // was being referenced.
-        Ok(labels[idx as usize].clone())
+        Ok(self.resolve_label(mappings, &labels[idx as usize]))
     }
 
     // Pushes a new context given a `node`, which holds the identifier of the
