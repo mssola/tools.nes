@@ -9,20 +9,35 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::ops::Range;
 
+/// The mode in which a literal is expressed.
 #[derive(Clone, PartialEq)]
 pub enum LiteralMode {
+    /// An 8/16 bit hexadecimal value.
     Hexadecimal,
+
+    /// A byte expressed in binary format.
     Binary,
+
+    /// A byte expressed in plain decimal format.
     Plain,
 }
 
-// TODO: is it really necessary to be this fully fledged?
+/// The different stages that the assembler goes through and which are relevant
+/// for the process.
 #[derive(PartialEq)]
 pub enum Stage {
-    Init,
-    Parsing,
+    /// The context is still building up (i.e. we don't have all the variable
+    /// values, labels and their addresses yet).
     Context,
+
+    /// An initial context is there, and we can already consume most bundles. We
+    /// only need to leave some of them as pending if they require a value that
+    /// is relative to the end size of segments.
     Bundling,
+
+    /// We have most bundles, and we already know the size for all segments.
+    /// Hence, we can resolve (crunch) the nodes that were pending to be
+    /// bundled.
     Crunching,
 }
 
@@ -62,7 +77,7 @@ impl Assembler {
         Self {
             context: Context::new(),
             literal_mode: None,
-            stage: Stage::Init,
+            stage: Stage::Context,
             macros: HashMap::new(),
             can_bundle: true,
             mappings,
@@ -76,7 +91,6 @@ impl Assembler {
     pub fn assemble(&mut self, reader: impl Read) -> Result<Vec<Bundle>, Vec<Error>> {
         // First of all, parse the input so we get a list of nodes we can work
         // with.
-        self.stage = Stage::Parsing;
         let mut parser = Parser::default();
         if let Err(errors) = parser.parse(reader) {
             return Err(errors.iter().map(|e| Error::Parse(e.clone())).collect());
@@ -84,7 +98,6 @@ impl Assembler {
 
         // Build the context by iterating over the parsed nodes and checking
         // where scopes start/end, evaluating values for variables, labels, etc.
-        self.stage = Stage::Context;
         self.eval_context(&parser.nodes)?;
 
         // Finally convert the relevant nodes into binary bundles which can be
@@ -304,7 +317,6 @@ impl Assembler {
         }
 
         let mut res = vec![];
-        // TODO: trainer support.
 
         for mapping in &mut self.mappings {
             for segment in mapping.segments.iter_mut() {
