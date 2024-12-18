@@ -3,15 +3,32 @@ development and it's **not** currently usable.
 
 ## `nasm`
 
-`nasm` is an assembler specifically tailored for the NES/Famicom. You can simply
-run it like so:
+`nasm` is an assembler specifically tailored for the NES/Famicom. Build it and
+run it with cargo, or you can install it somewhere in your `$PATH` and simply:
 
 ```
-$ cargo run --bin nasm <path-to-assembly-file>
+$ nasm awesome.s
 ```
 
-By default it will assume the configuration for an `NROM` file, but this can be
-changed with the `-c/--configuration` flag, which accepts the following values:
+This will produce an `out.nes` file placed under the same working directory. You
+can change the name of the file with the `-o/--output` flag. Hence, you can call
+it like so:
+
+```
+$ nasm -o awesome.nes awesome.s
+```
+
+Last but not least, you can actually tell `nasm` to redirect the output to
+stdout instead with the `--stdout` flag. This is useful when debugging the
+binary format with another CLI tool. For example:
+
+```
+$ nasm --stdout awesome.s | hexdump -C
+```
+
+By default it will assume the configuration for an `NROM` mapper, but this can
+be changed with the `-c/--configuration` flag, which accepts the following
+values:
 
 - `empty`: just `HEADER` and `CODE`. Useful for one-liners (e.g. "how is this
   instruction encoded in binary?").
