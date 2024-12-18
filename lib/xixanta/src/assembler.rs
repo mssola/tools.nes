@@ -878,6 +878,7 @@ impl Assembler {
             Some(args) => {
                 for arg in args {
                     // Evaluate the argument as a node.
+                    self.literal_mode = None;
                     let mut bundle = self.evaluate_node(arg)?;
 
                     // If there is a missmatch between the expected number of
@@ -904,7 +905,7 @@ impl Assembler {
                             _ => panic!("bad argument when evaluating arguments"),
                         }
                     }
-                    self.push_bundle(bundle, node)?;
+                    self.push_bundle(bundle, arg)?;
                 }
             }
             None => {
@@ -2518,6 +2519,51 @@ code:
         assert_eq!(bundles[2].bytes[0], 0x20);
         assert_eq!(bundles[2].bytes[1], 0x04);
         assert_eq!(bundles[2].bytes[2], 0x80);
+    }
+
+    #[test]
+    fn proc_reference_another_segment() {
+        let mut asm = Assembler::new(one_two().to_vec());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        let bundles = &asm
+            .assemble(
+                r#"
+.segment "ONE"
+.addr code
+
+.segment "TWO"
+nop
+code:
+    rts
+"#
+                .as_bytes(),
+            )
+            .unwrap()[0x10..]; // Ignoring HEADER
+
+        assert_eq!(bundles[0].size, 2);
+        assert_eq!(bundles[0].bytes[0], 0x03);
+        assert_eq!(bundles[0].bytes[1], 0x80);
+    }
+
+    #[test]
+    fn cannot_fit_address_in_one_byte() {
+        let mut asm = Assembler::new(one_two().to_vec());
+        assert_error_with_assembler(
+            &mut asm,
+            r#".segment "ONE"
+.byte code
+
+.segment "TWO"
+nop
+code:
+    rts
+"#,
+            "Evaluation",
+            2,
+            false,
+            "expecting an argument that fits into a byte",
+        );
     }
 
     #[test]
