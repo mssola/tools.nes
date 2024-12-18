@@ -601,9 +601,29 @@ impl Assembler {
     fn evaluate_binary(&mut self, node: &PNode) -> Result<Bundle, EvalError> {
         let string = node.value.value.as_str();
         let mut value = 0;
-        let mut shift = 0;
 
-        for c in string.chars().rev() {
+        // We are strict with the definition of binary values to avoid gotchas.
+        // Force the literal to be exactly 8 digits wide. If that's not the
+        // case, do not even try evaluating it.
+        match string.len().cmp(&8) {
+            Ordering::Less => {
+                return Err(EvalError {
+                    message: "missing binary digits to get a full byte".to_string(),
+                    line: node.value.line,
+                    global: false,
+                })
+            }
+            Ordering::Greater => {
+                return Err(EvalError {
+                    message: "too many binary digits for a single byte".to_string(),
+                    line: node.value.line,
+                    global: false,
+                })
+            }
+            _ => {}
+        }
+
+        for (shift, c) in string.chars().rev().enumerate() {
             if c == '1' {
                 let val = 1 << shift;
                 value += val;
@@ -624,30 +644,16 @@ impl Assembler {
                     global: false,
                 });
             }
-
-            shift += 1;
         }
 
-        match shift.cmp(&8) {
-            Ordering::Less => Err(EvalError {
-                message: "missing binary digits to get a full byte".to_string(),
-                line: node.value.line,
-                global: false,
-            }),
-            Ordering::Greater => Err(EvalError {
-                message: "too many binary digits for a single byte".to_string(),
-                line: node.value.line,
-                global: false,
-            }),
-            Ordering::Equal => Ok(Bundle {
-                bytes: [value as u8, 0, 0],
-                size: 1,
-                address: 0,
-                cycles: 0,
-                affected_on_page: false,
-                resolved: true,
-            }),
-        }
+        Ok(Bundle {
+            bytes: [value as u8, 0, 0],
+            size: 1,
+            address: 0,
+            cycles: 0,
+            affected_on_page: false,
+            resolved: true,
+        })
     }
 
     fn evaluate_decimal(&mut self, node: &PNode) -> Result<Bundle, EvalError> {
@@ -1373,9 +1379,9 @@ mod tests {
         );
         assert_error(
             r#"
-Variable = 42
-adc %Variable
-"#,
+        Variable = 42
+        adc %Variable
+        "#,
             "Evaluation",
             3,
             false,
