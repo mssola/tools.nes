@@ -320,6 +320,7 @@ impl Assembler {
             self.labels_seen = pn.labels_seen;
             self.context.force_context_switch(&pn.context);
 
+            self.literal_mode = None;
             match self.evaluate_node(&pn.node) {
                 Ok(mut bundle) => {
                     let current = &self.mappings[pn.mapping].segments[pn.segment];
@@ -2548,6 +2549,7 @@ nop
 .segment "ONE"
 lala:
     rts
+    .byte $F3
 
 .segment "TWO"
 code:
@@ -2560,12 +2562,12 @@ code:
 "#
                 .as_bytes(),
             )
-            .unwrap()[0x11..]; // Ignoring HEADER + rts from ONE
+            .unwrap()[0x12..]; // Ignoring HEADER + first two ONE
 
         // "jsr code" from ONE (notice that it's intertwined!)
         assert_eq!(bundles[0].size, 3);
         assert_eq!(bundles[0].bytes[0], 0x20);
-        assert_eq!(bundles[0].bytes[1], 0x04);
+        assert_eq!(bundles[0].bytes[1], 0x05);
         assert_eq!(bundles[0].bytes[2], 0x80);
 
         // "jsr lala" from TWO
@@ -2577,7 +2579,7 @@ code:
         // "jsr code" from TWO (again, notice that it's intertwined)
         assert_eq!(bundles[2].size, 3);
         assert_eq!(bundles[2].bytes[0], 0x20);
-        assert_eq!(bundles[2].bytes[1], 0x04);
+        assert_eq!(bundles[2].bytes[1], 0x05);
         assert_eq!(bundles[2].bytes[2], 0x80);
     }
 
