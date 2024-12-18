@@ -230,7 +230,7 @@ impl Context {
                 if !overwrite {
                     return Err(ContextError {
                         message: format!(
-                            "'{}' already defined in {}: you cannot re-assign variables",
+                            "'{}' already defined in {}: you cannot re-assign names",
                             id.value,
                             self.to_human()
                         ),

@@ -205,6 +205,20 @@ impl Assembler {
                             }
                             current_macro = None;
                         }
+                        ControlType::StartProc => {
+                            let proc_name = &node.left.as_ref().unwrap().value;
+                            if let Err(err) = self.context.set_variable(
+                                proc_name,
+                                &Object::new(
+                                    self.current_mapping,
+                                    self.current_segment,
+                                    ObjectType::Address,
+                                ),
+                                false,
+                            ) {
+                                errors.push(Error::Context(err));
+                            }
+                        }
                         _ => {}
                     }
                     if let Err(err) = self.context.change_context(node) {
@@ -228,7 +242,7 @@ impl Assembler {
 
         for node in nodes {
             match node.node_type {
-                NodeType::Label => {
+                NodeType::Label | NodeType::Control(ControlType::StartProc) => {
                     let segment =
                         &self.mappings[self.current_mapping].segments[self.current_segment];
                     let value = segment.offset.to_le_bytes();
@@ -246,12 +260,23 @@ impl Assembler {
                         object_type: ObjectType::Address,
                     };
 
-                    if !node.value.is_empty() {
-                        if let Err(err) = self.context.set_variable(&node.value, &object, true) {
+                    if matches!(node.node_type, NodeType::Control(ControlType::StartProc)) {
+                        let proc_name = &node.left.as_ref().unwrap().value;
+                        if let Err(err) = self.context.set_variable(proc_name, &object, true) {
                             errors.push(Error::Context(err));
+                        }
+                    } else {
+                        if !node.value.is_empty() {
+                            if let Err(err) = self.context.set_variable(&node.value, &object, true)
+                            {
+                                errors.push(Error::Context(err));
+                            }
                         }
                     }
                     self.context.add_label(&object);
+                    if matches!(node.node_type, NodeType::Control(ControlType::StartProc)) {
+                        let _ = self.context.change_context(node);
+                    }
                 }
                 NodeType::Instruction => {
                     if self.can_bundle {
@@ -1523,7 +1548,7 @@ Variable = 1
 Yet = 3
 Yet = 4
 "#,
-            "'Yet' already defined in the global scope: you cannot re-assign variables",
+            "'Yet' already defined in the global scope: you cannot re-assign names",
             8,
         );
     }
@@ -2036,7 +2061,42 @@ nop
         assert_eq!(res[2].bytes[1], 0x00);
     }
 
-    // TODO: function calls
+    #[test]
+    fn jsr_to_proc() {
+        let mut asm = Assembler::new(EMPTY.to_vec());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
+            .assemble(
+                r#"nop
+.proc hello
+  nop
+  rts
+.endproc
+  jsr hello
+"#
+                .as_bytes(),
+            )
+            .unwrap()[0x10..];
+
+        assert_eq!(res.len(), 4);
+
+        // First two nop's + rts
+        assert_eq!(res[0].size, 1);
+        assert_eq!(res[0].bytes[0], 0xEA);
+        assert_eq!(res[1].size, 1);
+        assert_eq!(res[1].bytes[0], 0xEA);
+        assert_eq!(res[2].size, 1);
+        assert_eq!(res[2].bytes[0], 0x60);
+
+        // jsr hello
+        assert_eq!(res[3].size, 3);
+        assert_eq!(res[3].bytes[0], 0x20);
+        assert_eq!(res[3].bytes[1], 0x01);
+        assert_eq!(res[3].bytes[2], 0x80);
+    }
+
     // TODO: labels and jumps inside of proc's, macros, etc.
 
     // Control statements
@@ -2283,7 +2343,7 @@ MACRO(1)
         assert_eq!(
             res.first().unwrap().to_string(),
             "Evaluation error (line 5): 'Var' already defined in the global scope: \
-             you cannot re-assign variables."
+             you cannot re-assign names."
         );
     }
 
