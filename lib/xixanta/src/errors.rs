@@ -25,15 +25,6 @@ pub struct ParseError {
 
 impl std::error::Error for ParseError {}
 
-impl From<std::io::Error> for ParseError {
-    fn from(err: std::io::Error) -> Self {
-        ParseError {
-            line: 0,
-            message: err.to_string(),
-        }
-    }
-}
-
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "parser (line {}): {}.", self.line + 1, self.message)
@@ -58,17 +49,6 @@ pub struct ContextError {
 
 impl std::error::Error for ContextError {}
 
-// TODO: needed?
-impl From<std::io::Error> for ContextError {
-    fn from(err: std::io::Error) -> Self {
-        ContextError {
-            line: 0,
-            reason: ContextErrorReason::Other,
-            message: err.to_string(),
-        }
-    }
-}
-
 impl fmt::Display for ContextError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
@@ -88,16 +68,6 @@ pub struct EvalError {
 }
 
 impl std::error::Error for EvalError {}
-
-impl From<std::io::Error> for EvalError {
-    fn from(err: std::io::Error) -> Self {
-        EvalError {
-            line: 0,
-            message: err.to_string(),
-            global: true,
-        }
-    }
-}
 
 impl From<ContextError> for EvalError {
     fn from(err: ContextError) -> Self {
