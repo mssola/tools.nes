@@ -1,0 +1,24 @@
+[package]
+name = "header-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[workspace]
+members = []
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.header]
+path = ".."
+
+[[bin]]
+name = "fuzz_target_header"
+path = "fuzz_targets/fuzz_target_header.rs"
+test = false
+doc = false
+bench = false

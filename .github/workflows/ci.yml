@@ -67,3 +67,24 @@ jobs:
         run: |
           cd lib/xixanta
           cargo +nightly fuzz run fuzz_target_2 -- -max_total_time=180
+
+  fuzz_header:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update rust toolchain to nightly
+        run: |
+          rustup update nightly
+          rustup default nightly
+
+      - name: Install cargo fuzz
+        run: cargo install cargo-fuzz
+
+      - name: Build with nightly
+        run: cargo build --verbose
+
+      - name: Fuzzy test the header parser
+        run: |
+          cd lib/header
+          cargo +nightly fuzz run fuzz_target_header -- -max_total_time=180
