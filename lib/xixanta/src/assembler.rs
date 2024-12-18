@@ -100,13 +100,20 @@ impl Assembler {
         // where scopes start/end, evaluating values for variables, labels, etc.
         self.eval_context(&parser.nodes)?;
 
-        // Finally convert the relevant nodes into binary bundles which can be
-        // used by the caller.
+        // Convert the relevant nodes into binary bundles which can be used by
+        // the caller. This is done for most nodes, even if some of them will
+        // have to be marked as pending, since they depend on knowing the exact
+        // size for a given segment.
         self.stage = Stage::Bundling;
         self.bundle(&parser.nodes)?;
 
+        // Now we know how much each segment spans, and we can resolve (crunch)
+        // the nodes marked as pending.
         self.stage = Stage::Crunching;
-        self.crunch_and_resolve_pending()
+        self.crunch()?;
+
+        // All set, fill the vector of bundles to be returned.
+        self.fill()
     }
 
     pub fn eval_context(&mut self, nodes: &[PNode]) -> Result<(), Vec<Error>> {
@@ -281,8 +288,7 @@ impl Assembler {
         }
     }
 
-    // TODO: maybe split?
-    pub fn crunch_and_resolve_pending(&mut self) -> Result<Vec<Bundle>, Vec<Error>> {
+    fn crunch(&mut self) -> Result<(), Vec<Error>> {
         let mut errors = vec![];
 
         for pn in self.pending.clone() {
@@ -309,6 +315,16 @@ impl Assembler {
 
             self.context.force_context_pop();
         }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
+    fn fill(&mut self) -> Result<Vec<Bundle>, Vec<Error>> {
+        let mut errors = vec![];
 
         // Validate the mappings that have been evaluated before spitting it
         // out.
