@@ -1,7 +1,7 @@
 use crate::errors::{Error, EvalError};
 use crate::mapping::Mapping;
 use crate::node::{ControlType, NodeType, PNode, PString};
-pub use crate::object::{Bundle, Context, Object, ObjectType};
+use crate::object::{Bundle, Context, Object, ObjectType};
 use crate::opcodes::{AddressingMode, INSTRUCTIONS};
 use crate::parser::Parser;
 use std::cmp::Ordering;
@@ -116,7 +116,7 @@ impl Assembler {
         self.fill()
     }
 
-    pub fn eval_context(&mut self, nodes: &[PNode]) -> Result<(), Vec<Error>> {
+    fn eval_context(&mut self, nodes: &[PNode]) -> Result<(), Vec<Error>> {
         let mut errors = Vec::new();
         let mut current_macro = None;
 
@@ -223,7 +223,7 @@ impl Assembler {
         }
     }
 
-    pub fn bundle(&mut self, nodes: &Vec<PNode>) -> Result<(), Vec<Error>> {
+    fn bundle(&mut self, nodes: &Vec<PNode>) -> Result<(), Vec<Error>> {
         let mut errors = Vec::new();
 
         for node in nodes {

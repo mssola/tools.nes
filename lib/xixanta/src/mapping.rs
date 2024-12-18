@@ -1,5 +1,5 @@
-use crate::assembler::Bundle;
 use crate::errors::EvalError;
+use crate::object::Bundle;
 
 lazy_static! {
     /// An empty mapper used for testing purposes.
