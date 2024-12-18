@@ -154,7 +154,7 @@ impl Context {
             Some(scope) => match scope.get(var_name) {
                 Some(var) => match var.object_type {
                     ObjectType::Value => Ok(var.clone()),
-                    ObjectType::Address => Ok(self.resolve_label(mappings, var)),
+                    ObjectType::Address => Ok(self.resolve_label(mappings, var)?),
                 },
                 None => Err(ContextError {
                     message: format!(
@@ -164,12 +164,14 @@ impl Context {
                     ),
                     line: id.line,
                     reason: ContextErrorReason::UnknownVariable,
+                    global: false,
                 }),
             },
             None => Err(ContextError {
                 message: format!("did not find scope '{}'", scope_name),
                 line: id.line,
                 reason: ContextErrorReason::BadScope,
+                global: false,
             }),
         }
     }
@@ -179,7 +181,11 @@ impl Context {
     ///
     /// NOTE: this function asserts that the given `object` is of type
     /// ObjectType::Address, otherwise it doesn't make sense to call it.
-    pub fn resolve_label(&self, mappings: &[Mapping], object: &Object) -> Object {
+    pub fn resolve_label(
+        &self,
+        mappings: &[Mapping],
+        object: &Object,
+    ) -> Result<Object, ContextError> {
         assert!(matches!(object.object_type, ObjectType::Address));
 
         let mut ret = object.clone();
@@ -187,12 +193,24 @@ impl Context {
         let mapping = &mappings[ret.mapping];
         let internal_offset = u16::from_le_bytes([ret.bundle.bytes[0], ret.bundle.bytes[1]]);
         let segment_offset = crate::mapping::segment_offset(mapping, ret.segment);
-        let addr = (mapping.start + segment_offset + internal_offset).to_le_bytes();
+        let addr = mapping.start as usize + segment_offset as usize + internal_offset as usize;
 
-        ret.bundle.bytes[0] = addr[0];
-        ret.bundle.bytes[1] = addr[1];
+        // Avoid weird out of bound references for addresses.
+        if addr > u16::MAX as usize {
+            return Err(ContextError {
+                line: 0,
+                message: format!("address {:x} is out of bounds", addr),
+                reason: ContextErrorReason::Bounds,
+                global: true,
+            });
+        }
 
-        ret
+        let addr_bytes = (addr as u16).to_le_bytes();
+
+        ret.bundle.bytes[0] = addr_bytes[0];
+        ret.bundle.bytes[1] = addr_bytes[1];
+
+        Ok(ret)
     }
 
     /// Sets a value for an object identified by `id`. If `overwrite` is set to
@@ -218,6 +236,7 @@ impl Context {
                         ),
                         line: id.line,
                         reason: ContextErrorReason::Redefinition,
+                        global: false,
                     });
                 }
                 *sc = object.clone();
@@ -329,6 +348,7 @@ impl Context {
                 line: 0,
                 message: "cannot reference an unknown previous label".to_string(),
                 reason: ContextErrorReason::Label,
+                global: false,
             });
         }
 
@@ -349,12 +369,13 @@ impl Context {
                 line: 0,
                 message: "cannot reference bogus label (out of bounds)".to_string(),
                 reason: ContextErrorReason::Label,
+                global: false,
             });
         }
 
         // Everything should be fine from here on, simply return the bundle that
         // was being referenced.
-        Ok(self.resolve_label(mappings, &labels[idx as usize]))
+        Ok(self.resolve_label(mappings, &labels[idx as usize])?)
     }
 
     // Pushes a new context given a `node`, which holds the identifier of the
@@ -379,6 +400,7 @@ impl Context {
                 message: format!("missplaced '{}' statement", id.value),
                 reason: ContextErrorReason::BadScope,
                 line: id.line,
+                global: false,
             });
         }
 

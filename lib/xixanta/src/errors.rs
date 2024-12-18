@@ -37,6 +37,7 @@ pub enum ContextErrorReason {
     UnknownVariable,
     BadScope,
     Label,
+    Bounds,
     Other,
 }
 
@@ -45,18 +46,23 @@ pub struct ContextError {
     pub line: usize,
     pub reason: ContextErrorReason,
     pub message: String,
+    pub global: bool,
 }
 
 impl std::error::Error for ContextError {}
 
 impl fmt::Display for ContextError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "Context error (line {}): {}.",
-            self.line + 1,
-            self.message
-        )
+        if self.global {
+            write!(f, "Context error: {}.", self.message)
+        } else {
+            write!(
+                f,
+                "Context error (line {}): {}.",
+                self.line + 1,
+                self.message
+            )
+        }
     }
 }
 
