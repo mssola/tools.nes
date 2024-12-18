@@ -5,7 +5,7 @@ use std::io::{self, Read, Write};
 use xixanta::assembler::Assembler;
 use xixanta::mapping::{Mapping, EMPTY, NROM, NROM65};
 
-/// Assembler for the 6502 microprocessor that targets the NES.
+/// Assembler for the 6502 microprocessor that targets the NES/Famicom.
 #[derive(ClapParser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {

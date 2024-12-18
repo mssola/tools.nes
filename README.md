@@ -19,3 +19,10 @@ changed with the `-c/--configuration` flag, which accepts the following values:
   `CODE`, `VECTORS`, and `CHARS`.
 - `nrom65`: same as `nrom` but it also has `STARTUP` for compatibility with the
   default linker configuration from [cc65](https://github.com/cc65/cc65).
+
+## `readrom`
+
+The `readrom` reads a given ROM file and shows all the information that can be
+gathered from it. For now this only applies to information on the header, but in
+the future we might want to add disassembling user-specified segments, for
+example.
