@@ -1,4 +1,4 @@
-use crate::errors::{Error, EvalError};
+use crate::errors::{ContextError, Error, EvalError};
 use crate::mapping::Mapping;
 use crate::node::{ControlType, NodeType, PNode, PString};
 use crate::object::{Bundle, Context, Object, ObjectType};
@@ -116,25 +116,38 @@ impl Assembler {
         self.fill()
     }
 
+    // Define a new variable by taking the given `id`. This variable will only
+    // be created if `id` is not empty. The function will error out if the given
+    // name is already taken.
+    fn define_variable(&mut self, id: &PString) -> Result<(), ContextError> {
+        if id.is_empty() {
+            return Ok(());
+        }
+
+        self.context.set_variable(
+            id,
+            &Object::new(
+                self.current_mapping,
+                self.current_segment,
+                ObjectType::Address,
+            ),
+            false,
+        )
+    }
+
     fn eval_context(&mut self, nodes: &[PNode]) -> Result<(), Vec<Error>> {
         let mut errors = Vec::new();
         let mut current_macro = None;
 
         for (idx, node) in nodes.iter().enumerate() {
             match &node.node_type {
+                // At this stage we only define the label into the current
+                // context so it's known. The actual value cannot be computed
+                // right now as we don't know the segment size where it belongs
+                // yet.
                 NodeType::Label => {
-                    if !node.value.is_empty() {
-                        if let Err(err) = self.context.set_variable(
-                            &node.value,
-                            &Object::new(
-                                self.current_mapping,
-                                self.current_segment,
-                                ObjectType::Address,
-                            ),
-                            false,
-                        ) {
-                            errors.push(Error::Context(err));
-                        }
+                    if let Err(err) = self.define_variable(&node.value) {
+                        errors.push(Error::Context(err));
                     }
                 }
                 NodeType::Assignment => {
@@ -205,17 +218,10 @@ impl Assembler {
                             }
                             current_macro = None;
                         }
+                        // Same as NodeType::Label.
                         ControlType::StartProc => {
                             let proc_name = &node.left.as_ref().unwrap().value;
-                            if let Err(err) = self.context.set_variable(
-                                proc_name,
-                                &Object::new(
-                                    self.current_mapping,
-                                    self.current_segment,
-                                    ObjectType::Address,
-                                ),
-                                false,
-                            ) {
+                            if let Err(err) = self.define_variable(proc_name) {
                                 errors.push(Error::Context(err));
                             }
                         }
@@ -237,45 +243,59 @@ impl Assembler {
         }
     }
 
+    // Apply the current segment offset to the label identified by `id` unless
+    // it's empty (i.e. anonymous label). In either case, the computed label
+    // will be pushed into the context's list of known labels with the current
+    // segment offset.
+    fn apply_segment_offset_to_label(&mut self, id: &PString) -> Result<(), ContextError> {
+        let segment = &self.mappings[self.current_mapping].segments[self.current_segment];
+        let value = segment.offset.to_le_bytes();
+        let object = Object {
+            bundle: Bundle {
+                bytes: [value[0], value[1], value[2]],
+                size: 2,
+                address: 0,
+                cycles: 0,
+                affected_on_page: false,
+                resolved: false,
+            },
+            mapping: self.current_mapping,
+            segment: self.current_segment,
+            object_type: ObjectType::Address,
+        };
+
+        if !id.is_empty() {
+            self.context.set_variable(id, &object, true)?;
+        }
+        self.context.add_label(&object);
+
+        Ok(())
+    }
+
     fn bundle(&mut self, nodes: &Vec<PNode>) -> Result<(), Vec<Error>> {
         let mut errors = Vec::new();
 
         for node in nodes {
             match node.node_type {
-                NodeType::Label | NodeType::Control(ControlType::StartProc) => {
-                    let segment =
-                        &self.mappings[self.current_mapping].segments[self.current_segment];
-                    let value = segment.offset.to_le_bytes();
-                    let object = Object {
-                        bundle: Bundle {
-                            bytes: [value[0], value[1], value[2]],
-                            size: 2,
-                            address: 0,
-                            cycles: 0,
-                            affected_on_page: false,
-                            resolved: false,
-                        },
-                        mapping: self.current_mapping,
-                        segment: self.current_segment,
-                        object_type: ObjectType::Address,
-                    };
-
-                    if matches!(node.node_type, NodeType::Control(ControlType::StartProc)) {
-                        let proc_name = &node.left.as_ref().unwrap().value;
-                        if let Err(err) = self.context.set_variable(proc_name, &object, true) {
-                            errors.push(Error::Context(err));
-                        }
-                    } else {
-                        if !node.value.is_empty() {
-                            if let Err(err) = self.context.set_variable(&node.value, &object, true)
-                            {
-                                errors.push(Error::Context(err));
-                            }
-                        }
+                // Initialize the label to the offset address of the current
+                // segment. Note that this is only the offset from the beginning
+                // of the offset, the effective address will only be available
+                // after calling `Context::get_variable`
+                NodeType::Label => {
+                    if let Err(e) = self.apply_segment_offset_to_label(&node.value) {
+                        errors.push(Error::Context(e));
                     }
-                    self.context.add_label(&object);
-                    if matches!(node.node_type, NodeType::Control(ControlType::StartProc)) {
-                        let _ = self.context.change_context(node);
+                }
+                // Same as with labels but with the addition that ".proc"
+                // introduces a new context. Hence, first act as a label, and
+                // then open up its inner context.
+                NodeType::Control(ControlType::StartProc) => {
+                    let proc_name = &node.left.as_ref().unwrap().value;
+                    if let Err(e) = self.apply_segment_offset_to_label(proc_name) {
+                        errors.push(Error::Context(e));
+                    }
+                    if let Err(e) = self.context.change_context(node) {
+                        errors.push(Error::Context(e));
                     }
                 }
                 NodeType::Instruction => {
