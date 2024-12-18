@@ -375,7 +375,7 @@ impl Context {
 
         // Everything should be fine from here on, simply return the bundle that
         // was being referenced.
-        Ok(self.resolve_label(mappings, &labels[idx as usize])?)
+        self.resolve_label(mappings, &labels[idx as usize])
     }
 
     // Pushes a new context given a `node`, which holds the identifier of the
