@@ -2,6 +2,8 @@
 
 set -ex
 
+export RUSTFLAGS="-Dwarnings"
+
 cargo build --all --all-targets --all-features
 cargo clippy --all-targets --all-features
 cargo test --all-targets --all-features -- --nocapture
