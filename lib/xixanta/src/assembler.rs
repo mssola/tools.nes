@@ -6,8 +6,10 @@ use crate::opcodes::{AddressingMode, INSTRUCTIONS};
 use crate::parser::Parser;
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::fs::File;
 use std::io::Read;
 use std::ops::Range;
+use std::path::PathBuf;
 
 /// The mode in which a literal is expressed.
 #[derive(Clone, PartialEq)]
@@ -68,6 +70,11 @@ pub struct Assembler {
     current_segment: usize,
     pending: Vec<PendingNode>,
     labels_seen: usize,
+
+    // Stack of directories. The last directory is the current one, whereas the
+    // other elements come from previous contexts. This way we can implement a
+    // file that imports another file which in turn imports another file, etc.
+    directories: Vec<PathBuf>,
 }
 
 impl Assembler {
@@ -85,10 +92,23 @@ impl Assembler {
             current_segment: 0,
             pending: vec![],
             labels_seen: 0,
+            directories: vec![],
         }
     }
 
-    pub fn assemble(&mut self, reader: impl Read) -> Result<Vec<Bundle>, Vec<Error>> {
+    /// Read the contents from the `reader` as a source file and produce a list
+    /// of bundles that can be formatted as binary data. You also need to pass
+    /// the initial working directory `init_directory`, as otherwise control
+    /// statements like ".import" or ".incbin" wouldn't know how to resolve
+    /// relative paths.
+    pub fn assemble(
+        &mut self,
+        init_directory: PathBuf,
+        reader: impl Read,
+    ) -> Result<Vec<Bundle>, Vec<Error>> {
+        // Push the initial directory into our stack of directories.
+        self.directories.push(init_directory);
+
         // First of all, parse the input so we get a list of nodes we can work
         // with.
         let mut parser = Parser::default();
@@ -870,6 +890,9 @@ impl Assembler {
                 self.push_evaluated_arguments(node, 2)
             }
             NodeType::Control(ControlType::Segment) => self.switch_to_segment(node),
+            NodeType::Control(ControlType::IncBin) => {
+                self.incbin(node.args.as_ref().unwrap().first().unwrap())
+            }
             _ => Err(EvalError {
                 line: node.value.line,
                 message: format!(
@@ -879,6 +902,90 @@ impl Assembler {
                 global: false,
             }),
         }
+    }
+
+    // Push as many bundles as bytes are in the given file path. If there is any
+    // issue with reading the given file, or the parameter is given in a weird
+    // format, it will error out.
+    fn incbin(&mut self, node: &PNode) -> Result<(), EvalError> {
+        let value = &node.value.value;
+
+        // Validate the path literal.
+        if value.len() < 3 || !value.starts_with('"') || !value.ends_with('"') {
+            return Err(EvalError {
+                line: node.value.line,
+                message: format!(
+                    "path has to be written inside of double quotes ('{}' given instead)",
+                    value,
+                ),
+                global: false,
+            });
+        }
+
+        // The '.incbin' control assumes that paths are relative to the
+        // directory of the current file. Hence, in order to make subsequent
+        // `File` operations work in this way, set the current directory now.
+        if let Err(e) = std::env::set_current_dir(self.directories.last().unwrap()) {
+            return Err(EvalError {
+                line: node.value.line,
+                message: format!("could not move to the directory of '{}': {}", value, e),
+                global: false,
+            });
+        }
+
+        // Fetch the actual path.
+        let path = &value[1..value.len() - 1].trim();
+        let file = match File::open(path) {
+            Ok(f) => f,
+            Err(e) => {
+                return Err(EvalError {
+                    global: false,
+                    line: node.value.line,
+                    message: format!("could not include binary data: {}", e),
+                })
+            }
+        };
+
+        // Ensure that the included binary data is within reason.
+        match file.metadata() {
+            Ok(metadata) => {
+                // Note that we cannot assume that it's always going to be
+                // included in some specific mapping type (e.g. CHR-ROM vs
+                // CHR-RAM). Hence, let's force that nothing above 512KB can be
+                // included at face value. If this really surpasses the actual
+                // limit on where it's included, then it's going to show up at a
+                // later check.
+                if metadata.len() > 512 * 1024 {
+                    return Err(EvalError {
+                        global: false,
+                        line: node.value.line,
+                        message: format!("file '{}' is too big", path),
+                    });
+                } else if metadata.len() == 0 {
+                    return Err(EvalError {
+                        global: false,
+                        line: node.value.line,
+                        message: format!("trying to include an empty file ('{}')", path),
+                    });
+                }
+            }
+            Err(e) => {
+                return Err(EvalError {
+                    global: false,
+                    line: node.value.line,
+                    message: format!("could not include binary data: {}", e),
+                })
+            }
+        }
+
+        // And finally just push each byte from the given file as a fill bundle.
+        for byte in file.bytes() {
+            match byte {
+                Ok(b) => self.push_bundle(Bundle::fill(b), node)?,
+                Err(_) => break,
+            }
+        }
+        Ok(())
     }
 
     fn evaluate_control_expression(&mut self, node: &PNode) -> Result<Bundle, EvalError> {
@@ -1362,7 +1469,12 @@ mod tests {
         asm.current_mapping = 1;
 
         // Grab the result passed the initial header.
-        let res = &asm.assemble(line.as_bytes()).unwrap()[0x10..];
+        let res = &asm
+            .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
+                line.as_bytes(),
+            )
+            .unwrap()[0x10..];
 
         assert_eq!(res.len(), 1);
 
@@ -1388,7 +1500,10 @@ mod tests {
         global: bool,
         message: &str,
     ) {
-        let res = asm.assemble(line.as_bytes());
+        let res = asm.assemble(
+            std::env::current_dir().unwrap().to_path_buf(),
+            line.as_bytes(),
+        );
         let msg = if global {
             format!("{} error: {}.", id, message)
         } else {
@@ -1490,6 +1605,7 @@ adc $Four
         asm.current_mapping = 1;
         let res = &asm
             .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
                 r#"
 .scope One   ; This is a comment
   adc #Variable
@@ -1529,6 +1645,7 @@ adc #Another::Variable
         asm.current_mapping = 1;
         let res = &asm
             .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
                 r#"
 Variable = 4
 adc Variable
@@ -1890,6 +2007,7 @@ lda #Scope::Variable
         asm.current_mapping = 1;
         let res = &asm
             .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
                 r#"
 nop
 @hello:
@@ -1925,6 +2043,7 @@ nop
         asm.current_mapping = 1;
         let res = &asm
             .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
                 r#"
 nop
 :
@@ -1993,6 +2112,7 @@ nop
         asm.current_mapping = 1;
         let res = &asm
             .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
                 r#"
 nop
 :
@@ -2057,6 +2177,7 @@ nop
         asm.current_mapping = 1;
         let res = &asm
             .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
                 r#"
 nop
 @hello:
@@ -2090,6 +2211,7 @@ nop
         asm.current_mapping = 1;
         let res = &asm
             .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
                 r#"nop
 .proc hello
   nop
@@ -2130,6 +2252,7 @@ nop
         asm.current_mapping = 1;
         let res = &asm
             .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
                 r#"
 .scope Vars
     Variable = 4
@@ -2168,6 +2291,7 @@ nop
         asm.current_mapping = 1;
         let res = &asm
             .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
                 r#"
 Var = $2002
 lda #.lobyte(Var)
@@ -2197,6 +2321,7 @@ lda #.hibyte(Var)
         asm.current_mapping = 1;
         let res = &asm
             .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
                 r#"
 lda #42
 
@@ -2229,6 +2354,7 @@ MACRO
         asm.current_mapping = 1;
         let res = asm
             .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
                 r#"
 lda #42
 
@@ -2257,6 +2383,7 @@ MACRO
         asm.current_mapping = 1;
         let res = asm
             .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
                 r#"
 lda #42
 
@@ -2285,6 +2412,7 @@ MACRO(1, 2)
         asm.current_mapping = 1;
         let res = &asm
             .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
                 r#"
 lda #42
 
@@ -2317,6 +2445,7 @@ MACRO(2)
         asm.current_mapping = 1;
         let res = asm
             .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
                 r#"
 lda #42
 
@@ -2346,6 +2475,7 @@ MACRO(1)
         asm.current_mapping = 1;
         let res = asm
             .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
                 r#"
 Var = 3
 lda #42
@@ -2376,6 +2506,7 @@ MACRO(1)
         asm.current_mapping = 1;
         let res = &asm
             .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
                 r#"
 .macro WRITE_PPU_DATA address, value
     bit $2002                   ; PPUSTATUS
@@ -2487,6 +2618,7 @@ nop
         asm.mappings[0].offset = 6;
         let bundles = &asm
             .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
                 r#"
 .segment "ONE"
 nop
@@ -2565,6 +2697,7 @@ nop
         asm.mappings[0].offset = 6;
         let bundles = &asm
             .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
                 r#"
 .segment "ONE"
 lala:
@@ -2610,6 +2743,7 @@ code:
         asm.mappings[0].offset = 6;
         let bundles = &asm
             .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
                 r#"
 .segment "ONE"
 .addr code
@@ -2656,6 +2790,7 @@ code:
         asm.current_mapping = 1;
         let res = &asm
             .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
                 r#"
 .scope Vars
 .segment "CODE"

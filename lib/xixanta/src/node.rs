@@ -137,6 +137,7 @@ pub enum ControlType {
     Byte,
     Word,
     Addr,
+    IncBin,
 }
 
 /// The PNode type.

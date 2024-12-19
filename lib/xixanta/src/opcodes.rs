@@ -730,6 +730,7 @@ lazy_static! {
         functions.insert(String::from(".word"), Control { control_type: ControlType::Word, has_identifier: false, required_args: None, touches_context: false });
         functions.insert(String::from(".dw"), Control { control_type: ControlType::Word, has_identifier: false, required_args: None, touches_context: false });
         functions.insert(String::from(".addr"), Control { control_type: ControlType::Addr, has_identifier: false, required_args: None, touches_context: false });
+        functions.insert(String::from(".incbin"), Control { control_type: ControlType::IncBin, has_identifier: false, required_args: Some(1), touches_context: false });
 
         functions
     };

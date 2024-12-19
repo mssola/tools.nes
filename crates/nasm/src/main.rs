@@ -1,7 +1,8 @@
-use anyhow::Result;
+use anyhow::{bail, Context, Result};
 use clap::Parser as ClapParser;
 use std::fs::File;
 use std::io::{self, Read, Write};
+use std::path::Path;
 use xixanta::assembler::Assembler;
 use xixanta::mapping::{Mapping, EMPTY, NROM, NROM65};
 
@@ -31,10 +32,24 @@ struct Args {
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    // Select the input stream.
-    let input: Box<dyn Read> = match args.file {
-        Some(file) => Box::new(File::open(file)?),
-        None => Box::new(std::io::stdin()),
+    // Select the input stream and the current working directory.
+    let input: Box<dyn Read>;
+    let working_directory = match &args.file {
+        Some(file) => {
+            let path = Path::new(file);
+            if !path.is_file() {
+                bail!("Input file must be a valid file");
+            }
+            input = Box::new(File::open(file)?);
+
+            path.parent()
+                .with_context(|| String::from("Failed to find directory for given file"))?
+        }
+        None => {
+            input = Box::new(std::io::stdin());
+            &std::env::current_dir()
+                .with_context(|| String::from("Could not fetch current directory"))?
+        }
     };
 
     // Select the output stream.
@@ -60,7 +75,7 @@ fn main() -> Result<()> {
 
     // And assemble.
     let mut assembler = Assembler::new(mapping);
-    match assembler.assemble(input) {
+    match assembler.assemble(working_directory.to_path_buf(), input) {
         Ok(bundles) => {
             for b in bundles {
                 for i in 0..b.size {
