@@ -634,6 +634,24 @@ impl Parser {
     // and the offset has been set accordingly). Returns a new node for the
     // expression at hand.
     fn parse_expression(&mut self, line: &str) -> Result<PNode, ParseError> {
+        let first = line.chars().next().unwrap_or_default();
+
+        if first == '(' {
+            // Skip '(' character and whitespace characters in between.
+            self.next();
+            self.skip_whitespace(line);
+
+            // Extract what's inside of the enclosing parenthesis.
+            let paren = self.find_matching_paren(line, self.offset)?;
+            let l = line.get(self.offset..paren).unwrap_or_default();
+
+            // And return what you can parse from the inner expression.
+            self.offset = 0;
+            return self.parse_expression(l);
+        }
+
+        // There's no complex expression going on. Hence, we can try to parse an
+        // "identifier" and pass it along.
         let (id, nt) = self.parse_identifier(line)?;
 
         if nt == NodeType::Label {
@@ -1010,6 +1028,31 @@ mod tests {
         assert!(parser.parse(line.as_bytes()).is_ok());
 
         let node = parser.nodes.last().unwrap();
+        assert_eq!(node.node_type, NodeType::Literal);
+        assert!(node.right.is_none());
+        assert!(node.args.is_none());
+
+        let inner = node.left.clone().unwrap();
+        assert_eq!(inner.node_type, NodeType::Value);
+        assert_eq!(inner.value.value, "Variable");
+        assert_eq!(
+            line.get(inner.value.start..inner.value.end).unwrap(),
+            "Variable"
+        );
+    }
+
+    #[test]
+    fn parse_paren_expression() {
+        let line = "ldx #(Variable)";
+        let mut parser = Parser::default();
+        assert!(parser.parse(line.as_bytes()).is_ok());
+
+        let instr = parser.nodes.last().unwrap();
+        assert_eq!(instr.node_type, NodeType::Instruction);
+        assert!(instr.right.is_none());
+        assert!(instr.args.is_none());
+
+        let node = instr.left.clone().unwrap();
         assert_eq!(node.node_type, NodeType::Literal);
         assert!(node.right.is_none());
         assert!(node.args.is_none());
