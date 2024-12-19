@@ -1,5 +1,5 @@
 use crate::errors::ParseError;
-use crate::node::{NodeType, PNode, PString};
+use crate::node::{NodeType, OperationType, PNode, PString};
 use crate::opcodes::{CONTROL_FUNCTIONS, INSTRUCTIONS};
 use std::cmp::Ordering;
 use std::io::{self, BufRead, Read};
@@ -634,9 +634,12 @@ impl Parser {
     // and the offset has been set accordingly). Returns a new node for the
     // expression at hand.
     fn parse_expression(&mut self, line: &str) -> Result<PNode, ParseError> {
+        // Cases where fetching an "identifier" is really not needed.
         let first = line.chars().next().unwrap_or_default();
-
         if first == '(' {
+            // This is an expression under paranthesis. Get those out of the way
+            // and call `parse_expression` again but for the expression inside.
+
             // Skip '(' character and whitespace characters in between.
             self.next();
             self.skip_whitespace(line);
@@ -648,16 +651,87 @@ impl Parser {
             // And return what you can parse from the inner expression.
             self.offset = 0;
             return self.parse_expression(l);
+        } else if let Some(node_type) = self.get_unary_from_line(line) {
+            // This is a unary operation. Just parse the right side and return
+            // early.
+
+            // Skip operator and whitespaces.
+            let start = self.column;
+            self.next();
+            self.skip_whitespace(line);
+
+            // Fetch the right side of the operator.
+            let right_str = line.get(self.offset..).unwrap_or_default().trim_end();
+            self.offset = 0;
+            let right = self.parse_expression(right_str)?;
+
+            return Ok(PNode {
+                node_type,
+                value: PString {
+                    value: String::from(""),
+                    line: self.line,
+                    start,
+                    end: right.value.end,
+                },
+                left: None,
+                right: Some(Box::new(right)),
+                args: None,
+            });
         }
 
-        // There's no complex expression going on. Hence, we can try to parse an
-        // "identifier" and pass it along.
+        // Now that we have changed specific cases where detecting an
+        // "identifier" is not really relevant, let's fetch the "identifier" and
+        // parse the expression with that into consideration.
         let (id, nt) = self.parse_identifier(line)?;
 
         if nt == NodeType::Label {
             Err(self.parser_error("not expecting a label defined here"))
         } else {
             self.parse_expression_with_identifier(id, line)
+        }
+    }
+
+    // Returns the unary operator type which is at the beginning of the line if
+    // it exists, otherwise returns None.
+    fn get_unary_from_line(&mut self, line: &str) -> Option<NodeType> {
+        match line.chars().nth(0).unwrap_or_default() {
+            '+' => Some(NodeType::Operation(OperationType::UnaryPositive)),
+            '-' => Some(NodeType::Operation(OperationType::UnaryNegative)),
+            '~' => Some(NodeType::Operation(OperationType::BitwiseNot)),
+            '<' => Some(NodeType::Operation(OperationType::LoByte)),
+            '>' => Some(NodeType::Operation(OperationType::HiByte)),
+            _ => None,
+        }
+    }
+
+    // Get the operator from the first two characters of the given line. If
+    // there's no operator, then None is returned for the first element of the
+    // Ok tuple. Moreover, the second item on the tuple contains the amount of
+    // characters that made up the operator.
+    fn get_operation_from_line(
+        &mut self,
+        line: &str,
+    ) -> Result<(Option<NodeType>, usize), ParseError> {
+        let first = line.chars().nth(0).unwrap_or_default();
+        let second = line.chars().nth(1).unwrap_or_default();
+
+        match first {
+            '+' => Ok((Some(NodeType::Operation(OperationType::Add)), 1)),
+            '-' => Ok((Some(NodeType::Operation(OperationType::Sub)), 1)),
+            '*' => Ok((Some(NodeType::Operation(OperationType::Mul)), 1)),
+            '/' => Ok((Some(NodeType::Operation(OperationType::Div)), 1)),
+            '^' => Ok((Some(NodeType::Operation(OperationType::Xor)), 1)),
+            '|' => Ok((Some(NodeType::Operation(OperationType::Or)), 1)),
+            '&' => Ok((Some(NodeType::Operation(OperationType::And)), 1)),
+            '<' => match second {
+                '<' => Ok((Some(NodeType::Operation(OperationType::Lshift)), 2)),
+                _ => Err(self.parser_error(format!("unknown operator '<{}'", second).as_str())),
+            },
+            '>' => match second {
+                '>' => Ok((Some(NodeType::Operation(OperationType::Rshift)), 2)),
+                _ => Err(self.parser_error(format!("unknown operator '>{}'", second).as_str())),
+            },
+            _ => Ok((None, 0)),
         }
     }
 
@@ -684,15 +758,55 @@ impl Parser {
         } else if line.starts_with('\'') {
             self.parse_char(id)
         } else {
-            // If there is an indication that it might be a macro call, process
-            // it as such.
+            // Skip any whitespace after our identifier.
             self.skip_whitespace(line);
-            if !line
-                .get(self.offset..)
-                .unwrap_or_default()
-                .trim_end()
-                .is_empty()
-            {
+            let l = line.get(self.offset..).unwrap_or_default().trim_end();
+
+            // The line might start with a binary operator. This would mean that
+            // the "id" is actually just the left node of a binary operation and
+            // that we just need to parse the right arm.
+            let (op, op_size) = self.get_operation_from_line(l)?;
+            if let Some(node_type) = op {
+                // The left node of the operator is simply the "identifier" that
+                // came to us.
+                let left = Some(Box::new(PNode {
+                    node_type: NodeType::Value,
+                    value: id.clone(),
+                    left: None,
+                    right: None,
+                    args: None,
+                }));
+
+                // Fetch a trimmed version of the string that comes after the
+                // operator.
+                self.offset += op_size;
+                self.column += op_size;
+                self.skip_whitespace(line);
+                let right_str = line.get(self.offset..).unwrap_or_default().trim_end();
+
+                // The right node of the operation will be the parsed expression
+                // of the string we just got right of the operator.
+                self.offset = 0;
+                let right = self.parse_expression(right_str)?;
+
+                return Ok(PNode {
+                    node_type,
+                    value: PString {
+                        value: String::from(""),
+                        line: id.line,
+                        start: id.start,
+                        end: right.value.end,
+                    },
+                    left,
+                    right: Some(Box::new(right)),
+                    args: None,
+                });
+            }
+
+            // Ok, so the line did not indicate any sort of operation. That
+            // being said, if the rest of the line still contains stuff, it
+            // might as well be a macro call. Try to process it as such.
+            if !l.is_empty() {
                 let args = self.parse_arguments(line)?;
                 return Ok(PNode {
                     node_type: NodeType::Call,
@@ -1426,6 +1540,58 @@ mod tests {
         parser = Parser::default();
         err = parser.parse("var =   ; Comment".as_bytes()).unwrap_err();
         assert_eq!(err.first().unwrap().message, "incomplete assignment");
+    }
+
+    // Constant expressions
+
+    #[test]
+    fn constant_expression_test() {
+        let line = "ldx #(4 * NUM_SPRITES)";
+        let mut parser = Parser::default();
+        assert!(parser.parse(line.as_bytes()).is_ok());
+
+        let node = parser.nodes.last().unwrap();
+        assert_node(node, NodeType::Instruction, line, "ldx");
+        assert!(node.args.is_none());
+        assert!(node.right.is_none());
+
+        let literal = &node.left.clone().unwrap();
+        assert_node(literal, NodeType::Literal, line, "#");
+
+        let op = &literal.left.clone().unwrap();
+        assert_eq!(op.node_type, NodeType::Operation(OperationType::Mul));
+        assert_node(&op.left.clone().unwrap(), NodeType::Value, line, "4");
+        assert_node(
+            &op.right.clone().unwrap(),
+            NodeType::Value,
+            line,
+            "NUM_SPRITES",
+        );
+    }
+
+    #[test]
+    fn unary_operator_test() {
+        let line = "ldx #<NUM_SPRITES";
+        let mut parser = Parser::default();
+        assert!(parser.parse(line.as_bytes()).is_ok());
+
+        let node = parser.nodes.last().unwrap();
+        assert_node(node, NodeType::Instruction, line, "ldx");
+        assert!(node.args.is_none());
+        assert!(node.right.is_none());
+
+        let literal = &node.left.clone().unwrap();
+        assert_node(literal, NodeType::Literal, line, "#<NUM_SPRITES");
+
+        let op = &literal.left.clone().unwrap();
+        assert_eq!(op.node_type, NodeType::Operation(OperationType::LoByte));
+        assert!(op.left.is_none());
+        assert_node(
+            &op.right.clone().unwrap(),
+            NodeType::Value,
+            line,
+            "NUM_SPRITES",
+        );
     }
 
     // Control statements.

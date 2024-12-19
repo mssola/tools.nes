@@ -140,6 +140,25 @@ pub enum ControlType {
     IncBin,
 }
 
+/// The type of operation being used.
+#[derive(Debug, Clone, PartialEq)]
+pub enum OperationType {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Lshift,
+    Rshift,
+    And,
+    Or,
+    Xor,
+    UnaryPositive,
+    UnaryNegative,
+    BitwiseNot,
+    LoByte,
+    HiByte,
+}
+
 /// The PNode type.
 #[derive(Debug, Clone, PartialEq)]
 pub enum NodeType {
@@ -181,6 +200,10 @@ pub enum NodeType {
     /// A macro call. Note that a Value might also encode this, but when a Call
     /// has been detected, then there is no doubt on it.
     Call,
+
+    /// A operation expression. If the operation has two sides, then the left
+    /// and right arms contain the operands, otherwise only the right one.
+    Operation(OperationType),
 }
 
 impl fmt::Display for NodeType {
@@ -194,6 +217,22 @@ impl fmt::Display for NodeType {
             NodeType::Literal => write!(f, "literal"),
             NodeType::Label => write!(f, "label"),
             NodeType::Call => write!(f, "call"),
+            NodeType::Operation(op) => match op {
+                OperationType::Add => write!(f, "addition"),
+                OperationType::Sub => write!(f, "subtraction"),
+                OperationType::Mul => write!(f, "multiplication"),
+                OperationType::Div => write!(f, "division"),
+                OperationType::Lshift => write!(f, "left shift"),
+                OperationType::Rshift => write!(f, "right shift"),
+                OperationType::And => write!(f, "bitwise and"),
+                OperationType::Or => write!(f, "bitwise or"),
+                OperationType::Xor => write!(f, "bitwise xor"),
+                OperationType::UnaryPositive => write!(f, "unary positive"),
+                OperationType::UnaryNegative => write!(f, "unary negative"),
+                OperationType::BitwiseNot => write!(f, "bitwise not"),
+                OperationType::LoByte => write!(f, "low byte"),
+                OperationType::HiByte => write!(f, "high byte"),
+            },
         }
     }
 }
