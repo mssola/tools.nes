@@ -104,9 +104,9 @@ impl PString {
         it.all(|current| init == current)
     }
 
-    // Returns the isize value that can be computed assuming that this is an
-    // anonymous relative reference. References to a previous label will have a
-    // negative value, while references to next labels have a positive one.
+    /// Returns the isize value that can be computed assuming that this is an
+    /// anonymous relative reference. References to a previous label will have a
+    /// negative value, while references to next labels have a positive one.
     pub fn to_isize(&self) -> isize {
         let c = self.value.chars().nth(1).unwrap_or(' ');
 
