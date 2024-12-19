@@ -32,6 +32,12 @@ pub struct Bundle {
     /// Whether the bytes on `bytes` contain the final value or not. This is
     /// used for internal purposes only.
     pub resolved: bool,
+
+    /// Whether we have to consider the bundle to contain a negative number.
+    /// This comes from the fact that we just have a bunch of signednessless
+    /// bytes, but using the negative unary operator will give us a hint on how
+    /// to interpret it when needed.
+    pub negative: bool,
 }
 
 impl Bundle {
@@ -52,6 +58,35 @@ impl Bundle {
             cycles: 0,
             affected_on_page: false,
             resolved: true,
+            negative: false,
+        }
+    }
+
+    /// Returns the `bytes` field from the bundle as interpreted as bytes from a
+    /// regular integer.
+    pub fn value(&self) -> isize {
+        if self.negative {
+            isize::from_le_bytes([
+                self.bytes[0],
+                self.bytes[1],
+                0xFF,
+                0xFF,
+                0xFF,
+                0xFF,
+                0xFF,
+                0xFF,
+            ])
+        } else {
+            isize::from_le_bytes([
+                self.bytes[0],
+                self.bytes[1],
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+            ])
         }
     }
 }

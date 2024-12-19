@@ -1,6 +1,6 @@
 use crate::errors::{ContextError, Error, EvalError};
 use crate::mapping::Mapping;
-use crate::node::{ControlType, NodeType, PNode, PString};
+use crate::node::{ControlType, NodeType, OperationType, PNode, PString};
 use crate::object::{Bundle, Context, Object, ObjectType};
 use crate::opcodes::{AddressingMode, INSTRUCTIONS};
 use crate::parser::Parser;
@@ -8,7 +8,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
-use std::ops::Range;
+use std::ops::{Neg, Range};
 use std::path::PathBuf;
 
 /// The mode in which a literal is expressed.
@@ -278,6 +278,7 @@ impl Assembler {
                 cycles: 0,
                 affected_on_page: false,
                 resolved: false,
+                negative: false,
             },
             mapping: self.current_mapping,
             segment: self.current_segment,
@@ -526,10 +527,11 @@ impl Assembler {
     }
 
     fn evaluate_node(&mut self, node: &PNode) -> Result<Bundle, EvalError> {
-        match node.node_type {
+        match &node.node_type {
             NodeType::Instruction => Ok(self.evaluate_instruction(node)?),
             NodeType::Literal => Ok(self.evaluate_literal(node)?),
             NodeType::Control(_) => Ok(self.evaluate_control_expression(node)?),
+            NodeType::Operation(op) => Ok(self.evaluate_operation(node, op)?),
             NodeType::Value => match self.literal_mode {
                 Some(LiteralMode::Hexadecimal) => Ok(self.evaluate_hexadecimal(node)?),
                 Some(LiteralMode::Binary) => Ok(self.evaluate_binary(node)?),
@@ -577,6 +579,112 @@ impl Assembler {
         }
     }
 
+    // Evaluate the `node` by performing the operation described in
+    // `operation_type` onto its arms.
+    fn evaluate_operation(
+        &mut self,
+        node: &PNode,
+        operation_type: &OperationType,
+    ) -> Result<Bundle, EvalError> {
+        let mut right = self.evaluate_node(node.right.as_ref().unwrap())?;
+        let rval = right.value();
+
+        let res: isize = match operation_type {
+            OperationType::UnaryPositive => {
+                right.negative = false;
+                rval.abs()
+            }
+            OperationType::UnaryNegative => {
+                right.negative = true;
+                rval.neg()
+            }
+            OperationType::BitwiseNot => !rval,
+            OperationType::LoByte => {
+                let r = (rval as u16).to_le_bytes();
+                right.bytes[0] = r[0];
+                right.bytes[1] = 0;
+                right.size = 1;
+                return Ok(right);
+            }
+            OperationType::HiByte => {
+                let r = (rval as u16).to_le_bytes();
+                right.bytes[0] = r[1];
+                right.bytes[1] = 0;
+                right.size = 1;
+                return Ok(right);
+            }
+            OperationType::Add => {
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
+                lval + rval
+            }
+            OperationType::Sub => {
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
+                lval - rval
+            }
+            OperationType::Mul => {
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
+                lval * rval
+            }
+            OperationType::Div => {
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
+                lval / rval
+            }
+            OperationType::And => {
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
+                lval & rval
+            }
+            OperationType::Or => {
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
+                lval | rval
+            }
+            OperationType::Xor => {
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
+                lval ^ rval
+            }
+            OperationType::Lshift => {
+                if rval > 16 {
+                    return Err(EvalError {
+                        line: node.value.line,
+                        global: false,
+                        message: "shift operator too big".to_string(),
+                    });
+                }
+
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
+                lval << rval
+            }
+            OperationType::Rshift => {
+                if rval > 16 {
+                    return Err(EvalError {
+                        line: node.value.line,
+                        global: false,
+                        message: "shift operator too big".to_string(),
+                    });
+                }
+
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
+                lval >> rval
+            }
+        };
+
+        // Prevent overflows.
+        if res > i16::MAX.into() || res < i16::MIN.into() {
+            return Err(EvalError {
+                line: node.value.line,
+                global: false,
+                message: "performing the operation would overflow a 16-bit integer".to_string(),
+            });
+        }
+
+        // Set the computes bytes to right since that's the node in common
+        // across all operations and return it.
+        let byte_result = (res as u16).to_le_bytes();
+        right.bytes[0] = byte_result[0];
+        right.bytes[1] = byte_result[1];
+
+        Ok(right)
+    }
+
     fn evaluate_anonymous_relative_reference(&mut self, node: &PNode) -> Result<Bundle, EvalError> {
         self.literal_mode = Some(LiteralMode::Plain);
 
@@ -588,6 +696,7 @@ impl Assembler {
                 cycles: 0,
                 affected_on_page: false,
                 resolved: false,
+                negative: false,
             }),
             Stage::Crunching => {
                 match self.context.get_relative_label(
@@ -661,6 +770,7 @@ impl Assembler {
             cycles: 0,
             affected_on_page: false,
             resolved: true,
+            negative: false,
         })
     }
 
@@ -719,6 +829,7 @@ impl Assembler {
             cycles: 0,
             affected_on_page: false,
             resolved: true,
+            negative: false,
         })
     }
 
@@ -795,6 +906,7 @@ impl Assembler {
             cycles: 0,
             affected_on_page: false,
             resolved: true,
+            negative: false,
         })
     }
 
@@ -1715,6 +1827,79 @@ lda #Scope::Variable
         );
     }
 
+    #[test]
+    fn operations_with_variables() {
+        let mut asm = Assembler::new(EMPTY.to_vec());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
+            .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
+                r#"
+Value = 4
+ldx #(2 + Value)
+ldx #(2 - Value)
+ldx #(2 * -Value)
+ldx #(Value / 2)
+ldx #(Value << 2)
+ldx #~Value
+"#
+                .as_bytes(),
+            )
+            .unwrap()[0x10..];
+
+        assert_eq!(res.len(), 6);
+
+        let expected = [
+            [0x06, 0x00],
+            [0xFE, 0xFF],
+            [0xF8, 0xFF],
+            [0x02, 0x00],
+            [0x10, 0x00],
+            [0xFB, 0xFF],
+        ];
+        for (idx, node) in res.iter().enumerate() {
+            assert_eq!(node.size, 2);
+            assert_eq!(node.bytes[0], 0xA2);
+            assert_eq!(node.bytes[1], expected[idx][0]);
+            assert_eq!(node.bytes[2], expected[idx][1]);
+        }
+    }
+
+    #[test]
+    fn signed_with_variables() {
+        let mut asm = Assembler::new(EMPTY.to_vec());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
+            .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
+                r#"
+Value = -2
+ldx #Value
+ldx #+Value
+"#
+                .as_bytes(),
+            )
+            .unwrap()[0x10..];
+
+        assert_eq!(res.len(), 2);
+
+        let neg = res.first().unwrap();
+        assert_eq!(neg.size, 2);
+        assert_eq!(neg.bytes[0], 0xA2);
+        assert_eq!(neg.bytes[1], 0xFE);
+        assert_eq!(neg.bytes[2], 0xFF);
+
+        let pos = res.last().unwrap();
+        assert_eq!(pos.size, 2);
+        assert_eq!(pos.bytes[0], 0xA2);
+        assert_eq!(pos.bytes[1], 0x02);
+        assert_eq!(pos.bytes[2], 0x00);
+    }
+
     // Regular instructions
 
     #[test]
@@ -2295,16 +2480,18 @@ nop
                 r#"
 Var = $2002
 lda #.lobyte(Var)
+lda #<Var
 lda #.hibyte(Var)
+lda #>Var
 "#
                 .as_bytes(),
             )
             .unwrap()[0x10..];
 
-        assert_eq!(res.len(), 2);
-        let instrs: Vec<[u8; 2]> = vec![[0xA9, 0x02], [0xA9, 0x20]];
+        assert_eq!(res.len(), 4);
+        let instrs: Vec<[u8; 2]> = vec![[0xA9, 0x02], [0xA9, 0x02], [0xA9, 0x20], [0xA9, 0x20]];
 
-        for i in 0..2 {
+        for i in 0..4 {
             assert_eq!(res[i].size, 2);
             assert_eq!(res[i].bytes[0], instrs[i][0]);
             assert_eq!(res[i].bytes[1], instrs[i][1]);
