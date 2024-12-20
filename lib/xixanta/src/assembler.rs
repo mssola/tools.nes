@@ -1429,8 +1429,12 @@ impl Assembler {
             "x" => {
                 // If the size == 2 but we can fit it on a single byte (i.e.
                 // because the second byte is just 0x00), then just "compress"
-                // this instruction.
-                if val.size == 1 || val.bytes[1] == 0x00 {
+                // this instruction. Note that this is only valid if the value
+                // is fully well-known (i.e. it's not yet to be resolved). When
+                // the value is not yet resolved, it usually revolves around an
+                // address being referenced, which is never on the zeropage
+                // section, so it wouldn't fit on a single byte anyways.
+                if val.size == 1 || (val.resolved && val.bytes[1] == 0x00) {
                     // Re-inforce the optimization when val.size == 2 by forcing
                     // the size to 1.
                     val.size = 1;
@@ -1441,7 +1445,7 @@ impl Assembler {
             }
             "y" => {
                 // Same optimization as with the "x" case.
-                if val.size == 1 || val.bytes[1] == 0x00 {
+                if val.size == 1 || (val.resolved && val.bytes[1] == 0x00) {
                     val.size = 1;
                     Ok((AddressingMode::ZeropageIndexedY, val))
                 } else {
@@ -2525,6 +2529,34 @@ nop
         assert_eq!(res[3].bytes[0], 0x20);
         assert_eq!(res[3].bytes[1], 0x01);
         assert_eq!(res[3].bytes[2], 0x80);
+    }
+
+    #[test]
+    fn label_in_instruction_addressing() {
+        let mut asm = Assembler::new(EMPTY.to_vec());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
+            .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
+                r#"
+  ldx #0
+@load_palettes_loop:
+  lda palettes, x
+palettes:
+  .byte $0F, $12, $22, $32
+"#
+                .as_bytes(),
+            )
+            .unwrap()[0x10..];
+
+        assert_instruction("ldx #0", &res[0].bytes);
+        assert_instruction("lda $8005, x", &res[1].bytes);
+        assert_eq!(&res[2].bytes, &[0x0F, 0x00, 0x00]);
+        assert_eq!(&res[3].bytes, &[0x12, 0x00, 0x00]);
+        assert_eq!(&res[4].bytes, &[0x22, 0x00, 0x00]);
+        assert_eq!(&res[5].bytes, &[0x32, 0x00, 0x00]);
     }
 
     #[test]
