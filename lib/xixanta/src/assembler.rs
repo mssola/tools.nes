@@ -641,6 +641,13 @@ impl Assembler {
                 lval * rval
             }
             OperationType::Div => {
+                if rval == 0 {
+                    return Err(EvalError {
+                        line: node.value.line,
+                        global: false,
+                        message: "attempting to divide by zero".to_string(),
+                    });
+                }
                 let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
                 lval / rval
             }
@@ -1992,6 +1999,50 @@ ldx #+Value
         assert_eq!(pos.bytes[0], 0xA2);
         assert_eq!(pos.bytes[1], 0x02);
         assert_eq!(pos.bytes[2], 0x00);
+    }
+
+    #[test]
+    fn divide_by_zero() {
+        let mut asm = Assembler::new(EMPTY.to_vec());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
+            .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
+                r#"Value = 0
+ldx #(2 / Value)
+"#
+                .as_bytes(),
+            )
+            .unwrap_err();
+
+        assert_eq!(
+            res.first().unwrap().to_string(),
+            "attempting to divide by zero (line 2)"
+        );
+    }
+
+    #[test]
+    fn bad_shift() {
+        let mut asm = Assembler::new(EMPTY.to_vec());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
+            .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
+                r#"Value = #$11
+ldx #(2 << Value)
+"#
+                .as_bytes(),
+            )
+            .unwrap_err();
+
+        assert_eq!(
+            res.first().unwrap().to_string(),
+            "shift operator too big (line 2)"
+        );
     }
 
     // Regular instructions
