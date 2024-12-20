@@ -1409,7 +1409,7 @@ impl Assembler {
     fn get_from_indexed(&mut self, node: &PNode) -> Result<(AddressingMode, Bundle), EvalError> {
         // Evaluate the left arm of the instruction.
         let left = node.left.as_ref().unwrap();
-        let val = self.evaluate_node(left)?;
+        let mut val = self.evaluate_node(left)?;
 
         // Ensure that the literal mode for the left arm ensures an address
         // instead of some bogus number.
@@ -1427,14 +1427,22 @@ impl Assembler {
         let right = node.right.as_ref().unwrap();
         match right.value.value.to_lowercase().trim() {
             "x" => {
-                if val.size == 1 {
+                // If the size == 2 but we can fit it on a single byte (i.e.
+                // because the second byte is just 0x00), then just "compress"
+                // this instruction.
+                if val.size == 1 || val.bytes[1] == 0x00 {
+                    // Re-inforce the optimization when val.size == 2 by forcing
+                    // the size to 1.
+                    val.size = 1;
                     Ok((AddressingMode::ZeropageIndexedX, val))
                 } else {
                     Ok((AddressingMode::IndexedX, val))
                 }
             }
             "y" => {
-                if val.size == 1 {
+                // Same optimization as with the "x" case.
+                if val.size == 1 || val.bytes[1] == 0x00 {
+                    val.size = 1;
                     Ok((AddressingMode::ZeropageIndexedY, val))
                 } else {
                     Ok((AddressingMode::IndexedY, val))
@@ -1457,10 +1465,16 @@ impl Assembler {
             return Ok((AddressingMode::Implied, Bundle::new(true)));
         }
 
-        let val = self.evaluate_node(left_arm)?;
+        let mut val = self.evaluate_node(left_arm)?;
         match self.literal_mode {
             Some(LiteralMode::Hexadecimal) => {
-                if base.is_branch() || val.size == 1 {
+                // As for checking the most significant byte, it's the same
+                // optimization as with absolute to zeropage indexed addressing.
+                if base.is_branch()
+                    || val.size == 1
+                    || (val.bytes[1] == 0x00 && !matches!(base.value.value.as_str(), "jmp" | "jsr"))
+                {
+                    val.size = 1;
                     Ok((AddressingMode::RelativeOrZeropage, val))
                 } else {
                     Ok((AddressingMode::Absolute, val))
@@ -2511,6 +2525,14 @@ nop
         assert_eq!(res[3].bytes[0], 0x20);
         assert_eq!(res[3].bytes[1], 0x01);
         assert_eq!(res[3].bytes[2], 0x80);
+    }
+
+    #[test]
+    fn full_to_zeropage_optimization() {
+        assert_instruction("sta $0020", &[0x85, 0x20]);
+        assert_instruction("sty $021, x", &[0x94, 0x21]);
+        assert_instruction("sta $002, x", &[0x95, 0x02]);
+        assert_instruction("stx $020, y", &[0x96, 0x20]);
     }
 
     // TODO: labels and jumps inside of proc's, macros, etc.
