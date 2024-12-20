@@ -96,10 +96,10 @@ fn main() -> Result<()> {
         Ok(bundles) => {
             for warning in assembler.warnings() {
                 if warn_as_errors {
-                    println!("{}", warning);
+                    eprintln!("{}", warning);
                     error_count += 1;
                 } else {
-                    println!("Warning: {}", warning);
+                    eprintln!("Warning: {}", warning);
                 }
             }
             if error_count == 0 {
@@ -112,7 +112,7 @@ fn main() -> Result<()> {
         }
         Err(errors) => {
             for err in errors {
-                println!("{}", err);
+                eprintln!("{}", err);
                 error_count += 1;
             }
         }
