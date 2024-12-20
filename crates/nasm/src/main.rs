@@ -94,9 +94,19 @@ fn main() -> Result<()> {
     let mut assembler = Assembler::new(mapping);
     match assembler.assemble(working_directory.to_path_buf(), input) {
         Ok(bundles) => {
-            for b in bundles {
-                for i in 0..b.size {
-                    output.write_all(&[b.bytes[i as usize]])?;
+            for warning in assembler.warnings() {
+                if warn_as_errors {
+                    println!("{}", warning);
+                    error_count += 1;
+                } else {
+                    println!("Warning: {}", warning);
+                }
+            }
+            if error_count == 0 {
+                for b in bundles {
+                    for i in 0..b.size {
+                        output.write_all(&[b.bytes[i as usize]])?;
+                    }
                 }
             }
         }
@@ -105,12 +115,6 @@ fn main() -> Result<()> {
                 println!("{}", err);
                 error_count += 1;
             }
-        }
-    }
-    for warning in assembler.warnings() {
-        println!("Warning: {}", warning);
-        if warn_as_errors {
-            error_count += 1;
         }
     }
 
