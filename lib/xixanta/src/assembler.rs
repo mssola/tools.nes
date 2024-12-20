@@ -487,8 +487,15 @@ impl Assembler {
                     segment: self.current_segment,
                     object_type: ObjectType::Value,
                 };
+
+                // Note that we overwrite the variable value from previous
+                // calls, just in case a macro is applied multiple times and we
+                // need to get the latest value.
+                //
+                // TODO: whenever warnings are available, warn on shadowing
+                // outer variables.
                 self.context
-                    .set_variable(margs.next().unwrap(), &obj, false)?;
+                    .set_variable(margs.next().unwrap(), &obj, true)?;
             }
         }
 
@@ -2685,37 +2692,6 @@ MACRO(1)
             res.first().unwrap().to_string(),
             "Evaluation error (line 5): 'a' is not a decimal value and \
              could not find variable 'Va' in the global scope either."
-        );
-    }
-
-    #[test]
-    fn macro_shadow_argument() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"
-Var = 3
-lda #42
-
-.macro MACRO(Var)
-    lda #Va
-.endmacro
-
-lda #1
-MACRO(1)
-"#
-                .as_bytes(),
-            )
-            .unwrap_err();
-
-        assert_eq!(
-            res.first().unwrap().to_string(),
-            "Evaluation error (line 5): 'Var' already defined in the global scope: \
-             you cannot re-assign names."
         );
     }
 
