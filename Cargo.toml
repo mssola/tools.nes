@@ -5,7 +5,8 @@ resolver = "2"
 [workspace.package]
 rust-version = "1.82"
 edition = "2021"
-license = "GPLv3+"
+# Everything under crates/* is GPLv3+; everything under lib/* is under LGPLv3+.
+license = "GPLv3+ AND LGPLv3+"
 authors = ["Miquel Sabaté Solà <mikisabate@gmail.com>"]
 
 [workspace.dependencies]
