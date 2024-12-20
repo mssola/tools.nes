@@ -27,7 +27,7 @@ impl std::error::Error for ParseError {}
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "parser (line {}): {}.", self.line + 1, self.message)
+        write!(f, "{} (line {})", self.message, self.line + 1)
     }
 }
 
@@ -54,14 +54,9 @@ impl std::error::Error for ContextError {}
 impl fmt::Display for ContextError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.global {
-            write!(f, "Context error: {}.", self.message)
+            write!(f, "{}", self.message)
         } else {
-            write!(
-                f,
-                "Context error (line {}): {}.",
-                self.line + 1,
-                self.message
-            )
+            write!(f, "{} (line {})", self.message, self.line + 1)
         }
     }
 }
@@ -88,14 +83,9 @@ impl From<ContextError> for EvalError {
 impl fmt::Display for EvalError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.global {
-            write!(f, "Evaluation error: {}.", self.message)
+            write!(f, "{}", self.message)
         } else {
-            write!(
-                f,
-                "Evaluation error (line {}): {}.",
-                self.line + 1,
-                self.message
-            )
+            write!(f, "{} (line {})", self.message, self.line + 1)
         }
     }
 }

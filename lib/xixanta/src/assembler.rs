@@ -1610,19 +1610,18 @@ mod tests {
         }
     }
 
-    fn assert_error(line: &str, id: &str, line_num: usize, global: bool, message: &str) {
+    fn assert_error(line: &str, line_num: usize, global: bool, message: &str) {
         let mut asm = Assembler::new(EMPTY.to_vec());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
         asm.current_mapping = 1;
 
-        assert_error_with_assembler(&mut asm, line, id, line_num, global, message);
+        assert_error_with_assembler(&mut asm, line, line_num, global, message);
     }
 
     fn assert_error_with_assembler(
         asm: &mut Assembler,
         line: &str,
-        id: &str,
         line_num: usize,
         global: bool,
         message: &str,
@@ -1632,19 +1631,11 @@ mod tests {
             line.as_bytes(),
         );
         let msg = if global {
-            format!("{} error: {}.", id, message)
+            message.to_string()
         } else {
-            format!("{} error (line {}): {}.", id, line_num, message)
+            format!("{} (line {})", message, line_num)
         };
         assert_eq!(res.unwrap_err().first().unwrap().to_string().as_str(), msg);
-    }
-
-    fn assert_eval_error(line: &str, message: &str) {
-        assert_error(line, "Evaluation", 1, false, message);
-    }
-
-    fn assert_context_error(line: &str, message: &str, line_num: usize) {
-        assert_error(line, "Context", line_num, false, message);
     }
 
     // Empty
@@ -1672,10 +1663,22 @@ mod tests {
 
     #[test]
     fn parse_binary() {
-        assert_eval_error("adc #%0001", "missing binary digits to get a full byte");
-        assert_eval_error("adc #%0001000", "missing binary digits to get a full byte");
-        assert_eval_error(
+        assert_error(
+            "adc #%0001",
+            1,
+            false,
+            "missing binary digits to get a full byte",
+        );
+        assert_error(
+            "adc #%0001000",
+            1,
+            false,
+            "missing binary digits to get a full byte",
+        );
+        assert_error(
             "adc #%000100001",
+            1,
+            false,
             "too many binary digits for a single byte",
         );
         assert_error(
@@ -1683,7 +1686,6 @@ mod tests {
         Variable = 42
         adc %Variable
         "#,
-            "Evaluation",
             3,
             false,
             "you cannot use variables like 'Variable' in binary literals",
@@ -1693,17 +1695,23 @@ mod tests {
 
     #[test]
     fn parse_hexadecimal() {
-        assert_eval_error(
+        assert_error(
             "adc #$12345",
+            1,
+            false,
             "expecting a number of 1 to 4 hexadecimal digits",
         );
-        assert_eval_error("adc $AW", "could not convert digit to hexadecimal");
+        assert_error(
+            "adc $AW",
+            1,
+            false,
+            "could not convert digit to hexadecimal",
+        );
         assert_error(
             r#"
 Variable = 42
 adc $Variable
 "#,
-            "Evaluation",
             3,
             false,
             "you cannot use variables like 'Variable' in hexadecimal literals",
@@ -1713,7 +1721,6 @@ adc $Variable
 Four = 4
 adc $Four
 "#,
-            "Evaluation",
             3,
             false,
             "you cannot use variables like 'Four' in hexadecimal literals",
@@ -1725,10 +1732,11 @@ adc $Four
 
     #[test]
     fn parse_decimal() {
-        assert_eval_error("adc #256", "decimal value is too big");
-        assert_eval_error("adc #2000", "decimal value is too big");
-        assert_eval_error(
+        assert_error("adc #256", 1, false, "decimal value is too big");
+        assert_error("adc #2000", 1, false, "decimal value is too big");
+        assert_error(
             "adc #2A",
+            1, false,
             "'A' is not a decimal value and could not find variable '2A' in the global scope either",
         );
         assert_instruction("adc #1", &[0x69, 0x01]);
@@ -1837,19 +1845,22 @@ foo:
 
     #[test]
     fn bad_variable_but_valid_identifier_in_instruction() {
-        assert_eval_error(
+        assert_error(
             "adc Variable",
+            1, false,
             "no prefix was given to operand and could not find variable 'Variable' in the global scope either",
         );
-        assert_eval_error(
+        assert_error(
             "adc Scoped::Variable",
+            1,
+            false,
             "no prefix was given to operand and did not find scope 'Scoped' either",
         );
     }
 
     #[test]
     fn redefined_variable() {
-        assert_context_error(
+        assert_error(
             r#"
 .scope One
   Variable = 1
@@ -1859,20 +1870,25 @@ Variable = 1
 Yet = 3
 Yet = 4
 "#,
-            "'Yet' already defined in the global scope: you cannot re-assign names",
             8,
+            false,
+            "'Yet' already defined in the global scope: you cannot re-assign names",
         );
     }
 
     #[test]
     fn unknown_variables() {
-        assert_eval_error(
+        assert_error(
             "lda #Variable",
+            1,
+            false,
             "'e' is not a decimal value and could not find variable \
                       'Variable' in the global scope either",
         );
-        assert_eval_error(
+        assert_error(
             "lda #Scope::Variable",
+            1,
+            false,
             "'e' is not a decimal value and did not find scope 'Scope' either",
         );
         assert_error(
@@ -1881,7 +1897,6 @@ Yet = 4
 .endscope
 lda #Scope::Variable
 "#,
-            "Evaluation",
             4,
             false,
             "'e' is not a decimal value and could not find variable 'Variable' in 'Scope' either",
@@ -1965,33 +1980,45 @@ ldx #+Value
 
     #[test]
     fn bad_addressing() {
-        assert_eval_error(
+        assert_error(
             "unknown #$20",
+            1,
+            false,
             "could not find a macro with the name 'unknown'",
         );
-        assert_eval_error(
+        assert_error(
             "adc ($2002, x)",
+            1,
+            false,
             "address can only be one byte long on indirect X addressing",
         );
-        assert_eval_error(
+        assert_error(
             "adc ($2002), y",
+            1,
+            false,
             "address can only be one byte long on indirect Y addressing",
         );
-        assert_eval_error(
+        assert_error(
             "adc ($20, y)",
+            1,
+            false,
             "only the X index is allowed on indirect X addressing",
         );
-        assert_eval_error(
+        assert_error(
             "adc ($20), x",
+            1,
+            false,
             "only the Y index is allowed on indirect Y addressing",
         );
-        assert_eval_error("jmp ($20)", "expecting a full 16-bit address");
-        assert_eval_error("adc $20, z", "can only use X and Y as indices");
-        assert_eval_error(
+        assert_error("jmp ($20)", 1, false, "expecting a full 16-bit address");
+        assert_error("adc $20, z", 1, false, "can only use X and Y as indices");
+        assert_error(
             "adc ($2000)",
+            1,
+            false,
             "cannot use indirect addressing mode for the instruction 'adc'",
         );
-        assert_eval_error("lda 12", "no prefix was given to operand")
+        assert_error("lda 12", 1, false, "no prefix was given to operand")
     }
 
     #[test]
@@ -2619,7 +2646,7 @@ MACRO
 
         assert_eq!(
             res.first().unwrap().to_string(),
-            "Evaluation error (line 9): wrong number of arguments for 'MACRO': 1 required but 0 given."
+            "wrong number of arguments for 'MACRO': 1 required but 0 given (line 9)"
         );
     }
 
@@ -2648,7 +2675,7 @@ MACRO(1, 2)
 
         assert_eq!(
             res.first().unwrap().to_string(),
-            "Evaluation error (line 9): wrong number of arguments for 'MACRO': 1 required but 2 given."
+            "wrong number of arguments for 'MACRO': 1 required but 2 given (line 9)"
         );
     }
 
@@ -2710,8 +2737,8 @@ MACRO(1)
 
         assert_eq!(
             res.first().unwrap().to_string(),
-            "Evaluation error (line 5): 'a' is not a decimal value and \
-             could not find variable 'Va' in the global scope either."
+            "'a' is not a decimal value and \
+             could not find variable 'Va' in the global scope either (line 5)"
         );
     }
 
@@ -2797,14 +2824,7 @@ WRITE_PPU_DATA $20B9, $04
 .segment "TWO"
 nop
 "#;
-        assert_error_with_assembler(
-            &mut asm,
-            line,
-            "Evaluation",
-            2,
-            false,
-            "unknown segment 'THREE'",
-        )
+        assert_error_with_assembler(&mut asm, line, 2, false, "unknown segment 'THREE'")
     }
 
     #[test]
@@ -2831,7 +2851,7 @@ nop
         assert_eq!(warnings.len(), 1);
         assert_eq!(
             warnings.first().unwrap().to_string(),
-            "Evaluation error: segment 'ONE' is empty."
+            "segment 'ONE' is empty"
         );
     }
 
@@ -2999,7 +3019,6 @@ nop
 code:
     rts
 "#,
-            "Evaluation",
             2,
             false,
             "expecting an argument that fits into a byte",
@@ -3027,8 +3046,8 @@ code:
 
         assert_eq!(
             res.first().unwrap().to_string(),
-            "Evaluation error (line 3): cannot switch to segment 'CODE' \
-             if we are still inside of a scope ('Vars')."
+            "cannot switch to segment 'CODE' \
+             if we are still inside of a scope ('Vars') (line 3)"
         );
     }
 
