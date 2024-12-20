@@ -94,8 +94,167 @@ lazy_static! {
         },
     ];
 
-    // The same mapper as NROM, but it adds a "STARTUP" segment into the "ROM0"
-    // mapping so to behave the same as the default "cc65" configuration.
+    // Mapper for UxROM boards (UxROM (NES-UNROM, NES-UOROM, HVC-UN1ROM their
+    // HVC counterparts, and clone boards).
+    pub static ref UXROM: Vec<Mapping> = vec![
+        Mapping {
+            name: String::from("HEADER"),
+            start: 0x0000,
+            size: 0x0010,
+            offset: 0,
+            fill: Some(0x00),
+            section_type: SectionType::Header,
+            segments: vec![Segment {
+                name: String::from("HEADER"),
+                len: 0,
+                offset: 0,
+                bundles: vec![],
+            }]
+        },
+        Mapping {
+            name: String::from("PRG0"),
+            start: 0x8000,
+            size: 0x4000,
+            offset: 0,
+            fill: Some(0xF8),
+            section_type: SectionType::PrgRom,
+            segments: vec![
+                Segment {
+                    name: String::from("BANK0"),
+                    len: 0,
+                    offset: 0,
+                    bundles: vec![],
+                },
+            ]
+        },
+        Mapping {
+            name: String::from("PRG1"),
+            start: 0x8000,
+            size: 0x4000,
+            offset: 0,
+            fill: Some(0xF9),
+            section_type: SectionType::PrgRom,
+            segments: vec![
+                Segment {
+                    name: String::from("BANK1"),
+                    len: 0,
+                    offset: 0,
+                    bundles: vec![],
+                },
+            ]
+        },
+        Mapping {
+            name: String::from("PRG2"),
+            start: 0x8000,
+            size: 0x4000,
+            offset: 0,
+            fill: Some(0xFA),
+            section_type: SectionType::PrgRom,
+            segments: vec![
+                Segment {
+                    name: String::from("BANK2"),
+                    len: 0,
+                    offset: 0,
+                    bundles: vec![],
+                },
+            ]
+        },
+        Mapping {
+            name: String::from("PRG3"),
+            start: 0x8000,
+            size: 0x4000,
+            offset: 0,
+            fill: Some(0xFB),
+            section_type: SectionType::PrgRom,
+            segments: vec![
+                Segment {
+                    name: String::from("BANK3"),
+                    len: 0,
+                    offset: 0,
+                    bundles: vec![],
+                },
+            ]
+        },
+        Mapping {
+            name: String::from("PRG4"),
+            start: 0x8000,
+            size: 0x4000,
+            offset: 0,
+            fill: Some(0xFC),
+            section_type: SectionType::PrgRom,
+            segments: vec![
+                Segment {
+                    name: String::from("BANK4"),
+                    len: 0,
+                    offset: 0,
+                    bundles: vec![],
+                },
+            ]
+        },
+        Mapping {
+            name: String::from("PRG5"),
+            start: 0x8000,
+            size: 0x4000,
+            offset: 0,
+            fill: Some(0xFD),
+            section_type: SectionType::PrgRom,
+            segments: vec![
+                Segment {
+                    name: String::from("BANK5"),
+                    len: 0,
+                    offset: 0,
+                    bundles: vec![],
+                },
+            ]
+        },
+        Mapping {
+            name: String::from("PRG6"),
+            start: 0x8000,
+            size: 0x4000,
+            offset: 0,
+            fill: Some(0xFE),
+            section_type: SectionType::PrgRom,
+            segments: vec![
+                Segment {
+                    name: String::from("BANK6"),
+                    len: 0,
+                    offset: 0,
+                    bundles: vec![],
+                },
+            ]
+        },
+        Mapping {
+            name: String::from("PRG"),
+            start: 0xC000,
+            size: 0x3FFA,
+            offset: 0,
+            fill: Some(0xFF),
+            section_type: SectionType::PrgRom,
+            segments: vec![
+                Segment {
+                    name: String::from("FIXED"),
+                    len: 0,
+                    offset: 0,
+                    bundles: vec![],
+                },
+            ]
+        },
+        Mapping {
+            name: String::from("ROMV"),
+            start: 0xFFFA,
+            size: 0x0006,
+            offset: 0,
+            fill: Some(0x00),
+            section_type: SectionType::PrgRom,
+            segments: vec![Segment {
+                name: String::from("VECTORS"),
+                len: 0,
+                offset: 0,
+                bundles: vec![],
+            },]
+        },
+    ];
+
     pub static ref NROM65: Vec<Mapping> = vec![
         Mapping {
             name: String::from("HEADER"),
