@@ -1775,6 +1775,40 @@ adc Variable
     }
 
     #[test]
+    fn reference_outer_variables() {
+        let mut asm = Assembler::new(EMPTY.to_vec());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
+            .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
+                r#"
+foo:
+  rts
+
+.proc inner
+    jsr foo
+.endproc
+"#
+                .as_bytes(),
+            )
+            .unwrap()[0x10..];
+
+        assert_eq!(res.len(), 2);
+
+        // foo: rts
+        assert_eq!(res[0].size, 1);
+        assert_eq!(res[0].bytes[0], 0x60);
+
+        // inner: jsr foo
+        assert_eq!(res[1].size, 3);
+        assert_eq!(res[1].bytes[0], 0x20);
+        assert_eq!(res[1].bytes[1], 0x00);
+        assert_eq!(res[1].bytes[2], 0x80);
+    }
+
+    #[test]
     fn bad_variable_but_valid_identifier_in_instruction() {
         assert_eval_error(
             "adc Variable",
