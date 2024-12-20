@@ -23,6 +23,10 @@ struct Args {
     #[arg(short = 'o', long)]
     out: Option<String>,
 
+    /// Treat warnings as errors.
+    #[arg(short = 'W', value_name = "Error")]
+    w: Option<String>,
+
     /// Spit the output into the standard output instead. This ignores any given
     /// `out` flag. Disabled by default.
     #[arg(long, default_value_t = false)]
@@ -59,6 +63,18 @@ fn main() -> Result<()> {
         Box::new(File::create(args.out.unwrap_or(String::from("out.nes")))?)
     };
 
+    // Check if warnings have to be treated as errors.
+    let warn_as_errors = match args.w {
+        Some(value) => {
+            if value.to_lowercase() != "error" {
+                bail!("The '-W' flag can only be used as '-Werror'");
+            } else {
+                true
+            }
+        }
+        None => false,
+    };
+
     // Select the linker configuration.
     let mapping: Vec<Mapping> = match args.config {
         Some(c) => match c.to_lowercase().as_str() {
@@ -74,6 +90,7 @@ fn main() -> Result<()> {
     };
 
     // And assemble.
+    let mut error_count = 0;
     let mut assembler = Assembler::new(mapping);
     match assembler.assemble(working_directory.to_path_buf(), input) {
         Ok(bundles) => {
@@ -86,10 +103,16 @@ fn main() -> Result<()> {
         Err(errors) => {
             for err in errors {
                 println!("{}", err);
+                error_count += 1;
             }
-            std::process::exit(1);
+        }
+    }
+    for warning in assembler.warnings() {
+        println!("Warning: {}", warning);
+        if warn_as_errors {
+            error_count += 1;
         }
     }
 
-    Ok(())
+    std::process::exit(error_count);
 }

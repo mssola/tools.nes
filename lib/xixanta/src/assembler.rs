@@ -71,6 +71,9 @@ pub struct Assembler {
     pending: Vec<PendingNode>,
     labels_seen: usize,
 
+    // Warnings that have accumulated over the run.
+    warnings: Vec<Error>,
+
     // Stack of directories. The last directory is the current one, whereas the
     // other elements come from previous contexts. This way we can implement a
     // file that imports another file which in turn imports another file, etc.
@@ -92,8 +95,14 @@ impl Assembler {
             current_segment: 0,
             pending: vec![],
             labels_seen: 0,
+            warnings: vec![],
             directories: vec![],
         }
+    }
+
+    /// Returns the warnings accumulated over the current session.
+    pub fn warnings(&self) -> &Vec<Error> {
+        &self.warnings
     }
 
     /// Read the contents from the `reader` as a source file and produce a list
@@ -403,13 +412,12 @@ impl Assembler {
 
         for mapping in &mut self.mappings {
             for segment in mapping.segments.iter_mut() {
-                // TODO: return a warning instead.
                 if segment.is_empty() {
-                    return Err(vec![Error::Eval(EvalError {
+                    self.warnings.push(Error::Eval(EvalError {
                         line: 0,
                         message: format!("segment '{}' is empty", segment.name),
                         global: true,
-                    })]);
+                    }));
                 }
                 res.append(&mut segment.bundles);
             }
@@ -1644,7 +1652,19 @@ mod tests {
     #[test]
     fn empty_line() {
         for line in vec!["", "  ", ";; Comment", "  ;; Comment"].into_iter() {
-            assert_error(line, "Evaluation", 1, true, "segment 'CODE' is empty");
+            let mut asm = Assembler::new(EMPTY.to_vec());
+            asm.mappings[0].segments[0].bundles = minimal_header();
+            asm.mappings[0].offset = 6;
+            asm.current_mapping = 1;
+
+            let res = &asm
+                .assemble(
+                    std::env::current_dir().unwrap().to_path_buf(),
+                    line.as_bytes(),
+                )
+                .unwrap()[0x10..];
+
+            assert!(res.is_empty());
         }
     }
 
@@ -2792,20 +2812,27 @@ nop
         let mut asm = Assembler::new(one_two().to_vec());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
-        let line = r#"
+        let bundles = &asm
+            .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
+                r#"
 .segment "ONE"
 
 .segment "TWO"
 nop
-"#;
-        assert_error_with_assembler(
-            &mut asm,
-            line,
-            "Evaluation",
-            1,
-            true,
-            "segment 'ONE' is empty",
-        )
+"#
+                .as_bytes(),
+            )
+            .unwrap()[0x10..]; // Ignoring HEADER
+
+        assert_eq!(bundles.len(), 1);
+
+        let warnings = asm.warnings();
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(
+            warnings.first().unwrap().to_string(),
+            "Evaluation error: segment 'ONE' is empty."
+        );
     }
 
     #[test]
