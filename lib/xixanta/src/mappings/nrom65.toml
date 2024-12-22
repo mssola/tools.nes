@@ -1,0 +1,27 @@
+[HEADER]
+start = 0x0000
+size = 0x0010
+fill = 0x00
+section_type = "Header"
+segments = ["HEADER"]
+
+[ROM0]
+start = 0x8000
+size = 0x7FFA
+fill = 0x00
+section_type = "PRGROM"
+segments = ["STARTUP", "CODE"]
+
+[ROMV]
+start = 0xFFFA
+size = 0x0006
+fill = 0x00
+section_type = "PRGROM"
+segments = ["VECTORS"]
+
+[ROM2]
+start = 0x0000
+size = 0x2000
+fill = 0x00
+section_type = "CHRROM"
+segments = ["CHARS"]

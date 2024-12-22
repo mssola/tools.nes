@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::Path;
 use xixanta::assembler::Assembler;
-use xixanta::mapping::{Mapping, EMPTY, NROM, NROM65, UXROM};
+use xixanta::mapping::get_mapping_configuration;
 
 /// Assembler for the 6502 microprocessor that targets the NES/Famicom.
 #[derive(ClapParser, Debug)]
@@ -76,18 +76,13 @@ fn main() -> Result<()> {
     };
 
     // Select the linker configuration.
-    let mapping: Vec<Mapping> = match args.config {
-        Some(c) => match c.to_lowercase().as_str() {
-            "empty" => EMPTY.to_vec(),
-            "nrom" => NROM.to_vec(),
-            "nrom65" => NROM65.to_vec(),
-            "uxrom" | "unrom" => UXROM.to_vec(),
-            _ => {
-                println!("Unknown linker configuration '{}'", c);
-                std::process::exit(1);
-            }
-        },
-        None => NROM.to_vec(),
+    let config = args.config.unwrap_or("nrom".to_string());
+    let mapping = match get_mapping_configuration(&config) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
     };
 
     // And assemble.

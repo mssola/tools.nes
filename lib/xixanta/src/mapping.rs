@@ -1,327 +1,11 @@
 use crate::errors::EvalError;
 use crate::object::Bundle;
+use toml::{Table, Value};
 
-lazy_static! {
-    /// An empty mapper used for testing purposes.
-    pub static ref EMPTY: Vec<Mapping> = vec![
-        Mapping {
-            name: String::from("HEADER"),
-            start: 0x0000,
-            size: 0x0010,
-            offset: 0,
-            fill: Some(0x00),
-            section_type: SectionType::Header,
-            segments: vec![Segment {
-                name: String::from("HEADER"),
-                len: 0,
-                offset: 0,
-                bundles: vec![],
-            }]
-        },
-        Mapping {
-            name: String::from("ROM0"),
-            start: 0x8000,
-            size: 0x8000,
-            offset: 0,
-            fill: None,
-            section_type: SectionType::PrgRom,
-            segments: vec![Segment {
-                name: String::from("CODE"),
-                len: 0,
-                offset: 0,
-                bundles: vec![],
-            },]
-        },
-    ];
-
-    // Mapper for a simple NROM setup (e.g. Super Mario Bros).
-    pub static ref NROM: Vec<Mapping> = vec![
-        Mapping {
-            name: String::from("HEADER"),
-            start: 0x0000,
-            size: 0x0010,
-            offset: 0,
-            fill: Some(0x00),
-            section_type: SectionType::Header,
-            segments: vec![Segment {
-                name: String::from("HEADER"),
-                len: 0,
-                offset: 0,
-                bundles: vec![],
-            }]
-        },
-        Mapping {
-            name: String::from("ROM0"),
-            start: 0x8000,
-            size: 0x7FFA,
-            offset: 0,
-            fill: Some(0x00),
-            section_type: SectionType::PrgRom,
-            segments: vec![Segment {
-                name: String::from("CODE"),
-                len: 0,
-                offset: 0,
-                bundles: vec![],
-            },]
-        },
-        Mapping {
-            name: String::from("ROMV"),
-            start: 0xFFFA,
-            size: 0x0006,
-            offset: 0,
-            fill: Some(0x00),
-            section_type: SectionType::PrgRom,
-            segments: vec![Segment {
-                name: String::from("VECTORS"),
-                len: 0,
-                offset: 0,
-                bundles: vec![],
-            },]
-        },
-        Mapping {
-            name: String::from("ROM2"),
-            start: 0x0000,
-            size: 0x2000,
-            offset: 0,
-            fill: Some(0x00),
-            section_type: SectionType::ChrRom,
-            segments: vec![Segment {
-                name: String::from("CHARS"),
-                len: 0,
-                offset: 0,
-                bundles: vec![],
-            },]
-        },
-    ];
-
-    // Mapper for UxROM boards (UxROM (NES-UNROM, NES-UOROM, HVC-UN1ROM their
-    // HVC counterparts, and clone boards).
-    pub static ref UXROM: Vec<Mapping> = vec![
-        Mapping {
-            name: String::from("HEADER"),
-            start: 0x0000,
-            size: 0x0010,
-            offset: 0,
-            fill: Some(0x00),
-            section_type: SectionType::Header,
-            segments: vec![Segment {
-                name: String::from("HEADER"),
-                len: 0,
-                offset: 0,
-                bundles: vec![],
-            }]
-        },
-        Mapping {
-            name: String::from("PRG0"),
-            start: 0x8000,
-            size: 0x4000,
-            offset: 0,
-            fill: Some(0xF8),
-            section_type: SectionType::PrgRom,
-            segments: vec![
-                Segment {
-                    name: String::from("BANK0"),
-                    len: 0,
-                    offset: 0,
-                    bundles: vec![],
-                },
-            ]
-        },
-        Mapping {
-            name: String::from("PRG1"),
-            start: 0x8000,
-            size: 0x4000,
-            offset: 0,
-            fill: Some(0xF9),
-            section_type: SectionType::PrgRom,
-            segments: vec![
-                Segment {
-                    name: String::from("BANK1"),
-                    len: 0,
-                    offset: 0,
-                    bundles: vec![],
-                },
-            ]
-        },
-        Mapping {
-            name: String::from("PRG2"),
-            start: 0x8000,
-            size: 0x4000,
-            offset: 0,
-            fill: Some(0xFA),
-            section_type: SectionType::PrgRom,
-            segments: vec![
-                Segment {
-                    name: String::from("BANK2"),
-                    len: 0,
-                    offset: 0,
-                    bundles: vec![],
-                },
-            ]
-        },
-        Mapping {
-            name: String::from("PRG3"),
-            start: 0x8000,
-            size: 0x4000,
-            offset: 0,
-            fill: Some(0xFB),
-            section_type: SectionType::PrgRom,
-            segments: vec![
-                Segment {
-                    name: String::from("BANK3"),
-                    len: 0,
-                    offset: 0,
-                    bundles: vec![],
-                },
-            ]
-        },
-        Mapping {
-            name: String::from("PRG4"),
-            start: 0x8000,
-            size: 0x4000,
-            offset: 0,
-            fill: Some(0xFC),
-            section_type: SectionType::PrgRom,
-            segments: vec![
-                Segment {
-                    name: String::from("BANK4"),
-                    len: 0,
-                    offset: 0,
-                    bundles: vec![],
-                },
-            ]
-        },
-        Mapping {
-            name: String::from("PRG5"),
-            start: 0x8000,
-            size: 0x4000,
-            offset: 0,
-            fill: Some(0xFD),
-            section_type: SectionType::PrgRom,
-            segments: vec![
-                Segment {
-                    name: String::from("BANK5"),
-                    len: 0,
-                    offset: 0,
-                    bundles: vec![],
-                },
-            ]
-        },
-        Mapping {
-            name: String::from("PRG6"),
-            start: 0x8000,
-            size: 0x4000,
-            offset: 0,
-            fill: Some(0xFE),
-            section_type: SectionType::PrgRom,
-            segments: vec![
-                Segment {
-                    name: String::from("BANK6"),
-                    len: 0,
-                    offset: 0,
-                    bundles: vec![],
-                },
-            ]
-        },
-        Mapping {
-            name: String::from("PRG"),
-            start: 0xC000,
-            size: 0x3FFA,
-            offset: 0,
-            fill: Some(0xFF),
-            section_type: SectionType::PrgRom,
-            segments: vec![
-                Segment {
-                    name: String::from("FIXED"),
-                    len: 0,
-                    offset: 0,
-                    bundles: vec![],
-                },
-            ]
-        },
-        Mapping {
-            name: String::from("ROMV"),
-            start: 0xFFFA,
-            size: 0x0006,
-            offset: 0,
-            fill: Some(0x00),
-            section_type: SectionType::PrgRom,
-            segments: vec![Segment {
-                name: String::from("VECTORS"),
-                len: 0,
-                offset: 0,
-                bundles: vec![],
-            },]
-        },
-    ];
-
-    pub static ref NROM65: Vec<Mapping> = vec![
-        Mapping {
-            name: String::from("HEADER"),
-            start: 0x0000,
-            size: 0x0010,
-            offset: 0,
-            fill: Some(0x00),
-            section_type: SectionType::Header,
-            segments: vec![Segment {
-                name: String::from("HEADER"),
-                len: 0,
-                offset: 0,
-                bundles: vec![],
-            }]
-        },
-        Mapping {
-            name: String::from("ROM0"),
-            start: 0x8000,
-            size: 0x7FFA,
-            offset: 0,
-            fill: Some(0x00),
-            section_type: SectionType::PrgRom,
-            segments: vec![
-                Segment {
-                    name: String::from("STARTUP"),
-                    len: 0,
-                    offset: 0,
-                    bundles: vec![],
-                },
-                Segment {
-                    name: String::from("CODE"),
-                    len: 0,
-                    offset: 0,
-                    bundles: vec![],
-                },
-            ]
-        },
-        Mapping {
-            name: String::from("ROMV"),
-            start: 0xFFFA,
-            size: 0x0006,
-            offset: 0,
-            fill: Some(0x00),
-            section_type: SectionType::PrgRom,
-            segments: vec![Segment {
-                name: String::from("VECTORS"),
-                len: 0,
-                offset: 0,
-                bundles: vec![],
-            },]
-        },
-        Mapping {
-            name: String::from("ROM2"),
-            start: 0x0000,
-            size: 0x2000,
-            offset: 0,
-            fill: Some(0x00),
-            section_type: SectionType::ChrRom,
-            segments: vec![Segment {
-                name: String::from("CHARS"),
-                len: 0,
-                offset: 0,
-                bundles: vec![],
-            },]
-        },
-    ];
-}
+const EMPTY_CONFIG: &str = include_str!("mappings/empty.toml");
+const NROM_CONFIG: &str = include_str!("mappings/nrom.toml");
+const NROM65_CONFIG: &str = include_str!("mappings/nrom65.toml");
+const UXROM_CONFIG: &str = include_str!("mappings/unrom.toml");
 
 /// The type of section that a Mapping represents.
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
@@ -351,6 +35,17 @@ pub struct Segment {
     /// Bundles that have been generated when assembling the nodes that have
     /// been parsed by a previous step.
     pub bundles: Vec<Bundle>,
+}
+
+impl From<&str> for Segment {
+    fn from(name: &str) -> Self {
+        Segment {
+            name: name.to_string(),
+            offset: 0,
+            len: 0,
+            bundles: vec![],
+        }
+    }
 }
 
 impl Segment {
@@ -401,39 +96,180 @@ pub struct Mapping {
     pub section_type: SectionType,
 }
 
-/// Assert that the given mappings conform to a minimum standard.
-pub fn assert(mappings: &[Mapping]) {
-    assert!(
-        !mappings.is_empty(),
-        "We need at least one segment defined, the header"
-    );
-    assert!(
-        !mappings.first().unwrap().segments.is_empty(),
-        "We need at least one segment defined, the header"
-    );
-    assert_eq!(
-        mappings.first().unwrap().section_type,
-        SectionType::Header,
-        "First mapping section must be the header"
-    );
-    assert_eq!(
-        mappings.first().unwrap().size,
-        0x10,
-        "The header must be exactly 16 bytes long"
-    );
+/// Returns a vector corresponding to the configuration of mappings that is
+/// expected for the given `name`. Returns an error if the configuration cannot
+/// be parsed or there's something wrong about it.
+pub fn get_mapping_configuration(name: &str) -> Result<Vec<Mapping>, String> {
+    let text = match name.to_lowercase().as_str() {
+        "empty" => EMPTY_CONFIG,
+        "nrom" => NROM_CONFIG,
+        "nrom65" => NROM65_CONFIG,
+        "uxrom" | "unrom" => UXROM_CONFIG,
+        _ => return Err("mapper configuration is not known".to_string()),
+    };
+
+    let configuration = load_configuration_for(text)?;
+    validate_configuration(&configuration)?;
+
+    Ok(configuration)
+}
+
+// Returns the integer value for the mandatory integer contained in `value` that
+// is named `prop_name` under the `section_name` section. This integer has to be
+// lesser or equal to the `max` value.
+fn get_integer(
+    section_name: &String,
+    prop_name: &str,
+    value: Option<&Value>,
+    max: usize,
+) -> Result<usize, String> {
+    if value.is_none() {
+        return Err(format!(
+            "you have to define a value for '{}' in '{}'",
+            section_name, prop_name
+        ));
+    }
+    if !value.unwrap().is_integer() {
+        return Err(format!(
+            "value for '{}' in '{}' has to be an integer value",
+            section_name, prop_name
+        ));
+    }
+
+    let val = value.unwrap().as_integer().unwrap() as usize;
+    if val > max {
+        return Err(format!(
+            "value for '{}' in '{}' is too big",
+            prop_name, section_name
+        ));
+    }
+    Ok(val)
+}
+
+// Get a `SectionType` out of the given mandatory `value` which is under the
+// `section_name`.
+fn parse_section_type(section_name: &String, value: Option<&Value>) -> Result<SectionType, String> {
+    match value {
+        Some(v) => {
+            if !v.is_str() {
+                return Err(format!(
+                    "'section_type' in '{}' has to be a string",
+                    section_name
+                ));
+            }
+            match v.as_str().unwrap().to_lowercase().as_str() {
+                "header" => Ok(SectionType::Header),
+                "prgrom" => Ok(SectionType::PrgRom),
+                "chrrom" => Ok(SectionType::ChrRom),
+                _ => Err(format!(
+                    "bad value for 'section_type' in '{}'",
+                    section_name
+                )),
+            }
+        }
+        None => Err(format!(
+            "you have to define 'section_type' in '{}'",
+            section_name
+        )),
+    }
+}
+
+// Returns a vector of segments which are contained inside of the mandatory
+// `value`.
+fn get_segments(section_name: &String, value: Option<&Value>) -> Result<Vec<Segment>, String> {
+    if value.is_none() {
+        return Err(format!(
+            "you have to define a value for 'segments' in '{}'",
+            section_name
+        ));
+    }
+    if !value.unwrap().is_array() {
+        return Err(format!(
+            "value for 'segments' in '{}' has to be an array value",
+            section_name
+        ));
+    }
+
+    let mut res = vec![];
+    for item in value.unwrap().as_array().unwrap() {
+        if !item.is_str() {
+            return Err(format!(
+                "every item in 'segments' has to be a string ({})",
+                section_name
+            ));
+        }
+        res.push(Segment::from(item.as_str().unwrap()));
+    }
+
+    Ok(res)
+}
+
+// Returns a vector of mappings that is retrieved by parsing the given text.
+fn load_configuration_for(text: &str) -> Result<Vec<Mapping>, String> {
+    // Obtain the raw data by parsing the given text as a toml::Table.
+    let table = match text.parse::<Table>() {
+        Ok(t) => t,
+        Err(e) => return Err(format!("could not parse configuration file: {}", e)),
+    };
+
+    // Each section of the configuration file is a mapping, where the title is
+    // simply the name of it.
+    let mut mappings = vec![];
+    for (name, value) in table {
+        let start = get_integer(&name, "start", value.get("start"), u16::MAX as usize)? as u16;
+        let size = get_integer(&name, "size", value.get("size"), u16::MAX as usize)?;
+        let fill = match value.get("fill") {
+            Some(_) => Some(get_integer(&name, "fill", value.get("fill"), u8::MAX as usize)? as u8),
+            None => None,
+        };
+        let section_type = parse_section_type(&name, value.get("section_type"))?;
+        let segments = get_segments(&name, value.get("segments"))?;
+
+        mappings.push(Mapping {
+            name,
+            start,
+            size,
+            offset: 0,
+            fill,
+            section_type,
+            segments,
+        });
+    }
+
+    Ok(mappings)
+}
+
+// Ensure that the given mappings conform to a minimum standard.
+fn validate_configuration(mappings: &[Mapping]) -> Result<(), String> {
+    if mappings.is_empty() {
+        return Err("We need at least one segment defined, the header".to_string());
+    }
+    if mappings.first().unwrap().segments.is_empty() {
+        return Err("We need at least one segment defined, the header".to_string());
+    }
+    if mappings.first().unwrap().section_type != SectionType::Header {
+        return Err("First mapping section must be the header".to_string());
+    }
+    if mappings.first().unwrap().size != 0x10 {
+        return Err("The header must be exactly 16 bytes long".to_string());
+    }
 
     let prg_rom_len = mappings
         .iter()
         .filter(|m| m.section_type == SectionType::PrgRom)
         .fold(0, |acc, x| acc + x.size);
-    assert!(prg_rom_len >= 0x4000, "PRG ROM must be at least 8KB long");
-    assert!(
-        prg_rom_len % 0x4000 == 0,
-        "PRG ROM must be formed by banks of exactly 8KB"
-    );
+
+    if prg_rom_len < 0x4000 {
+        return Err("PRG ROM must be at least 8KB long".to_string());
+    }
+    if prg_rom_len % 0x4000 != 0 {
+        return Err("PRG ROM must be formed by banks of exactly 8KB".to_string());
+    }
+
+    Ok(())
 }
 
-/// Validate some sanity checks on the given `mappings`. Only call this function
+/// Perform some sanity checks on the given `mappings`. Only call this function
 /// after all bundles have been produced.
 pub fn validate(mappings: &[Mapping]) -> Result<(), EvalError> {
     // Guaranteed by `crate::mapping::assert` to be the header.

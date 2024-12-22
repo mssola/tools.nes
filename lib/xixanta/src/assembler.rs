@@ -82,8 +82,6 @@ pub struct Assembler {
 
 impl Assembler {
     pub fn new(mappings: Vec<Mapping>) -> Self {
-        crate::mapping::assert(&mappings);
-
         Self {
             context: Context::new(),
             literal_mode: None,
@@ -1557,7 +1555,7 @@ impl Assembler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mapping::{SectionType, Segment, EMPTY};
+    use crate::mapping::{get_mapping_configuration, SectionType, Segment};
 
     fn one_two() -> Vec<Mapping> {
         vec![
@@ -1600,6 +1598,10 @@ mod tests {
         ]
     }
 
+    fn empty() -> Vec<Mapping> {
+        get_mapping_configuration("empty").unwrap()
+    }
+
     fn minimal_header() -> Vec<Bundle> {
         vec![
             Bundle::fill(0x4E), // N
@@ -1615,7 +1617,7 @@ mod tests {
         // Set up the empty mapper, but we have to push a minimal header
         // (otherwise an early assertion will fail), and we need to point to the
         // "CODE" segment (which is in the mapping indexed by 1).
-        let mut asm = Assembler::new(EMPTY.to_vec());
+        let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
         asm.current_mapping = 1;
@@ -1636,7 +1638,7 @@ mod tests {
     }
 
     fn assert_error(line: &str, line_num: usize, global: bool, message: &str) {
-        let mut asm = Assembler::new(EMPTY.to_vec());
+        let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
         asm.current_mapping = 1;
@@ -1668,7 +1670,7 @@ mod tests {
     #[test]
     fn empty_line() {
         for line in vec!["", "  ", ";; Comment", "  ;; Comment"].into_iter() {
-            let mut asm = Assembler::new(EMPTY.to_vec());
+            let mut asm = Assembler::new(empty());
             asm.mappings[0].segments[0].bundles = minimal_header();
             asm.mappings[0].offset = 6;
             asm.current_mapping = 1;
@@ -1771,7 +1773,7 @@ adc $Four
 
     #[test]
     fn scoped_variable() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
+        let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
         asm.current_mapping = 1;
@@ -1811,7 +1813,7 @@ adc #Another::Variable
 
     #[test]
     fn bare_variables() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
+        let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
         asm.current_mapping = 1;
@@ -1836,7 +1838,7 @@ adc Variable
 
     #[test]
     fn reference_outer_variables() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
+        let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
         asm.current_mapping = 1;
@@ -1930,7 +1932,7 @@ lda #Scope::Variable
 
     #[test]
     fn operations_with_variables() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
+        let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
         asm.current_mapping = 1;
@@ -1970,7 +1972,7 @@ ldx #~Value
 
     #[test]
     fn signed_with_variables() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
+        let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
         asm.current_mapping = 1;
@@ -2003,7 +2005,7 @@ ldx #+Value
 
     #[test]
     fn divide_by_zero() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
+        let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
         asm.current_mapping = 1;
@@ -2025,7 +2027,7 @@ ldx #(2 / Value)
 
     #[test]
     fn bad_shift() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
+        let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
         asm.current_mapping = 1;
@@ -2343,7 +2345,7 @@ ldx #(2 << Value)
 
     #[test]
     fn same_segment_labels() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
+        let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
         asm.current_mapping = 1;
@@ -2379,7 +2381,7 @@ nop
 
     #[test]
     fn anonymous_relative_jumps() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
+        let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
         asm.current_mapping = 1;
@@ -2448,7 +2450,7 @@ nop
 
     #[test]
     fn anonymous_relative_branches() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
+        let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
         asm.current_mapping = 1;
@@ -2513,7 +2515,7 @@ nop
 
     #[test]
     fn conditional_branch_to_labels() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
+        let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
         asm.current_mapping = 1;
@@ -2547,7 +2549,7 @@ nop
 
     #[test]
     fn jsr_to_proc() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
+        let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
         asm.current_mapping = 1;
@@ -2584,7 +2586,7 @@ nop
 
     #[test]
     fn label_in_instruction_addressing() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
+        let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
         asm.current_mapping = 1;
@@ -2624,7 +2626,7 @@ palettes:
 
     #[test]
     fn byte_literals() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
+        let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
         asm.current_mapping = 1;
@@ -2663,7 +2665,7 @@ palettes:
 
     #[test]
     fn hi_lo_byte() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
+        let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
         asm.current_mapping = 1;
@@ -2695,7 +2697,7 @@ lda #>Var
 
     #[test]
     fn macro_no_arguments() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
+        let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
         asm.current_mapping = 1;
@@ -2728,7 +2730,7 @@ MACRO
 
     #[test]
     fn macro_not_enough_arguments() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
+        let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
         asm.current_mapping = 1;
@@ -2757,7 +2759,7 @@ MACRO
 
     #[test]
     fn macro_too_many_arguments() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
+        let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
         asm.current_mapping = 1;
@@ -2786,7 +2788,7 @@ MACRO(1, 2)
 
     #[test]
     fn macro_with_one_argument() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
+        let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
         asm.current_mapping = 1;
@@ -2819,7 +2821,7 @@ MACRO(2)
 
     #[test]
     fn macro_unknown_arguments() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
+        let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
         asm.current_mapping = 1;
@@ -2849,7 +2851,7 @@ MACRO(1)
 
     #[test]
     fn macro_multiple_arguments() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
+        let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
         asm.current_mapping = 1;
@@ -3132,7 +3134,7 @@ code:
 
     #[test]
     fn cannot_switch_to_segment_inside_of_scope() {
-        let mut asm = Assembler::new(EMPTY.to_vec());
+        let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
         asm.current_mapping = 1;
