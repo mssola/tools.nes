@@ -14,7 +14,10 @@ struct Args {
     /// when this argument is not given.
     file: Option<String>,
 
-    /// Linker configuration to be used. Defaults to 'nrom'.
+    /// Linker configuration to be used. This configuration can be an identifier
+    /// for the configurations already baked in into this application, or it can
+    /// be a file path to a configuration of your choosing. See the
+    /// documentation for more information on this format. Defaults to 'nrom'.
     #[arg(short = 'c', long)]
     config: Option<String>,
 

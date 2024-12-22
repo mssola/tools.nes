@@ -30,12 +30,21 @@ By default it will assume the configuration for an `NROM` mapper, but this can
 be changed with the `-c/--configuration` flag, which accepts the following
 values:
 
-- `empty`: just `HEADER` and `CODE`. Useful for one-liners (e.g. "how is this
-  instruction encoded in binary?").
-- `nrom`: the default configuration. It has the following segments: `HEADER`,
-  `CODE`, `VECTORS`, and `CHARS`.
-- `nrom65`: same as `nrom` but it also has `STARTUP` for compatibility with the
-  default linker configuration from [cc65](https://github.com/cc65/cc65).
+- [empty](./lib/xixanta/src/mappings/empty.toml): just `HEADER` and `CODE`.
+  Useful for one-liners (e.g. "how is this instruction encoded in binary?").
+- [nrom](./lib/xixanta/src/mappings/nrom.toml): the default configuration.
+  It has the following segments: `HEADER`, `CODE`, `VECTORS`, and `CHARS`.
+- [nrom65](./lib/xixanta/src/mappings/nrom65.toml): same as `nrom` but it
+  also has `STARTUP` for compatibility with the default linker configuration
+  from [cc65](https://github.com/cc65/cc65).
+- [unrom or uxrom](./lib/xixanta/src/mappings/unrom.toml): a configuration for
+  UxROM chips, with seven swappable banks bound at 0x8000 and 16KB of size
+  (`PRG0`..`PRG6`), and a fixed bank on 0xC000 and 16KB of size as well
+  (`FIXED`).
+
+Alternatively, you can also pass a path to a configuration of your own. Check
+out the [ones already bundled](./lib/xixanta/src/mappings) on this application
+for reference.
 
 ## `readrom`
 

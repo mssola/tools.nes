@@ -97,18 +97,26 @@ pub struct Mapping {
 }
 
 /// Returns a vector corresponding to the configuration of mappings that is
-/// expected for the given `name`. Returns an error if the configuration cannot
-/// be parsed or there's something wrong about it.
+/// expected for the given `name`. This `name` can either be an already known
+/// identifier (e.g. "nrom"), or a file path. Returns an error if the
+/// configuration cannot be parsed or there's something wrong about it.
 pub fn get_mapping_configuration(name: &str) -> Result<Vec<Mapping>, String> {
-    let text = match name.to_lowercase().as_str() {
-        "empty" => EMPTY_CONFIG,
-        "nrom" => NROM_CONFIG,
-        "nrom65" => NROM65_CONFIG,
-        "uxrom" | "unrom" => UXROM_CONFIG,
-        _ => return Err("mapper configuration is not known".to_string()),
+    let configuration = if std::fs::exists(name).unwrap_or(false) {
+        match std::fs::read_to_string(name) {
+            Ok(contents) => load_configuration_for(contents.as_str())?,
+            Err(_) => return Err(format!("could not read '{}'", name)),
+        }
+    } else {
+        let text = match name.to_lowercase().as_str() {
+            "empty" => EMPTY_CONFIG,
+            "nrom" => NROM_CONFIG,
+            "nrom65" => NROM65_CONFIG,
+            "uxrom" | "unrom" => UXROM_CONFIG,
+            _ => return Err("mapper configuration is not known".to_string()),
+        };
+        load_configuration_for(text)?
     };
 
-    let configuration = load_configuration_for(text)?;
     validate_configuration(&configuration)?;
 
     Ok(configuration)
