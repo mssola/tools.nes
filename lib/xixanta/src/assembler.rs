@@ -1,4 +1,4 @@
-use crate::errors::{ContextError, Error, EvalError};
+use crate::errors::{ContextError, ContextErrorReason, Error, EvalError};
 use crate::mapping::Mapping;
 use crate::node::{ControlType, NodeType, OperationType, PNode, PString};
 use crate::object::{Bundle, Context, Object, ObjectType};
@@ -44,7 +44,7 @@ pub enum Stage {
 }
 
 #[derive(Clone, Debug)]
-pub struct Macro {
+pub struct CodeBlock {
     nodes: Range<usize>,
     args: Vec<PString>,
 }
@@ -63,7 +63,7 @@ pub struct Assembler {
     context: Context,
     literal_mode: Option<LiteralMode>,
     stage: Stage,
-    macros: HashMap<String, Macro>,
+    macros: HashMap<String, CodeBlock>,
     can_bundle: bool,
     mappings: Vec<Mapping>,
     current_mapping: usize,
@@ -207,21 +207,29 @@ impl Assembler {
                     }
                 }
                 NodeType::Control(control_type) => {
+                    if !self.context.is_global() && control_type.must_be_global() {
+                        errors.push(Error::Context(ContextError {
+                            message: format!("{} must be on the global scope", control_type),
+                            line: node.value.line,
+                            global: false,
+                            reason: ContextErrorReason::BadScope,
+                        }));
+                        continue;
+                    }
+
                     // TODO: prevent nesting of control statements depending on
                     // a definition (e.g. .macro's cannot be nested inside of
                     // another control statement, but .if yes).
 
                     match control_type {
                         ControlType::StartMacro => {
-                            // TODO: macros are only on the global scope.
-                            //
                             // TODO: boy this is ugly. In fact, this stupid shit if
                             // current_macro might not be relevant anymore.
                             current_macro = Some(&node.left.as_ref().unwrap().value);
                             // TODO: watch out for weird shit on the name of arguments.
                             self.macros
                                 .entry(node.left.as_ref().unwrap().value.value.clone())
-                                .or_insert(Macro {
+                                .or_insert(CodeBlock {
                                     nodes: Range {
                                         start: idx + 1,
                                         end: idx + 1,
@@ -1235,19 +1243,6 @@ impl Assembler {
             return Err(EvalError {
                 line: node.value.line,
                 message: "segment name contains bad characters".to_string(),
-                global: false,
-            });
-        }
-
-        // You cannot change the segment if you are not in the global context.
-        if !self.context.is_global() {
-            return Err(EvalError {
-                line: node.value.line,
-                message: format!(
-                    "cannot switch to segment '{}' if we are still inside of a scope ('{}')",
-                    name,
-                    self.context.name()
-                ),
                 global: false,
             });
         }
@@ -2917,6 +2912,31 @@ WRITE_PPU_DATA $20B9, $04
         assert_eq!(res[6].bytes[2], 0x20);
     }
 
+    #[test]
+    fn start_macro_inside_of_scope() {
+        let mut asm = Assembler::new(empty());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
+            .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
+                r#".scope Some
+.macro WRITE_PPU_DATA
+    bit $2002
+.endmacro
+.endscope
+"#
+                .as_bytes(),
+            )
+            .unwrap_err();
+
+        assert_eq!(
+            res.first().unwrap().to_string(),
+            ".macro must be on the global scope (line 2)"
+        );
+    }
+
     // Segments
 
     #[test]
@@ -3153,8 +3173,7 @@ code:
 
         assert_eq!(
             res.first().unwrap().to_string(),
-            "cannot switch to segment 'CODE' \
-             if we are still inside of a scope ('Vars') (line 3)"
+            ".segment must be on the global scope (line 3)"
         );
     }
 

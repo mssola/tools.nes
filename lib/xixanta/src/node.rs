@@ -140,6 +140,34 @@ pub enum ControlType {
     IncBin,
 }
 
+impl fmt::Display for ControlType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ControlType::Hibyte => write!(f, ".hibyte"),
+            ControlType::Lobyte => write!(f, ".lobyte"),
+            ControlType::StartMacro => write!(f, ".macro"),
+            ControlType::EndMacro => write!(f, ".endmacro"),
+            ControlType::StartProc => write!(f, ".proc"),
+            ControlType::EndProc => write!(f, ".endproc"),
+            ControlType::StartScope => write!(f, ".scope"),
+            ControlType::EndScope => write!(f, ".endscope"),
+            ControlType::Segment => write!(f, ".segment"),
+            ControlType::Byte => write!(f, ".byte/.db"),
+            ControlType::Word => write!(f, ".word/.dw"),
+            ControlType::Addr => write!(f, ".addr"),
+            ControlType::IncBin => write!(f, ".incbin"),
+        }
+    }
+}
+
+impl ControlType {
+    /// Returns true if the type of control statement requires it to be in the
+    /// global scope.
+    pub fn must_be_global(&self) -> bool {
+        matches!(self, ControlType::StartMacro | ControlType::Segment)
+    }
+}
+
 /// The type of operation being used.
 #[derive(Debug, Clone, PartialEq)]
 pub enum OperationType {
@@ -213,7 +241,7 @@ impl fmt::Display for NodeType {
             NodeType::Instruction => write!(f, "instruction"),
             NodeType::Indirection => write!(f, "indirection"),
             NodeType::Assignment => write!(f, "assignment"),
-            NodeType::Control(_) => write!(f, "control function"),
+            NodeType::Control(control_type) => write!(f, "control function ({})", control_type),
             NodeType::Literal => write!(f, "literal"),
             NodeType::Label => write!(f, "label"),
             NodeType::Call => write!(f, "call"),
