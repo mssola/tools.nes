@@ -165,6 +165,9 @@ impl Assembler {
     fn eval_context(&mut self, nodes: &[PNode]) -> Result<(), Vec<Error>> {
         let mut errors = Vec::new();
         let mut current_macro = None;
+        let mut macro_seen = 0;
+        let mut proc_seen = 0;
+        let mut scope_seen = 0;
 
         for (idx, node) in nodes.iter().enumerate() {
             match &node.node_type {
@@ -178,8 +181,7 @@ impl Assembler {
                     }
                 }
                 NodeType::Assignment => {
-                    // TODO: in fact, we cannot have assignments in many places.
-                    if current_macro.is_some() {
+                    if macro_seen > 0 {
                         errors.push(Error::Eval(EvalError {
                             message: "cannot have assignments inside of macro definitions"
                                 .to_string(),
@@ -223,6 +225,8 @@ impl Assembler {
 
                     match control_type {
                         ControlType::StartMacro => {
+                            macro_seen += 1;
+
                             // TODO: boy this is ugly. In fact, this stupid shit if
                             // current_macro might not be relevant anymore.
                             current_macro = Some(&node.left.as_ref().unwrap().value);
@@ -244,7 +248,15 @@ impl Assembler {
                                 });
                         }
                         ControlType::EndMacro => {
-                            // TODO: if m.nodes.start < idx - 1 => empty macro
+                            if macro_seen == 0 {
+                                errors.push(Error::Context(ContextError {
+                                    message: "trying to end a macro when there is none".to_string(),
+                                    line: node.value.line,
+                                    global: false,
+                                    reason: ContextErrorReason::BadEnd,
+                                }));
+                            }
+                            macro_seen -= 1;
 
                             if let Some(name) = current_macro {
                                 self.macros
@@ -255,10 +267,36 @@ impl Assembler {
                         }
                         // Same as NodeType::Label.
                         ControlType::StartProc => {
+                            proc_seen += 1;
                             let proc_name = &node.left.as_ref().unwrap().value;
                             if let Err(err) = self.define_variable(proc_name) {
                                 errors.push(Error::Context(err));
                             }
+                        }
+                        ControlType::EndProc => {
+                            if proc_seen == 0 {
+                                errors.push(Error::Context(ContextError {
+                                    message: "trying to end a proc when there is none".to_string(),
+                                    line: node.value.line,
+                                    global: false,
+                                    reason: ContextErrorReason::BadEnd,
+                                }));
+                            }
+                            proc_seen -= 1;
+                        }
+                        ControlType::StartScope => {
+                            scope_seen += 1;
+                        }
+                        ControlType::EndScope => {
+                            if scope_seen == 0 {
+                                errors.push(Error::Context(ContextError {
+                                    message: "trying to end a scope when there is none".to_string(),
+                                    line: node.value.line,
+                                    global: false,
+                                    reason: ContextErrorReason::BadEnd,
+                                }));
+                            }
+                            scope_seen -= 1;
                         }
                         _ => {}
                     }
@@ -2934,6 +2972,63 @@ WRITE_PPU_DATA $20B9, $04
         assert_eq!(
             res.first().unwrap().to_string(),
             ".macro must be on the global scope (line 2)"
+        );
+    }
+
+    #[test]
+    fn error_out_on_bad_scope_end() {
+        let mut asm = Assembler::new(empty());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
+            .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
+                ".endscope".as_bytes(),
+            )
+            .unwrap_err();
+
+        assert_eq!(
+            res.first().unwrap().to_string(),
+            "trying to end a scope when there is none (line 1)"
+        );
+    }
+
+    #[test]
+    fn error_out_on_bad_macro_end() {
+        let mut asm = Assembler::new(empty());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
+            .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
+                ".endmacro".as_bytes(),
+            )
+            .unwrap_err();
+
+        assert_eq!(
+            res.first().unwrap().to_string(),
+            "trying to end a macro when there is none (line 1)"
+        );
+    }
+
+    #[test]
+    fn error_out_on_bad_proc_end() {
+        let mut asm = Assembler::new(empty());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
+            .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
+                ".endproc".as_bytes(),
+            )
+            .unwrap_err();
+
+        assert_eq!(
+            res.first().unwrap().to_string(),
+            "trying to end a proc when there is none (line 1)"
         );
     }
 
