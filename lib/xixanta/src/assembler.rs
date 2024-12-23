@@ -219,10 +219,6 @@ impl Assembler {
                         continue;
                     }
 
-                    // TODO: prevent nesting of control statements depending on
-                    // a definition (e.g. .macro's cannot be nested inside of
-                    // another control statement, but .if yes).
-
                     match control_type {
                         ControlType::StartMacro => {
                             macro_seen += 1;
@@ -255,6 +251,7 @@ impl Assembler {
                                     global: false,
                                     reason: ContextErrorReason::BadEnd,
                                 }));
+                                continue;
                             }
                             macro_seen -= 1;
 
@@ -267,6 +264,16 @@ impl Assembler {
                         }
                         // Same as NodeType::Label.
                         ControlType::StartProc => {
+                            if macro_seen > 0 || proc_seen > 0 {
+                                errors.push(Error::Context(ContextError {
+                                    message: "you cannot call '.proc' in this context".to_string(),
+                                    line: node.value.line,
+                                    global: false,
+                                    reason: ContextErrorReason::BadStart,
+                                }));
+                                continue;
+                            }
+
                             proc_seen += 1;
                             let proc_name = &node.left.as_ref().unwrap().value;
                             if let Err(err) = self.define_variable(proc_name) {
@@ -281,10 +288,20 @@ impl Assembler {
                                     global: false,
                                     reason: ContextErrorReason::BadEnd,
                                 }));
+                                continue;
                             }
                             proc_seen -= 1;
                         }
                         ControlType::StartScope => {
+                            if macro_seen > 0 || proc_seen > 0 {
+                                errors.push(Error::Context(ContextError {
+                                    message: "you cannot call '.scope' in this context".to_string(),
+                                    line: node.value.line,
+                                    global: false,
+                                    reason: ContextErrorReason::BadStart,
+                                }));
+                                continue;
+                            }
                             scope_seen += 1;
                         }
                         ControlType::EndScope => {
@@ -3029,6 +3046,70 @@ WRITE_PPU_DATA $20B9, $04
         assert_eq!(
             res.first().unwrap().to_string(),
             "trying to end a proc when there is none (line 1)"
+        );
+    }
+
+    #[test]
+    fn bad_scope_definition_inside_of_stuff() {
+        let mut asm = Assembler::new(empty());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
+            .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
+                r#".proc Hey
+.scope Something
+.endscope
+.endproc
+.macro HAHA
+.scope Something_else
+.endscope
+.endmacro
+"#
+                .as_bytes(),
+            )
+            .unwrap_err();
+
+        assert_eq!(
+            res[0].to_string(),
+            "you cannot call '.scope' in this context (line 2)"
+        );
+        assert_eq!(
+            res[3].to_string(),
+            "you cannot call '.scope' in this context (line 6)"
+        );
+    }
+
+    #[test]
+    fn bad_proc_definition_inside_of_stuff() {
+        let mut asm = Assembler::new(empty());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
+            .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
+                r#".proc Hey
+.proc Something
+.endproc
+.endproc
+.macro HAHA
+.proc Something_else
+.endproc
+.endmacro
+"#
+                .as_bytes(),
+            )
+            .unwrap_err();
+
+        assert_eq!(
+            res[0].to_string(),
+            "you cannot call '.proc' in this context (line 2)"
+        );
+        assert_eq!(
+            res[2].to_string(),
+            "you cannot call '.proc' in this context (line 6)"
         );
     }
 

@@ -38,6 +38,7 @@ pub enum ContextErrorReason {
     BadScope,
     Label,
     Bounds,
+    BadStart,
     BadEnd,
     Other,
 }
