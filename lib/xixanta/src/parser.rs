@@ -866,7 +866,7 @@ impl Parser {
         // required by the function.
         let args = self.parse_arguments(line)?;
         if let Some(args_required) = required {
-            if args.len() != args_required {
+            if args.len() < args_required.0 || args.len() > args_required.1 {
                 return Err(self.parser_error(
                     format!("wrong number of arguments for function '{}'", id.value).as_str(),
                 ));
@@ -1972,6 +1972,64 @@ mod tests {
             assert_eq!(args.len(), 1);
             assert_node(args.first().unwrap(), NodeType::Literal, line, "$2010");
         }
+    }
+
+    #[test]
+    fn parse_repeat_control() {
+        let mut parser = Parser::default();
+        let err = parser.parse(".repeat".as_bytes()).unwrap_err();
+        assert_eq!(
+            err.first().unwrap().message,
+            "wrong number of arguments for function '.repeat'"
+        );
+
+        let mut parser = Parser::default();
+        let err = parser.parse(".repeat 1, 2, 3".as_bytes()).unwrap_err();
+        assert_eq!(
+            err.first().unwrap().message,
+            "wrong number of arguments for function '.repeat'"
+        );
+
+        // Minimum required argument.
+
+        parser = Parser::default();
+        let mut line = ".repeat 2";
+
+        assert!(parser.parse(line.as_bytes()).is_ok());
+        let mut control = parser.nodes.last().unwrap();
+        assert_node(
+            control,
+            NodeType::Control(ControlType::StartRepeat),
+            line,
+            ".repeat",
+        );
+        assert!(control.left.is_none());
+        assert!(control.right.is_none());
+
+        let mut args = control.args.clone().unwrap();
+        assert_eq!(args.len(), 1);
+        assert_node(args.first().unwrap(), NodeType::Value, line, "2");
+
+        // Maximum allowed arguments.
+
+        parser = Parser::default();
+        line = ".repeat 2, I";
+
+        assert!(parser.parse(line.as_bytes()).is_ok());
+        control = parser.nodes.last().unwrap();
+        assert_node(
+            control,
+            NodeType::Control(ControlType::StartRepeat),
+            line,
+            ".repeat",
+        );
+        assert!(control.left.is_none());
+        assert!(control.right.is_none());
+
+        args = control.args.clone().unwrap();
+        assert_eq!(args.len(), 2);
+        assert_node(args.first().unwrap(), NodeType::Value, line, "2");
+        assert_node(args.last().unwrap(), NodeType::Value, line, "I");
     }
 
     #[test]

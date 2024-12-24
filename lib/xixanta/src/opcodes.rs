@@ -54,11 +54,22 @@ pub struct ShortEntry {
 //     pub affected_on_page: bool,
 // }
 
+/// The representation of a Control statement/expression.
 #[derive(Debug)]
 pub struct Control {
+    /// Type of control statement/expression.
     pub control_type: ControlType,
+
+    /// True if it has a non-quoted identifier (e.g. 'Foo' in '.proc Foo').
     pub has_identifier: bool,
-    pub required_args: Option<usize>,
+
+    /// Minimum and maximum number of arguments accepted by this control
+    /// statement, or None if undefined (e.g. a .macro which has an undefined
+    /// number of arguments).
+    pub required_args: Option<(usize, usize)>,
+
+    /// True if the context has to change after evaluating this control
+    /// statement.
     pub touches_context: bool,
 }
 
@@ -716,21 +727,23 @@ lazy_static! {
     pub static ref CONTROL_FUNCTIONS: HashMap<String, Control> = {
         let mut functions = HashMap::new();
 
-        functions.insert(String::from(".hibyte"), Control { control_type: ControlType::Hibyte, has_identifier: false, required_args: Some(1), touches_context: false });
-        functions.insert(String::from(".lobyte"), Control { control_type: ControlType::Lobyte, has_identifier: false, required_args: Some(1), touches_context: false });
+        functions.insert(String::from(".hibyte"), Control { control_type: ControlType::Hibyte, has_identifier: false, required_args: Some((1, 1)), touches_context: false });
+        functions.insert(String::from(".lobyte"), Control { control_type: ControlType::Lobyte, has_identifier: false, required_args: Some((1, 1)), touches_context: false });
         functions.insert(String::from(".macro"), Control { control_type: ControlType::StartMacro, has_identifier: true, required_args: None, touches_context: true });
-        functions.insert(String::from(".proc"), Control { control_type: ControlType::StartProc, has_identifier: true, required_args: Some(0), touches_context: true });
-        functions.insert(String::from(".scope"), Control { control_type: ControlType::StartScope, has_identifier: true, required_args: Some(0), touches_context: true });
-        functions.insert(String::from(".endscope"), Control { control_type: ControlType::EndScope, has_identifier: false, required_args: Some(0), touches_context: true });
-        functions.insert(String::from(".endproc"), Control { control_type: ControlType::EndProc, has_identifier: false, required_args: Some(0), touches_context: true });
-        functions.insert(String::from(".endmacro"), Control { control_type: ControlType::EndMacro, has_identifier: false, required_args: Some(0), touches_context: true });
-        functions.insert(String::from(".segment"), Control { control_type: ControlType::Segment, has_identifier: false, required_args: Some(1), touches_context: false });
+        functions.insert(String::from(".proc"), Control { control_type: ControlType::StartProc, has_identifier: true, required_args: Some((0, 0)), touches_context: true });
+        functions.insert(String::from(".scope"), Control { control_type: ControlType::StartScope, has_identifier: true, required_args: Some((0, 0)), touches_context: true });
+        functions.insert(String::from(".endscope"), Control { control_type: ControlType::EndScope, has_identifier: false, required_args: Some((0, 0)), touches_context: true });
+        functions.insert(String::from(".endproc"), Control { control_type: ControlType::EndProc, has_identifier: false, required_args: Some((0, 0)), touches_context: true });
+        functions.insert(String::from(".endmacro"), Control { control_type: ControlType::EndMacro, has_identifier: false, required_args: Some((0, 0)), touches_context: true });
+        functions.insert(String::from(".segment"), Control { control_type: ControlType::Segment, has_identifier: false, required_args: Some((1, 1)), touches_context: false });
         functions.insert(String::from(".byte"), Control { control_type: ControlType::Byte, has_identifier: false, required_args: None, touches_context: false });
         functions.insert(String::from(".db"), Control { control_type: ControlType::Byte, has_identifier: false, required_args: None, touches_context: false });
         functions.insert(String::from(".word"), Control { control_type: ControlType::Word, has_identifier: false, required_args: None, touches_context: false });
         functions.insert(String::from(".dw"), Control { control_type: ControlType::Word, has_identifier: false, required_args: None, touches_context: false });
         functions.insert(String::from(".addr"), Control { control_type: ControlType::Addr, has_identifier: false, required_args: None, touches_context: false });
-        functions.insert(String::from(".incbin"), Control { control_type: ControlType::IncBin, has_identifier: false, required_args: Some(1), touches_context: false });
+        functions.insert(String::from(".incbin"), Control { control_type: ControlType::IncBin, has_identifier: false, required_args: Some((1, 1)), touches_context: false });
+        functions.insert(String::from(".repeat"), Control { control_type: ControlType::StartRepeat, has_identifier: false, required_args: Some((1, 2)), touches_context: true });
+        functions.insert(String::from(".endrepeat"), Control { control_type: ControlType::EndRepeat, has_identifier: false, required_args: None, touches_context: false });
 
         functions
     };

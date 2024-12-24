@@ -138,6 +138,8 @@ pub enum ControlType {
     Word,
     Addr,
     IncBin,
+    StartRepeat,
+    EndRepeat,
 }
 
 impl fmt::Display for ControlType {
@@ -156,6 +158,8 @@ impl fmt::Display for ControlType {
             ControlType::Word => write!(f, ".word/.dw"),
             ControlType::Addr => write!(f, ".addr"),
             ControlType::IncBin => write!(f, ".incbin"),
+            ControlType::StartRepeat => write!(f, ".repeat"),
+            ControlType::EndRepeat => write!(f, ".endrepeat"),
         }
     }
 }
