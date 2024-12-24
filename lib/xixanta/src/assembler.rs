@@ -176,6 +176,19 @@ impl Assembler {
                 // right now as we don't know the segment size where it belongs
                 // yet.
                 NodeType::Label => {
+                    // There's no good reason to declare a named label inside of
+                    // a macro. If that's the case, just error out.
+                    if macro_seen > 0 && !node.value.is_empty() {
+                        errors.push(Error::Eval(EvalError {
+                            line: node.value.line,
+                            message: format!(
+                                "using a named label ('{}') inside of a macro definition",
+                                node.value.value
+                            ),
+                            global: false,
+                        }));
+                        continue;
+                    }
                     if let Err(err) = self.define_variable(&node.value) {
                         errors.push(Error::Context(err));
                     }
@@ -3110,6 +3123,30 @@ WRITE_PPU_DATA $20B9, $04
         assert_eq!(
             res[2].to_string(),
             "you cannot call '.proc' in this context (line 6)"
+        );
+    }
+
+    #[test]
+    fn error_on_named_label_inside_macro() {
+        let mut asm = Assembler::new(empty());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
+            .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
+                r#".macro MACRO
+@label:
+  jmp @label
+.endmacro
+"#
+                .as_bytes(),
+            )
+            .unwrap_err();
+
+        assert_eq!(
+            res.first().unwrap().to_string(),
+            "using a named label ('@label') inside of a macro definition (line 2)"
         );
     }
 
