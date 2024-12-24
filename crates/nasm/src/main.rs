@@ -110,6 +110,14 @@ fn main() -> Result<()> {
             }
         }
         Err(errors) => {
+            for warning in assembler.warnings() {
+                if warn_as_errors {
+                    eprintln!("error: {}", warning);
+                    error_count += 1;
+                } else {
+                    eprintln!("warning: {}", warning);
+                }
+            }
             for err in errors {
                 eprintln!("error: {}", err);
                 error_count += 1;
