@@ -72,6 +72,9 @@ pub struct Assembler<'a> {
     // Same as macros_seen but for .proc's.
     procs_seen: usize,
 
+    // Same as macros_seen but for .repeat's.
+    repeats_seen: usize,
+
     // Warnings that have accumulated over the run.
     warnings: Vec<Error>,
 
@@ -203,6 +206,7 @@ impl<'a> Assembler<'a> {
             labels_seen: 0,
             macros_seen: 0,
             procs_seen: 0,
+            repeats_seen: 0,
             warnings: vec![],
             directories: vec![],
         }
@@ -239,11 +243,11 @@ impl<'a> Assembler<'a> {
                 NodeType::Label => {
                     // There's no good reason to declare a named label inside of
                     // a macro. If that's the case, just error out.
-                    if self.macros_seen > 0 && !node.value.is_empty() {
+                    if (self.macros_seen > 0 || self.repeats_seen > 0) && !node.value.is_empty() {
                         errors.push(Error::Eval(EvalError {
                             line: node.value.line,
                             message: format!(
-                                "using a named label ('{}') inside of a macro definition",
+                                "using a named label ('{}') inside of a macro/repeat definition",
                                 node.value.value
                             ),
                             global: false,
@@ -255,9 +259,9 @@ impl<'a> Assembler<'a> {
                     }
                 }
                 NodeType::Assignment => {
-                    if self.macros_seen > 0 {
+                    if self.macros_seen > 0 || self.repeats_seen > 0 {
                         errors.push(Error::Eval(EvalError {
-                            message: "cannot have assignments inside of macro definitions"
+                            message: "cannot have assignments inside of macro/repeat definitions"
                                 .to_string(),
                             line: node.value.line,
                             global: false,
@@ -316,7 +320,8 @@ impl<'a> Assembler<'a> {
                         }
                         // Same as NodeType::Label.
                         ControlType::StartProc => {
-                            if self.macros_seen > 0 || self.procs_seen > 0 {
+                            if self.macros_seen > 0 || self.procs_seen > 0 || self.repeats_seen > 0
+                            {
                                 errors.push(Error::Context(ContextError {
                                     message: "you cannot call '.proc' in this context".to_string(),
                                     line: node.value.line,
@@ -339,7 +344,8 @@ impl<'a> Assembler<'a> {
                             }
                         }
                         ControlType::StartScope => {
-                            if self.macros_seen > 0 || self.procs_seen > 0 {
+                            if self.macros_seen > 0 || self.procs_seen > 0 || self.repeats_seen > 0
+                            {
                                 errors.push(Error::Context(ContextError {
                                     message: "you cannot call '.scope' in this context".to_string(),
                                     line: node.value.line,
@@ -347,6 +353,14 @@ impl<'a> Assembler<'a> {
                                     reason: ContextErrorReason::BadStart,
                                 }));
                                 continue;
+                            }
+                        }
+                        ControlType::StartRepeat => {
+                            self.repeats_seen += 1;
+                        }
+                        ControlType::EndRepeat => {
+                            if self.repeats_seen > 0 {
+                                self.repeats_seen -= 1;
                             }
                         }
                         _ => {}
@@ -465,27 +479,35 @@ impl<'a> Assembler<'a> {
                         errors.push(Error::Eval(e));
                     }
 
-                    // If this is the start of a .scope statement, then go
-                    // inside of its body too if it exists (note that its
-                    // existence might not be guaranteed if the parser gave an
-                    // error on this block). Note that we do that too for
-                    // .proc's in its specialized branch, and we don't want to
-                    // do it for macros as they will be evaluated on a per call
-                    // basis.
-                    if matches!(control_type, ControlType::StartScope)
-                        && node.right.as_ref().is_some()
-                    {
-                        let scope_name = &node.left.as_ref().unwrap().value;
-                        let args = &node.right.as_ref().unwrap().args.as_ref().unwrap();
-                        if args.is_empty() {
-                            self.warnings.push(Error::Eval(EvalError {
-                                line: node.value.line,
-                                message: format!("empty .scope '{}'", scope_name.value),
-                                global: false,
-                            }));
-                        } else {
-                            self.bundle(args)?;
+                    // On control statements which modify the context, there are
+                    // some further evaluating to do.
+                    match control_type {
+                        ControlType::StartRepeat => {
+                            self.evaluate_repeat_statement(node)?;
                         }
+                        ControlType::StartScope => {
+                            // If this is the start of a .scope statement, then go
+                            // inside of its body too if it exists (note that its
+                            // existence might not be guaranteed if the parser gave an
+                            // error on this block). Note that we do that too for
+                            // .proc's in its specialized branch, and we don't want to
+                            // do it for macros as they will be evaluated on a per call
+                            // basis.
+                            if node.right.as_ref().is_some() {
+                                let scope_name = &node.left.as_ref().unwrap().value;
+                                let args = &node.right.as_ref().unwrap().args.as_ref().unwrap();
+                                if args.is_empty() {
+                                    self.warnings.push(Error::Eval(EvalError {
+                                        line: node.value.line,
+                                        message: format!("empty .scope '{}'", scope_name.value),
+                                        global: false,
+                                    }));
+                                } else {
+                                    self.bundle(args)?;
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 }
                 NodeType::Value | NodeType::Call => {
@@ -1043,7 +1065,7 @@ impl<'a> Assembler<'a> {
                                     ),
                                     line: node.value.line,
                                     global: false,
-                                })
+                                });
                             }
                         }
                     }
@@ -1255,6 +1277,79 @@ impl<'a> Assembler<'a> {
                 Err(_) => break,
             }
         }
+        Ok(())
+    }
+
+    // Evaluate the given node assuming it's a .repeat statement and push all
+    // the requested bundles from it..
+    fn evaluate_repeat_statement(&mut self, node: &'a PNode) -> Result<(), Vec<Error>> {
+        // First fetch the number of times the code block must be repeated.
+        let args = node.args.as_ref().unwrap();
+        let first = &args.first().unwrap().value.value;
+        let repeats = match first.parse::<usize>() {
+            Ok(n) => {
+                if n < 2 {
+                    return Err(EvalError {
+                        global: false,
+                        line: node.value.line,
+                        message: "pointless .repeat statement".to_string(),
+                    }
+                    .into());
+                } else if n > 255 {
+                    return Err(EvalError {
+                        global: false,
+                        line: node.value.line,
+                        message: "the number of iterations has to fit in a single byte".to_string(),
+                    }
+                    .into());
+                }
+                n
+            }
+            Err(_) => {
+                return Err(EvalError {
+                    global: false,
+                    line: node.value.line,
+                    message: format!(
+                        "first argument must be an integer, '{}' found instead",
+                        first
+                    ),
+                }
+                .into())
+            }
+        };
+
+        // The code that is to be repeated.
+        let code = &node.right.as_ref().unwrap().args.as_ref().unwrap();
+        if code.is_empty() {
+            self.warnings.push(Error::Eval(EvalError {
+                line: node.value.line,
+                message: "empty .repeat statement".to_string(),
+                global: false,
+            }));
+            return Ok(());
+        }
+
+        // Perform the action.
+        for i in 0..repeats {
+            // If an index was given, set it now as a .repeat variable with the
+            // loop index.
+            if args.len() == 2 {
+                self.context.set_variable(
+                    &args.last().unwrap().value,
+                    &Object {
+                        bundle: Bundle::fill(i as u8),
+                        mapping: self.current_mapping,
+                        segment: self.current_segment,
+                        object_type: ObjectType::Value,
+                    },
+                    true,
+                )?;
+            }
+
+            // And push all the bundles from the inner code.
+            self.bundle(code)?;
+        }
+
         Ok(())
     }
 
@@ -2990,7 +3085,7 @@ mod tests {
     "#,
             2,
             false,
-            "using a named label ('@label') inside of a macro definition",
+            "using a named label ('@label') inside of a macro/repeat definition",
         );
     }
 
@@ -3030,6 +3125,115 @@ mod tests {
         assert_eq!(res[3].size, 2);
         assert_eq!(res[3].bytes[0], 0xF0);
         assert_eq!(res[3].bytes[1], 0xFC);
+    }
+
+    // .repeat
+
+    #[test]
+    fn code_gets_repeated() {
+        let res = just_bundles(
+            r#".repeat 3
+nop
+.endrepeat
+"#,
+        );
+
+        assert_eq!(res.len(), 3);
+
+        for it in res.iter().take(2) {
+            assert_eq!(it.size, 1);
+            assert_eq!(it.bytes[0], 0xEA);
+            assert_eq!(it.bytes[1], 0x00);
+            assert_eq!(it.bytes[2], 0x00);
+        }
+    }
+
+    #[test]
+    fn variable_in_repeat() {
+        let res = just_bundles(
+            r#".repeat 2, I
+.repeat 2, J
+lda #I
+ldx #J
+.endrepeat
+.endrepeat"#,
+        );
+
+        assert_eq!(res.len(), 8);
+
+        // 00
+        assert_eq!(res[0].bytes[0], 0xA9);
+        assert_eq!(res[0].bytes[1], 0x00);
+        assert_eq!(res[1].bytes[0], 0xA2);
+        assert_eq!(res[1].bytes[1], 0x00);
+
+        // 01
+        assert_eq!(res[2].bytes[0], 0xA9);
+        assert_eq!(res[2].bytes[1], 0x00);
+        assert_eq!(res[3].bytes[0], 0xA2);
+        assert_eq!(res[3].bytes[1], 0x01);
+
+        // 10
+        assert_eq!(res[4].bytes[0], 0xA9);
+        assert_eq!(res[4].bytes[1], 0x01);
+        assert_eq!(res[5].bytes[0], 0xA2);
+        assert_eq!(res[5].bytes[1], 0x00);
+
+        // 11
+        assert_eq!(res[6].bytes[0], 0xA9);
+        assert_eq!(res[6].bytes[1], 0x01);
+        assert_eq!(res[7].bytes[0], 0xA2);
+        assert_eq!(res[7].bytes[1], 0x01);
+    }
+
+    #[test]
+    fn error_on_invalid_repeat() {
+        assert_error(
+            ".repeat 1\n.endrepeat",
+            1,
+            false,
+            "pointless .repeat statement",
+        );
+        assert_error(
+            ".repeat a\n.endrepeat",
+            1,
+            false,
+            "first argument must be an integer, 'a' found instead",
+        );
+        assert_error(
+            ".repeat 256\n.endrepeat",
+            1,
+            false,
+            "the number of iterations has to fit in a single byte",
+        );
+    }
+
+    #[test]
+    fn warning_on_empty_repeat() {
+        let res = just_assemble(".repeat 2\n.endrepeat");
+
+        assert!(res.bundles[0x10..].is_empty());
+        assert!(res.errors.is_empty());
+
+        assert_eq!(res.warnings.len(), 2); // empty code and the one we are testing.
+        assert_eq!(
+            res.warnings.first().unwrap().to_string(),
+            "empty .repeat statement (line 4)"
+        );
+    }
+
+    #[test]
+    fn custom_human_message_on_unknown_variable_in_repeat() {
+        assert_error(
+            r#".repeat 2
+lda #Variable
+.endrepeat
+"#,
+            2,
+            false,
+            "'e' is not a decimal value and could not find variable 'Variable' \
+             in the current scope either",
+        );
     }
 
     // Segments

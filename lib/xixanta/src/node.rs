@@ -138,6 +138,8 @@ pub enum ControlType {
     Word,
     Addr,
     IncBin,
+    StartRepeat,
+    EndRepeat,
 }
 
 impl fmt::Display for ControlType {
@@ -156,6 +158,8 @@ impl fmt::Display for ControlType {
             ControlType::Word => write!(f, ".word/.dw"),
             ControlType::Addr => write!(f, ".addr"),
             ControlType::IncBin => write!(f, ".incbin"),
+            ControlType::StartRepeat => write!(f, ".repeat"),
+            ControlType::EndRepeat => write!(f, ".endrepeat"),
         }
     }
 }
@@ -293,6 +297,9 @@ impl NodeType {
             NodeType::Control(ControlType::StartScope) => {
                 Some(NodeType::Control(ControlType::EndScope))
             }
+            NodeType::Control(ControlType::StartRepeat) => {
+                Some(NodeType::Control(ControlType::EndRepeat))
+            }
             _ => None,
         }
     }
@@ -353,10 +360,12 @@ impl PNode {
         match self.node_type {
             NodeType::Control(ControlType::StartMacro)
             | NodeType::Control(ControlType::StartProc)
-            | NodeType::Control(ControlType::StartScope) => NodeBodyType::Starts,
+            | NodeType::Control(ControlType::StartScope)
+            | NodeType::Control(ControlType::StartRepeat) => NodeBodyType::Starts,
             NodeType::Control(ControlType::EndMacro)
             | NodeType::Control(ControlType::EndProc)
-            | NodeType::Control(ControlType::EndScope) => NodeBodyType::Ends,
+            | NodeType::Control(ControlType::EndScope)
+            | NodeType::Control(ControlType::EndRepeat) => NodeBodyType::Ends,
             _ => NodeBodyType::None,
         }
     }

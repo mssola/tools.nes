@@ -350,13 +350,15 @@ impl Context {
         match node.node_type {
             NodeType::Control(ControlType::StartMacro)
             | NodeType::Control(ControlType::StartProc)
-            | NodeType::Control(ControlType::StartScope) => {
+            | NodeType::Control(ControlType::StartScope)
+            | NodeType::Control(ControlType::StartRepeat) => {
                 self.context_push(node.left.as_ref().unwrap());
                 Ok(true)
             }
             NodeType::Control(ControlType::EndMacro)
             | NodeType::Control(ControlType::EndProc)
-            | NodeType::Control(ControlType::EndScope) => {
+            | NodeType::Control(ControlType::EndScope)
+            | NodeType::Control(ControlType::EndRepeat) => {
                 self.context_pop(&node.value)?;
                 Ok(true)
             }
@@ -485,7 +487,7 @@ impl Context {
             .iter()
             .position(|n| n.as_str() == name)
             .unwrap_or(0);
-        if index < 2 {
+        if index < 1 {
             GLOBAL_CONTEXT
         } else {
             self.stack.get(index - 1).unwrap()
@@ -517,6 +519,11 @@ impl Context {
     fn to_human_with(&self, name: &str) -> String {
         if name == GLOBAL_CONTEXT {
             "the global scope".to_string()
+        } else if name.starts_with(".repeat-") {
+            // The ".repeat-" generated scope is randomly generated and is not
+            // clear to the human eye. Hence, just hide out the name for this
+            // case.
+            "the current scope".to_string()
         } else {
             format!("'{}'", name)
         }

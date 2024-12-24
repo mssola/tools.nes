@@ -1,6 +1,7 @@
 use crate::errors::ParseError;
 use crate::node::{NodeBodyType, NodeType, OperationType, PNode, PString};
 use crate::opcodes::{CONTROL_FUNCTIONS, INSTRUCTIONS};
+use rand::distributions::{Alphanumeric, DistString};
 use std::cmp::Ordering;
 use std::io::{self, BufRead, Read};
 
@@ -82,8 +83,10 @@ impl Parser {
         }
     }
 
+    /// Returns the first layer of nodes that have been parsed. Note that this
+    /// function only makes sense to be called whenever parsing is done,
+    /// otherwise results will be incomplete in (most probably) unexpected ways.
     pub fn nodes(&self) -> Vec<PNode> {
-        // println!("{:#?}", self.nodes);
         self.nodes.first().unwrap().to_vec()
     }
 
@@ -916,6 +919,11 @@ impl Parser {
         }
     }
 
+    // Generate a unique identifier with the given prefix.
+    fn unique_identifier(&self, prefix: String) -> String {
+        prefix + &String::from("-") + &Alphanumeric.sample_string(&mut rand::thread_rng(), 16)
+    }
+
     // Returns a NodeType::Control node with whatever could be parsed
     // considering the given `id` and rest of the `line`.
     fn parse_control(&mut self, id: PString, line: &str) -> Result<PNode, ParseError> {
@@ -933,11 +941,21 @@ impl Parser {
 
         // If this control function has an identifier (e.g. `.macro
         // Identifier(args...)`), let's parse it now.
-        if control.has_identifier {
+        if control.has_identifier.is_some() {
             self.skip_whitespace(line);
             left = Some(Box::new(PNode {
                 node_type: NodeType::Value,
-                value: self.parse_identifier(line)?.0,
+                // The identifier is actually there or does it have to be generated?
+                value: if control.has_identifier.unwrap() {
+                    PString {
+                        value: self.unique_identifier(control.control_type.to_string()),
+                        line: self.line,
+                        start: id.start,
+                        end: id.end,
+                    }
+                } else {
+                    self.parse_identifier(line)?.0
+                },
                 left: None,
                 right: None,
                 args: None,
@@ -950,7 +968,7 @@ impl Parser {
         // required by the function.
         let args = self.parse_arguments(line)?;
         if let Some(args_required) = control.required_args {
-            if args.len() != args_required {
+            if args.len() < args_required.0 || args.len() > args_required.1 {
                 return Err(self.parser_error(
                     format!("wrong number of arguments for function '{}'", id.value).as_str(),
                 ));
@@ -2150,6 +2168,78 @@ inc $20
             assert_eq!(args.len(), 1);
             assert_node(args.first().unwrap(), NodeType::Literal, line, "$2010");
         }
+    }
+
+    #[test]
+    fn parse_repeat_control() {
+        let mut parser = Parser::default();
+        let err = parser.parse(".repeat\n.endrepeat".as_bytes()).unwrap_err();
+        assert_eq!(
+            err.first().unwrap().message,
+            "wrong number of arguments for function '.repeat'"
+        );
+
+        let mut parser = Parser::default();
+        let err = parser
+            .parse(".repeat 1, 2, 3\n.endrepeat".as_bytes())
+            .unwrap_err();
+        assert_eq!(
+            err.first().unwrap().message,
+            "wrong number of arguments for function '.repeat'"
+        );
+
+        // Minimum required argument.
+
+        parser = Parser::default();
+        let mut line = ".repeat 2\n.endrepeat";
+
+        assert!(parser.parse(line.as_bytes()).is_ok());
+        let mut control = parser.nodes.last().unwrap().first().unwrap();
+        assert_node(
+            control,
+            NodeType::Control(ControlType::StartRepeat),
+            line,
+            ".repeat",
+        );
+        assert!(control
+            .left
+            .as_ref()
+            .unwrap()
+            .value
+            .value
+            .starts_with(".repeat-"));
+        assert!(control.right.is_some());
+
+        let mut args = control.args.clone().unwrap();
+        assert_eq!(args.len(), 1);
+        assert_node(args.first().unwrap(), NodeType::Value, line, "2");
+
+        // Maximum allowed arguments.
+
+        parser = Parser::default();
+        line = ".repeat 2, I\n.endrepeat";
+
+        assert!(parser.parse(line.as_bytes()).is_ok());
+        control = parser.nodes.last().unwrap().first().unwrap();
+        assert_node(
+            control,
+            NodeType::Control(ControlType::StartRepeat),
+            line,
+            ".repeat",
+        );
+        assert!(control
+            .left
+            .as_ref()
+            .unwrap()
+            .value
+            .value
+            .starts_with(".repeat-"));
+        assert!(control.right.is_some());
+
+        args = control.args.clone().unwrap();
+        assert_eq!(args.len(), 2);
+        assert_node(args.first().unwrap(), NodeType::Value, line, "2");
+        assert_node(args.last().unwrap(), NodeType::Value, line, "I");
     }
 
     #[test]
