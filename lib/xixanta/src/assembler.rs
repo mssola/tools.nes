@@ -236,10 +236,7 @@ impl Assembler {
                         ControlType::StartMacro => {
                             macro_seen += 1;
 
-                            // TODO: boy this is ugly. In fact, this stupid shit if
-                            // current_macro might not be relevant anymore.
                             current_macro = Some(&node.left.as_ref().unwrap().value);
-                            // TODO: watch out for weird shit on the name of arguments.
                             self.macros
                                 .entry(node.left.as_ref().unwrap().value.value.clone())
                                 .or_insert(CodeBlock {
@@ -331,7 +328,6 @@ impl Assembler {
                         _ => {}
                     }
                     if let Err(err) = self.context.change_context(node) {
-                        // TODO: forbid if inside_macro
                         errors.push(Error::Context(err));
                     }
                 }
@@ -376,7 +372,7 @@ impl Assembler {
         Ok(())
     }
 
-    fn bundle(&mut self, nodes: &Vec<PNode>) -> Result<(), Vec<Error>> {
+    fn bundle(&mut self, nodes: &[PNode]) -> Result<(), Vec<Error>> {
         let mut errors = Vec::new();
 
         for node in nodes {
@@ -421,8 +417,8 @@ impl Assembler {
                     }
                 }
                 NodeType::Value | NodeType::Call => {
-                    if let Err(e) = self.bundle_call(node, nodes) {
-                        errors.push(Error::Eval(e));
+                    if let Err(mut ers) = self.bundle_call(node, nodes) {
+                        errors.append(&mut ers);
                     }
                 }
 
@@ -523,7 +519,7 @@ impl Assembler {
         }
     }
 
-    fn bundle_call(&mut self, node: &PNode, nodes: &[PNode]) -> Result<(), EvalError> {
+    fn bundle_call(&mut self, node: &PNode, nodes: &[PNode]) -> Result<(), Vec<Error>> {
         // Get the macro object for the given identifier.
         let mcr = self
             .macros
@@ -546,7 +542,7 @@ impl Assembler {
             None => 0,
         };
         if mcr.args.len() != nargs {
-            return Err(EvalError {
+            return Err(vec![Error::Eval(EvalError {
                 line: node.value.line,
                 message: format!(
                     "wrong number of arguments for '{}': {} required but {} given",
@@ -555,7 +551,7 @@ impl Assembler {
                     nargs
                 ),
                 global: false,
-            });
+            })]);
         }
 
         // If there are arguments defined by the macro, set their values now.
@@ -573,25 +569,20 @@ impl Assembler {
                 // Note that we overwrite the variable value from previous
                 // calls, just in case a macro is applied multiple times and we
                 // need to get the latest value.
-                //
-                // TODO: whenever warnings are available, warn on shadowing
-                // outer variables.
                 self.context
                     .set_variable(margs.next().unwrap(), &obj, true)?;
             }
         }
 
         // And now replicate the nodes as contained inside of the macro
-        // definition.
-        for node in nodes
-            .get(mcr.nodes.start..=mcr.nodes.end)
-            .unwrap_or_default()
-        {
-            let bundle = self.evaluate_node(node)?;
-            self.push_bundle(bundle, node)?;
-        }
-
-        Ok(())
+        // definition. In order to handle inner statements from macros such as
+        // anonymous labels and stuff like that, we simply call again
+        // `Assembler::bundle`.
+        self.bundle(
+            nodes
+                .get(mcr.nodes.start..=mcr.nodes.end)
+                .unwrap_or_default(),
+        )
     }
 
     fn push_bundle(&mut self, mut bundle: Bundle, node: &PNode) -> Result<(), EvalError> {
@@ -2683,7 +2674,7 @@ palettes:
         assert_instruction("stx $020, y", &[0x96, 0x20]);
     }
 
-    // TODO: labels and jumps inside of proc's, macros, etc.
+    // TODO: labels and jumps inside of proc's, etc.
 
     // Control statements
 
@@ -3150,6 +3141,52 @@ WRITE_PPU_DATA $20B9, $04
         );
     }
 
+    #[test]
+    fn jumps_inside_of_macros() {
+        let mut asm = Assembler::new(empty());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
+            .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
+                r#".macro MACRO address, value
+    lda #.HIBYTE(address)
+    lda #.LOBYTE(address)
+:
+    lda #value
+    beq :-
+.endmacro
+
+MACRO $20B9, $04
+"#
+                .as_bytes(),
+            )
+            .unwrap()[0x10..];
+
+        assert_eq!(res.len(), 4);
+
+        // lda #.HIBYTE(address)
+        assert_eq!(res[0].size, 2);
+        assert_eq!(res[0].bytes[0], 0xA9);
+        assert_eq!(res[0].bytes[1], 0x20);
+
+        // lda #.LOBYTE(address)
+        assert_eq!(res[1].size, 2);
+        assert_eq!(res[1].bytes[0], 0xA9);
+        assert_eq!(res[1].bytes[1], 0xB9);
+
+        // lda #value
+        assert_eq!(res[2].size, 2);
+        assert_eq!(res[2].bytes[0], 0xA9);
+        assert_eq!(res[2].bytes[1], 0x04);
+
+        // beq :-
+        assert_eq!(res[3].size, 2);
+        assert_eq!(res[3].bytes[0], 0xF0);
+        assert_eq!(res[3].bytes[1], 0xFC);
+    }
+
     // Segments
 
     #[test]
@@ -3352,13 +3389,13 @@ code:
         assert_error_with_assembler(
             &mut asm,
             r#".segment "ONE"
-.byte code
+    .byte code
 
-.segment "TWO"
-nop
-code:
-    rts
-"#,
+    .segment "TWO"
+    nop
+    code:
+        rts
+    "#,
             2,
             false,
             "expecting an argument that fits into a byte",
@@ -3375,11 +3412,11 @@ code:
             .assemble(
                 std::env::current_dir().unwrap().to_path_buf(),
                 r#"
-.scope Vars
-.segment "CODE"
-  nop
-.endscope
-"#
+    .scope Vars
+    .segment "CODE"
+    nop
+    .endscope
+    "#
                 .as_bytes(),
             )
             .unwrap_err();

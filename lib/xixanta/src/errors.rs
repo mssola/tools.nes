@@ -7,6 +7,18 @@ pub enum Error {
     Eval(EvalError),
 }
 
+impl From<ContextError> for Vec<Error> {
+    fn from(err: ContextError) -> Self {
+        vec![Error::Context(err)]
+    }
+}
+
+impl From<EvalError> for Vec<Error> {
+    fn from(err: EvalError) -> Self {
+        vec![Error::Eval(err)]
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
