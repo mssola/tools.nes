@@ -519,6 +519,7 @@ impl Assembler {
         }
     }
 
+    // Consume a node which contains a macro call by pushing its bundles now.
     fn bundle_call(&mut self, node: &PNode, nodes: &[PNode]) -> Result<(), Vec<Error>> {
         // Get the macro object for the given identifier.
         let mcr = self
@@ -2674,8 +2675,6 @@ palettes:
         assert_instruction("stx $020, y", &[0x96, 0x20]);
     }
 
-    // TODO: labels and jumps inside of proc's, etc.
-
     // Control statements
 
     #[test]
@@ -3355,6 +3354,66 @@ code:
         assert_eq!(bundles[2].bytes[0], 0x20);
         assert_eq!(bundles[2].bytes[1], 0x05);
         assert_eq!(bundles[2].bytes[2], 0x80);
+    }
+
+    #[test]
+    fn jumps_and_labels_inside_proc() {
+        let mut asm = Assembler::new(one_two().to_vec());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        let bundles = &asm
+            .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
+                r#".segment "ONE"
+nop
+.segment "TWO"
+.proc Foo
+    lda #$10
+:
+    beq :-
+    jmp @label
+    nop
+@label:
+    rts
+.endproc
+
+jsr Foo
+"#
+                .as_bytes(),
+            )
+            .unwrap()[0x11..]; // Ignoring HEADER + first nop
+
+        assert_eq!(bundles.len(), 6);
+
+        // lda #$10
+        assert_eq!(bundles[0].size, 2);
+        assert_eq!(bundles[0].bytes[0], 0xA9);
+        assert_eq!(bundles[0].bytes[1], 0x10);
+
+        // beq :-
+        assert_eq!(bundles[1].size, 2);
+        assert_eq!(bundles[1].bytes[0], 0xF0);
+        assert_eq!(bundles[1].bytes[1], 0xFE);
+
+        // jmp @label
+        assert_eq!(bundles[2].size, 3);
+        assert_eq!(bundles[2].bytes[0], 0x4C);
+        assert_eq!(bundles[2].bytes[1], 0x09);
+        assert_eq!(bundles[2].bytes[2], 0x80);
+
+        // nop
+        assert_eq!(bundles[3].size, 1);
+        assert_eq!(bundles[3].bytes[0], 0xEA);
+
+        // rts
+        assert_eq!(bundles[4].size, 1);
+        assert_eq!(bundles[4].bytes[0], 0x60);
+
+        // jsr Foo
+        assert_eq!(bundles[5].size, 3);
+        assert_eq!(bundles[5].bytes[0], 0x20);
+        assert_eq!(bundles[5].bytes[1], 0x01);
+        assert_eq!(bundles[5].bytes[2], 0x80);
     }
 
     #[test]
