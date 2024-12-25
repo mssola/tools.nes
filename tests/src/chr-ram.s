@@ -1,5 +1,5 @@
-;;; From https://github.com/mssola/NES which will be open sourced soon (pinky
-;;; promess!).
+;;; From https://github.com/mssola/code.nes which will be open sourced soon
+;;; (pinky promess!).
 
 .segment "HEADER"
     .byte 'N', 'E', 'S', $1A

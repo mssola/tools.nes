@@ -1,5 +1,5 @@
-;;; NOTE: taken from https://github.com/mssola/NES; which I will open source
-;;; sooner rather than later.
+;;; NOTE: taken from https://github.com/mssola/code.nes; which I will open
+;;; source sooner rather than later.
 ;;;
 ;; Show a sprite to the screen! This example also contains fully detailed
 ;; explanations on each section on how an NES game is initialized and stored.

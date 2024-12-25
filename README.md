@@ -1,5 +1,6 @@
-Utilities for NES/Famicom development. Note that this repository is under heavy
-development and it's **not** currently usable.
+Tools I have created to help with NES/Famicom development.
+
+**Note**: this is under heavy development and it's not currently usable.
 
 ## `nasm`
 
@@ -18,9 +19,9 @@ it like so:
 $ nasm -o awesome.nes awesome.s
 ```
 
-Last but not least, you can actually tell `nasm` to redirect the output to
-stdout instead with the `--stdout` flag. This is useful when debugging the
-binary format with another CLI tool. For example:
+Moreover, you can actually tell `nasm` to redirect the output to stdout instead
+with the `--stdout` flag. This is useful when debugging the binary format with
+another CLI tool. For example:
 
 ```
 $ nasm --stdout awesome.s | hexdump -C
@@ -48,10 +49,10 @@ for reference.
 
 ## `readrom`
 
-The `readrom` reads a given ROM file and shows all the information that can be
-gathered from it. For now this only applies to information on the header, but in
-the future we might want to add disassembling user-specified segments, for
-example.
+The `readrom` program reads a given ROM file and shows all the information that
+can be gathered from it. For now this only applies to information on the header,
+but in the future we might want to add disassembling user-specified segments,
+for example.
 
 ## License
 

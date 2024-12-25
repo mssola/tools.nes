@@ -5,7 +5,7 @@ desired binaries/tests.
 ## Issue reporting
 
 I'm using Github in order to host the code. Thus, in order to report issues you
-can do it on its [issue tracker](https://github.com/mssola/ntools/issues). A
+can do it on its [issue tracker](https://github.com/mssola/tools.nes/issues). A
 couple of notes on reports:
 
 - Check that the issue has not already been reported or fixed in the `main`
