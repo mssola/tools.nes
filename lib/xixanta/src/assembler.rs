@@ -63,13 +63,16 @@ pub struct Assembler {
     context: Context,
     literal_mode: Option<LiteralMode>,
     stage: Stage,
-    macros: HashMap<String, CodeBlock>,
+    code_blocks: HashMap<String, CodeBlock>,
     can_bundle: bool,
     mappings: Vec<Mapping>,
     current_mapping: usize,
     current_segment: usize,
     pending: Vec<PendingNode>,
     labels_seen: usize,
+
+    // Number of repeat statements that have been seen so far.
+    repeats_seen: usize,
 
     // Warnings that have accumulated over the run.
     warnings: Vec<Error>,
@@ -86,13 +89,14 @@ impl Assembler {
             context: Context::new(),
             literal_mode: None,
             stage: Stage::Context,
-            macros: HashMap::new(),
+            code_blocks: HashMap::new(),
             can_bundle: true,
             mappings,
             current_mapping: 0,
             current_segment: 0,
             pending: vec![],
             labels_seen: 0,
+            repeats_seen: 0,
             warnings: vec![],
             directories: vec![],
         }
@@ -165,9 +169,11 @@ impl Assembler {
     fn eval_context(&mut self, nodes: &[PNode]) -> Result<(), Vec<Error>> {
         let mut errors = Vec::new();
         let mut current_macro = None;
+        let mut repeats = vec![];
         let mut macro_seen = 0;
         let mut proc_seen = 0;
         let mut scope_seen = 0;
+        let mut repeat_seen = 0;
 
         for (idx, node) in nodes.iter().enumerate() {
             match &node.node_type {
@@ -177,12 +183,13 @@ impl Assembler {
                 // yet.
                 NodeType::Label => {
                     // There's no good reason to declare a named label inside of
-                    // a macro. If that's the case, just error out.
-                    if macro_seen > 0 && !node.value.is_empty() {
+                    // a macro or a repeat statement. If that's the case, just
+                    // error out.
+                    if (macro_seen > 0 || repeat_seen > 0) && !node.value.is_empty() {
                         errors.push(Error::Eval(EvalError {
                             line: node.value.line,
                             message: format!(
-                                "using a named label ('{}') inside of a macro definition",
+                                "using a named label ('{}') inside of a macro/repeat definition",
                                 node.value.value
                             ),
                             global: false,
@@ -194,9 +201,9 @@ impl Assembler {
                     }
                 }
                 NodeType::Assignment => {
-                    if macro_seen > 0 {
+                    if macro_seen > 0 || repeat_seen > 0 {
                         errors.push(Error::Eval(EvalError {
-                            message: "cannot have assignments inside of macro definitions"
+                            message: "cannot have assignments inside of macro/repeat definitions"
                                 .to_string(),
                             line: node.value.line,
                             global: false,
@@ -237,7 +244,7 @@ impl Assembler {
                             macro_seen += 1;
 
                             current_macro = Some(&node.left.as_ref().unwrap().value);
-                            self.macros
+                            self.code_blocks
                                 .entry(node.left.as_ref().unwrap().value.value.clone())
                                 .or_insert(CodeBlock {
                                     nodes: Range {
@@ -266,7 +273,7 @@ impl Assembler {
                             macro_seen -= 1;
 
                             if let Some(name) = current_macro {
-                                self.macros
+                                self.code_blocks
                                     .entry(name.value.clone())
                                     .and_modify(|m| m.nodes.end = idx - 1);
                             }
@@ -274,7 +281,7 @@ impl Assembler {
                         }
                         // Same as NodeType::Label.
                         ControlType::StartProc => {
-                            if macro_seen > 0 || proc_seen > 0 {
+                            if macro_seen > 0 || proc_seen > 0 || repeat_seen > 0 {
                                 errors.push(Error::Context(ContextError {
                                     message: "you cannot call '.proc' in this context".to_string(),
                                     line: node.value.line,
@@ -303,7 +310,7 @@ impl Assembler {
                             proc_seen -= 1;
                         }
                         ControlType::StartScope => {
-                            if macro_seen > 0 || proc_seen > 0 {
+                            if macro_seen > 0 || proc_seen > 0 || repeat_seen > 0 {
                                 errors.push(Error::Context(ContextError {
                                     message: "you cannot call '.scope' in this context".to_string(),
                                     line: node.value.line,
@@ -324,6 +331,38 @@ impl Assembler {
                                 }));
                             }
                             scope_seen -= 1;
+                        }
+                        ControlType::StartRepeat => {
+                            repeat_seen += 1;
+
+                            // TODO: improve
+                            let name = format!("repeats-{}", repeat_seen);
+                            repeats.push(name.clone());
+
+                            self.code_blocks.entry(name).or_insert(CodeBlock {
+                                nodes: Range {
+                                    start: idx + 1,
+                                    end: idx + 1,
+                                },
+                                args: vec![],
+                            });
+                        }
+                        ControlType::EndRepeat => {
+                            if repeat_seen == 0 {
+                                errors.push(Error::Context(ContextError {
+                                    message: "trying to end a .repeat when there is none"
+                                        .to_string(),
+                                    line: node.value.line,
+                                    global: false,
+                                    reason: ContextErrorReason::BadEnd,
+                                }));
+                            }
+                            repeat_seen -= 1;
+
+                            let name = repeats.pop().unwrap();
+                            self.code_blocks
+                                .entry(name)
+                                .and_modify(|m| m.nodes.end = idx - 1);
                         }
                         _ => {}
                     }
@@ -412,7 +451,7 @@ impl Assembler {
                     }
                 }
                 NodeType::Control(_) => {
-                    if let Err(e) = self.evaluate_control_statement(node) {
+                    if let Err(e) = self.evaluate_control_statement(node, nodes) {
                         errors.push(Error::Eval(e));
                     }
                 }
@@ -523,7 +562,7 @@ impl Assembler {
     fn bundle_call(&mut self, node: &PNode, nodes: &[PNode]) -> Result<(), Vec<Error>> {
         // Get the macro object for the given identifier.
         let mcr = self
-            .macros
+            .code_blocks
             .get(&node.value.value)
             .ok_or(EvalError {
                 line: node.value.line,
@@ -1071,7 +1110,11 @@ impl Assembler {
         }
     }
 
-    fn evaluate_control_statement(&mut self, node: &PNode) -> Result<(), EvalError> {
+    fn evaluate_control_statement(
+        &mut self,
+        node: &PNode,
+        nodes: &[PNode],
+    ) -> Result<(), EvalError> {
         let changed;
 
         // This might just be a statement that changes the context (e.g.
@@ -1085,6 +1128,11 @@ impl Assembler {
         // Otherwise, check the function that could act as a statement that
         // produces bundles.
         match node.node_type {
+            NodeType::Control(ControlType::StartRepeat) => self.evaluate_repeat(node, nodes),
+            NodeType::Control(ControlType::EndRepeat) => {
+                self.can_bundle = true; // TODO
+                Ok(())
+            }
             NodeType::Control(ControlType::Byte) => self.push_evaluated_arguments(node, 1),
             NodeType::Control(ControlType::Addr) | NodeType::Control(ControlType::Word) => {
                 self.push_evaluated_arguments(node, 2)
@@ -1102,6 +1150,45 @@ impl Assembler {
                 global: false,
             }),
         }
+    }
+
+    fn evaluate_repeat(&mut self, node: &PNode, nodes: &[PNode]) -> Result<(), EvalError> {
+        self.repeats_seen += 1;
+
+        // First fetch the number of times the code block must be repeated.
+        let first = &node.args.as_ref().unwrap().first().unwrap().value.value;
+        let repeats = match first.parse::<usize>() {
+            Ok(n) => {
+                if n < 2 {
+                    return Err(EvalError {
+                        global: false,
+                        line: node.value.line,
+                        message: "pointless .repeat statement".to_string(),
+                    });
+                }
+                n
+            }
+            Err(_) => {
+                return Err(EvalError {
+                    global: false,
+                    line: node.value.line,
+                    message: format!(
+                        "first argument must be an integer, '{}' found instead",
+                        first
+                    ),
+                })
+            }
+        };
+
+        let name = format!("repeats-{}", self.repeats_seen);
+        let block = self.code_blocks.get(&name).unwrap().nodes.clone();
+
+        for _i in 0..repeats {
+            // TODO
+            let _ = self.bundle(nodes.get(block.start..=block.end).unwrap_or_default());
+        }
+        self.can_bundle = false; // TODO
+        Ok(())
     }
 
     // Push as many bundles as bytes are in the given file path. If there is any
@@ -3136,7 +3223,7 @@ WRITE_PPU_DATA $20B9, $04
 
         assert_eq!(
             res.first().unwrap().to_string(),
-            "using a named label ('@label') inside of a macro definition (line 2)"
+            "using a named label ('@label') inside of a macro/repeat definition (line 2)"
         );
     }
 
