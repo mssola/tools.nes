@@ -123,16 +123,18 @@ impl Assembler {
             return Err(errors.iter().map(|e| Error::Parse(e.clone())).collect());
         }
 
+        let nodes = parser.nodes();
+
         // Build the context by iterating over the parsed nodes and checking
         // where scopes start/end, evaluating values for variables, labels, etc.
-        self.eval_context(&parser.nodes)?;
+        self.eval_context(&nodes)?;
 
         // Convert the relevant nodes into binary bundles which can be used by
         // the caller. This is done for most nodes, even if some of them will
         // have to be marked as pending, since they depend on knowing the exact
         // size for a given segment.
         self.stage = Stage::Bundling;
-        self.bundle(&parser.nodes)?;
+        self.bundle(&nodes)?;
 
         // Now we know how much each segment spans, and we can resolve (crunch)
         // the nodes marked as pending.

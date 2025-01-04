@@ -215,8 +215,13 @@ pub enum NodeType {
     /// the enum to detect which function was exactly provided), the `left` an
     /// optional identifier (e.g. the "foo" on ".proc foo"), and the `args`
     /// contain any possible arguments that have been passed to this control
-    /// statement.
+    /// statement. The right arm might contain the body of the control statement
+    /// if it has some (e.g. the body inside of a .macro declaration).
     Control(ControlType),
+
+    /// The body of a control statement. The only relevant info here is `args`,
+    /// which contain the instructions of the body.
+    ControlBody,
 
     /// A literal expression, that is, something that starts with '#', '%' or
     /// '$'. The `left` node contains the inner expression.
@@ -242,6 +247,7 @@ impl fmt::Display for NodeType {
             NodeType::Indirection => write!(f, "indirection"),
             NodeType::Assignment => write!(f, "assignment"),
             NodeType::Control(control_type) => write!(f, "control function ({})", control_type),
+            NodeType::ControlBody => write!(f, "control function body"),
             NodeType::Literal => write!(f, "literal"),
             NodeType::Label => write!(f, "label"),
             NodeType::Call => write!(f, "call"),
@@ -261,6 +267,24 @@ impl fmt::Display for NodeType {
                 OperationType::LoByte => write!(f, "low byte"),
                 OperationType::HiByte => write!(f, "high byte"),
             },
+        }
+    }
+}
+
+impl NodeType {
+    /// Returns the NodeType that closes the current one if any.
+    pub fn closing_type(&self) -> Option<NodeType> {
+        match self {
+            NodeType::Control(ControlType::StartMacro) => {
+                Some(NodeType::Control(ControlType::EndMacro))
+            }
+            NodeType::Control(ControlType::StartProc) => {
+                Some(NodeType::Control(ControlType::EndProc))
+            }
+            NodeType::Control(ControlType::StartScope) => {
+                Some(NodeType::Control(ControlType::EndScope))
+            }
+            _ => None,
         }
     }
 }
@@ -292,7 +316,16 @@ pub struct PNode {
     pub args: Option<Vec<PNode>>,
 }
 
+/// Whether there is a body for a given node and whether it starts or ends it.
+#[derive(Debug)]
+pub enum NodeBodyType {
+    None,
+    Starts,
+    Ends,
+}
+
 impl PNode {
+    /// Returns true if the current node represents a branching instruction.
     pub fn is_branch(&self) -> bool {
         if self.node_type != NodeType::Instruction {
             return false;
@@ -303,5 +336,19 @@ impl PNode {
             opcode.as_str(),
             "bcc" | "bcs" | "beq" | "bmi" | "bne" | "bpl" | "bvc" | "bvs"
         )
+    }
+
+    /// Returns whether the node describes a starting/ending statement or none
+    /// of them.
+    pub fn body_type(&self) -> NodeBodyType {
+        match self.node_type {
+            NodeType::Control(ControlType::StartMacro)
+            | NodeType::Control(ControlType::StartProc)
+            | NodeType::Control(ControlType::StartScope) => NodeBodyType::Starts,
+            NodeType::Control(ControlType::EndMacro)
+            | NodeType::Control(ControlType::EndProc)
+            | NodeType::Control(ControlType::EndScope) => NodeBodyType::Ends,
+            _ => NodeBodyType::None,
+        }
     }
 }

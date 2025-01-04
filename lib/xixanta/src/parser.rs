@@ -1,5 +1,5 @@
 use crate::errors::ParseError;
-use crate::node::{NodeType, OperationType, PNode, PString};
+use crate::node::{NodeBodyType, NodeType, OperationType, PNode, PString};
 use crate::opcodes::{CONTROL_FUNCTIONS, INSTRUCTIONS};
 use std::cmp::Ordering;
 use std::io::{self, BufRead, Read};
@@ -22,7 +22,10 @@ pub struct Parser {
     /// The nodes that have been evaluated for the current parsing session. You
     /// can count on this vector to be filled after calling
     /// `parser::Parser::parse`.
-    pub nodes: Vec<PNode>,
+    // pub nodes: Vec<PNode>,
+    nodes: Vec<Vec<PNode>>,
+
+    bodies: Vec<NodeType>,
 }
 
 impl Parser {
@@ -31,6 +34,8 @@ impl Parser {
     /// returned.
     pub fn parse(&mut self, reader: impl Read) -> Result<(), Vec<ParseError>> {
         let mut errors = Vec::new();
+
+        self.nodes.push(vec![]);
 
         for line in io::BufReader::new(reader).lines() {
             match line {
@@ -44,11 +49,34 @@ impl Parser {
             self.line += 1;
         }
 
+        // Are there any more statements which are begging for a closing
+        // statement? If so, then there's something wrong.
+        if !self.bodies.is_empty() {
+            errors.push(
+                self.parser_error(
+                    format!(
+                        "expecting a '{}' but there are no more statements",
+                        self.bodies.last().unwrap()
+                    )
+                    .as_str(),
+                ),
+            );
+        }
+
+        // Truncate the nodes level to 1, just in case there were any errors on
+        // not closing a .macro statement or something similar.
+        self.nodes.truncate(1);
+
         if errors.is_empty() {
             Ok(())
         } else {
             Err(errors)
         }
+    }
+
+    pub fn nodes(&self) -> Vec<PNode> {
+        // println!("{:#?}", self.nodes);
+        self.nodes.first().unwrap().to_vec()
     }
 
     // Parse a single `line` and push the parsed nodes into `self.nodes`.
@@ -87,7 +115,7 @@ impl Parser {
         self.offset = 0;
         let (mut id, mut nt) = self.parse_identifier(l)?;
         if nt == NodeType::Label {
-            self.nodes.push(PNode {
+            self.nodes.last_mut().unwrap().push(PNode {
                 node_type: nt,
                 value: id,
                 left: None,
@@ -286,7 +314,50 @@ impl Parser {
                     self.parse_assignment(line, id)
                 } else {
                     let node = self.parse_expression_with_identifier(id, line)?;
-                    self.nodes.push(node);
+                    let node_type = node.node_type.clone();
+                    let body_type = node.body_type();
+
+                    match body_type {
+                        NodeBodyType::Starts => {
+                            self.bodies.push(node_type.closing_type().unwrap());
+                            self.nodes.last_mut().unwrap().push(node);
+                            self.nodes.push(vec![]);
+                        }
+                        NodeBodyType::Ends => {
+                            let expected_close = match self.bodies.pop() {
+                                Some(ec) => ec,
+                                None => {
+                                    return Err(self.parser_error(
+                                        format!("unexpected '{}'", node_type).as_str(),
+                                    ))
+                                }
+                            };
+                            if node_type != expected_close {
+                                return Err(self.parser_error(
+                                    format!(
+                                        "expecting '{}', found '{}'",
+                                        expected_close, node_type
+                                    )
+                                    .as_str(),
+                                ));
+                            }
+
+                            let nodes = self.nodes.pop().unwrap();
+                            if !nodes.is_empty() {
+                                self.nodes.last_mut().unwrap().last_mut().unwrap().right =
+                                    Some(Box::new(PNode {
+                                        node_type: NodeType::ControlBody,
+                                        value: PString::default(),
+                                        left: None,
+                                        right: None,
+                                        args: Some(nodes),
+                                    }));
+                            }
+                            self.nodes.last_mut().unwrap().push(node);
+                        }
+                        NodeBodyType::None => self.nodes.last_mut().unwrap().push(node),
+                    }
+
                     Ok(())
                 }
             }
@@ -411,7 +482,7 @@ impl Parser {
         }
 
         // We can push the resulting parsed expressions.
-        self.nodes.push(PNode {
+        self.nodes.last_mut().unwrap().push(PNode {
             node_type: NodeType::Instruction,
             value: id,
             left,
@@ -451,7 +522,7 @@ impl Parser {
         let left = self.parse_expression(rest)?;
 
         // And push the node.
-        self.nodes.push(PNode {
+        self.nodes.last_mut().unwrap().push(PNode {
             node_type: NodeType::Assignment,
             value: id,
             left: Some(Box::new(left)),
@@ -834,30 +905,28 @@ impl Parser {
     // considering the given `id` and rest of the `line`.
     fn parse_control(&mut self, id: PString, line: &str) -> Result<PNode, ParseError> {
         let mut left = None;
-        let required;
-        let node_type;
 
         // Ensure that this is a function that we know of. In the past this was
         // not done and it brought too many problems that made the more
         // "abstract" way of handling this just too complicated.
-        if let Some(control) = CONTROL_FUNCTIONS.get(&id.value.to_lowercase()) {
-            node_type = control.control_type.clone();
-            required = control.required_args;
-
-            // If this control function has an identifier (e.g. `.macro
-            // Identifier(args...)`), let's parse it now.
-            if control.has_identifier {
-                self.skip_whitespace(line);
-                left = Some(Box::new(PNode {
-                    node_type: NodeType::Value,
-                    value: self.parse_identifier(line)?.0,
-                    left: None,
-                    right: None,
-                    args: None,
-                }));
+        let control = match CONTROL_FUNCTIONS.get(&id.value.to_lowercase()) {
+            Some(control) => control,
+            None => {
+                return Err(self.parser_error(format!("unknown function '{}'", id.value).as_str()))
             }
-        } else {
-            return Err(self.parser_error(format!("unknown function '{}'", id.value).as_str()));
+        };
+
+        // If this control function has an identifier (e.g. `.macro
+        // Identifier(args...)`), let's parse it now.
+        if control.has_identifier {
+            self.skip_whitespace(line);
+            left = Some(Box::new(PNode {
+                node_type: NodeType::Value,
+                value: self.parse_identifier(line)?.0,
+                left: None,
+                right: None,
+                args: None,
+            }));
         }
 
         // At this point we reached the arguments (i.e. any identifier required
@@ -865,7 +934,7 @@ impl Parser {
         // Then, just parse the arguments and ensure that it matches the amount
         // required by the function.
         let args = self.parse_arguments(line)?;
-        if let Some(args_required) = required {
+        if let Some(args_required) = control.required_args {
             if args.len() != args_required {
                 return Err(self.parser_error(
                     format!("wrong number of arguments for function '{}'", id.value).as_str(),
@@ -874,7 +943,7 @@ impl Parser {
         }
 
         Ok(PNode {
-            node_type: NodeType::Control(node_type),
+            node_type: NodeType::Control(control.control_type.clone()),
             value: id,
             left,
             right: None,
@@ -1012,14 +1081,14 @@ mod tests {
     fn empty_line() {
         let mut parser = Parser::default();
         assert!(parser.parse("".as_bytes()).is_ok());
-        assert_eq!(parser.nodes.len(), 0);
+        assert_eq!(parser.nodes.last().unwrap().len(), 0);
     }
 
     #[test]
     fn spaced_line() {
         let mut parser = Parser::default();
         assert!(parser.parse("   ".as_bytes()).is_ok());
-        assert_eq!(parser.nodes.len(), 0);
+        assert_eq!(parser.nodes.last().unwrap().len(), 0);
     }
 
     #[test]
@@ -1027,7 +1096,7 @@ mod tests {
         for line in vec![";; This is a comment", "    ;; Comment"].into_iter() {
             let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
-            assert_eq!(parser.nodes.len(), 0);
+            assert_eq!(parser.nodes.last().unwrap().len(), 0);
         }
     }
 
@@ -1037,34 +1106,42 @@ mod tests {
     fn anonymous_label() {
         let mut parser = Parser::default();
         assert!(parser.parse(":".as_bytes()).is_ok());
-        assert_eq!(parser.nodes.len(), 1);
-        assert!(parser.nodes.first().unwrap().value.value.is_empty());
-        assert_eq!(parser.nodes.first().unwrap().value.start, 0);
-        assert_eq!(parser.nodes.first().unwrap().value.end, 0);
+
+        let mut nodes = parser.nodes.last().unwrap();
+        assert_eq!(nodes.len(), 1);
+        assert!(nodes.first().unwrap().value.value.is_empty());
+        assert_eq!(nodes.first().unwrap().value.start, 0);
+        assert_eq!(nodes.first().unwrap().value.end, 0);
 
         parser = Parser::default();
         assert!(parser.parse("  :".as_bytes()).is_ok());
-        assert_eq!(parser.nodes.len(), 1);
-        assert!(parser.nodes.first().unwrap().value.value.is_empty());
-        assert_eq!(parser.nodes.first().unwrap().value.start, 2);
-        assert_eq!(parser.nodes.first().unwrap().value.end, 2);
+
+        nodes = parser.nodes.last().unwrap();
+        assert_eq!(nodes.len(), 1);
+        assert!(nodes.first().unwrap().value.value.is_empty());
+        assert_eq!(nodes.first().unwrap().value.start, 2);
+        assert_eq!(nodes.first().unwrap().value.end, 2);
     }
 
     #[test]
     fn named_label() {
         let mut parser = Parser::default();
         assert!(parser.parse("label:".as_bytes()).is_ok());
-        assert_eq!(parser.nodes.len(), 1);
-        assert_eq!(parser.nodes.first().unwrap().value.value, "label");
-        assert_eq!(parser.nodes.first().unwrap().value.start, 0);
-        assert_eq!(parser.nodes.first().unwrap().value.end, 5);
+
+        let mut nodes = parser.nodes.last().unwrap();
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes.first().unwrap().value.value, "label");
+        assert_eq!(nodes.first().unwrap().value.start, 0);
+        assert_eq!(nodes.first().unwrap().value.end, 5);
 
         parser = Parser::default();
         assert!(parser.parse("  label:".as_bytes()).is_ok());
-        assert_eq!(parser.nodes.len(), 1);
-        assert_eq!(parser.nodes.first().unwrap().value.value, "label");
-        assert_eq!(parser.nodes.first().unwrap().value.start, 2);
-        assert_eq!(parser.nodes.first().unwrap().value.end, 7);
+
+        nodes = parser.nodes.last().unwrap();
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes.first().unwrap().value.value, "label");
+        assert_eq!(nodes.first().unwrap().value.start, 2);
+        assert_eq!(nodes.first().unwrap().value.end, 7);
     }
 
     #[test]
@@ -1073,20 +1150,17 @@ mod tests {
 
         let mut parser = Parser::default();
         assert!(parser.parse(line.as_bytes()).is_ok());
-        assert_eq!(parser.nodes.len(), 2);
+
+        let nodes = parser.nodes();
+        assert_eq!(nodes.len(), 2);
 
         // Label.
-        assert_eq!(parser.nodes.first().unwrap().value.value, "label");
-        assert_eq!(parser.nodes.first().unwrap().value.start, 0);
-        assert_eq!(parser.nodes.first().unwrap().value.end, 5);
+        assert_eq!(nodes.first().unwrap().value.value, "label");
+        assert_eq!(nodes.first().unwrap().value.start, 0);
+        assert_eq!(nodes.first().unwrap().value.end, 5);
 
         // Instruction
-        assert_node(
-            parser.nodes.last().unwrap(),
-            NodeType::Instruction,
-            line,
-            "dex",
-        )
+        assert_node(nodes.last().unwrap(), NodeType::Instruction, line, "dex")
     }
 
     // Literals
@@ -1097,7 +1171,7 @@ mod tests {
             let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
-            let node = parser.nodes.last().unwrap();
+            let node = parser.nodes.last().unwrap().last().unwrap();
             assert_eq!(node.node_type, NodeType::Literal);
             assert!(node.right.is_none());
             assert!(node.args.is_none());
@@ -1115,7 +1189,7 @@ mod tests {
         let mut parser = Parser::default();
         assert!(parser.parse(line.as_bytes()).is_ok());
 
-        let node = parser.nodes.last().unwrap();
+        let node = parser.nodes.last().unwrap().last().unwrap();
         assert_eq!(node.node_type, NodeType::Literal);
         assert!(node.right.is_none());
         assert!(node.args.is_none());
@@ -1141,7 +1215,7 @@ mod tests {
         let mut parser = Parser::default();
         assert!(parser.parse(line.as_bytes()).is_ok());
 
-        let node = parser.nodes.last().unwrap();
+        let node = parser.nodes.last().unwrap().last().unwrap();
         assert_eq!(node.node_type, NodeType::Literal);
         assert!(node.right.is_none());
         assert!(node.args.is_none());
@@ -1161,7 +1235,7 @@ mod tests {
         let mut parser = Parser::default();
         assert!(parser.parse(line.as_bytes()).is_ok());
 
-        let instr = parser.nodes.last().unwrap();
+        let instr = parser.nodes.last().unwrap().last().unwrap();
         assert_eq!(instr.node_type, NodeType::Instruction);
         assert!(instr.right.is_none());
         assert!(instr.args.is_none());
@@ -1206,7 +1280,7 @@ mod tests {
             let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
-            let node = parser.nodes.last().unwrap();
+            let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "dex");
             assert!(node.left.is_none());
             assert!(node.right.is_none());
@@ -1220,7 +1294,7 @@ mod tests {
             let mut parser = Parser::default();
             assert_one_valid(&mut parser, line);
 
-            let node = parser.nodes.first().unwrap();
+            let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "inc");
             assert!(node.right.is_none());
             assert!(node.args.is_none());
@@ -1235,7 +1309,7 @@ mod tests {
             let mut parser = Parser::default();
             assert_one_valid(&mut parser, line);
 
-            let node = parser.nodes.first().unwrap();
+            let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "inc");
             assert!(node.right.is_none());
             assert!(node.args.is_none());
@@ -1250,7 +1324,7 @@ mod tests {
             let mut parser = Parser::default();
             assert_one_valid(&mut parser, line);
 
-            let node = parser.nodes.first().unwrap();
+            let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "adc");
             assert!(node.right.is_none());
             assert!(node.args.is_none());
@@ -1265,7 +1339,7 @@ mod tests {
             let mut parser = Parser::default();
             assert_one_valid(&mut parser, line);
 
-            let node = parser.nodes.first().unwrap();
+            let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "inc");
             assert!(node.right.is_none());
             assert!(node.args.is_none());
@@ -1292,7 +1366,7 @@ mod tests {
             let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
-            let node = parser.nodes.last().unwrap();
+            let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "inc");
             assert!(node.args.is_none());
 
@@ -1319,7 +1393,7 @@ mod tests {
             let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
-            let node = parser.nodes.last().unwrap();
+            let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "lda");
             assert!(node.right.is_none());
 
@@ -1344,7 +1418,7 @@ mod tests {
             let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
-            let node = parser.nodes.last().unwrap();
+            let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "lda");
             assert!(node.right.is_none());
 
@@ -1369,7 +1443,7 @@ mod tests {
             let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
-            let node = parser.nodes.last().unwrap();
+            let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "lda");
 
             let left = node.left.clone().unwrap();
@@ -1388,7 +1462,7 @@ mod tests {
         let mut parser = Parser::default();
         assert!(parser.parse(line.as_bytes()).is_ok());
 
-        let node = parser.nodes.last().unwrap();
+        let node = parser.nodes.last().unwrap().last().unwrap();
         assert_node(node, NodeType::Instruction, line, "lda");
         assert!(node.args.is_none());
 
@@ -1407,7 +1481,7 @@ mod tests {
         let mut parser = Parser::default();
         assert!(parser.parse(line.as_bytes()).is_ok());
 
-        let node = parser.nodes.last().unwrap();
+        let node = parser.nodes.last().unwrap().last().unwrap();
         assert_node(node, NodeType::Instruction, line, "lda");
         assert!(node.args.is_none());
 
@@ -1427,7 +1501,7 @@ mod tests {
             let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
-            let node = parser.nodes.last().unwrap();
+            let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line.as_str(), "lda");
             assert!(node.right.is_none());
             assert!(node.args.is_none());
@@ -1470,7 +1544,7 @@ mod tests {
             let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
-            let node = parser.nodes.last().unwrap();
+            let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line.as_str(), "jmp");
             assert!(node.right.is_none());
             assert!(node.args.is_none());
@@ -1550,7 +1624,7 @@ mod tests {
         let mut parser = Parser::default();
         assert!(parser.parse(line.as_bytes()).is_ok());
 
-        let node = parser.nodes.last().unwrap();
+        let node = parser.nodes.last().unwrap().last().unwrap();
         assert_node(node, NodeType::Instruction, line, "ldx");
         assert!(node.args.is_none());
         assert!(node.right.is_none());
@@ -1575,7 +1649,7 @@ mod tests {
         let mut parser = Parser::default();
         assert!(parser.parse(line.as_bytes()).is_ok());
 
-        let node = parser.nodes.last().unwrap();
+        let node = parser.nodes.last().unwrap().last().unwrap();
         assert_node(node, NodeType::Instruction, line, "ldx");
         assert!(node.args.is_none());
         assert!(node.right.is_none());
@@ -1598,23 +1672,12 @@ mod tests {
 
     #[test]
     fn parse_control_no_args() {
-        for line in vec![
-            ".endmacro",
-            "    .endmacro",
-            " label: .endmacro   ; Comment",
-        ]
-        .into_iter()
-        {
+        for line in vec![".byte", "    .byte", " label: .byte   ; Comment"].into_iter() {
             let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
-            let node = parser.nodes.last().unwrap();
-            assert_node(
-                node,
-                NodeType::Control(ControlType::EndMacro),
-                line,
-                ".endmacro",
-            );
+            let node = parser.nodes.last().unwrap().last().unwrap();
+            assert_node(node, NodeType::Control(ControlType::Byte), line, ".byte");
             assert!(node.left.is_none());
             assert!(node.right.is_none());
             assert!(node.args.is_none());
@@ -1635,7 +1698,7 @@ mod tests {
             let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
-            let node = parser.nodes.last().unwrap();
+            let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(
                 node,
                 NodeType::Control(ControlType::Hibyte),
@@ -1665,7 +1728,7 @@ mod tests {
             let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
-            let node = parser.nodes.last().unwrap();
+            let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Control(ControlType::Byte), line, ".byte");
             assert!(node.left.is_none());
             assert!(node.right.is_none());
@@ -1683,7 +1746,15 @@ mod tests {
         let mut parser = Parser::default();
         assert!(parser.parse(line.as_bytes()).is_ok());
 
-        let args = parser.nodes.first().unwrap().args.clone().unwrap();
+        let args = parser
+            .nodes
+            .last()
+            .unwrap()
+            .first()
+            .unwrap()
+            .args
+            .clone()
+            .unwrap();
         assert_eq!(args.len(), 4);
 
         let mut it = args.into_iter();
@@ -1720,10 +1791,15 @@ mod tests {
         ]
         .into_iter()
         {
-            let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes()).is_ok());
+            // Add `.endscope` or it will error out on an unclosed macro
+            // statement.
+            let real = String::from(line) + "\n.endscope";
 
-            let node = parser.nodes.last().unwrap();
+            let mut parser = Parser::default();
+            assert!(parser.parse(real.as_bytes()).is_ok());
+
+            let nodes = parser.nodes();
+            let node = &nodes[nodes.len() - 2];
             assert_node(
                 node,
                 NodeType::Control(ControlType::StartScope),
@@ -1749,10 +1825,15 @@ mod tests {
         ]
         .into_iter()
         {
-            let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes()).is_ok());
+            // Add `.endmacro` or it will error out on an unclosed macro
+            // statement.
+            let real = String::from(line) + "\n.endmacro";
 
-            let node = parser.nodes.last().unwrap();
+            let mut parser = Parser::default();
+            assert!(parser.parse(real.as_bytes()).is_ok());
+
+            let nodes = parser.nodes();
+            let node = &nodes[nodes.len() - 2];
             assert_node(
                 node,
                 NodeType::Control(ControlType::StartMacro),
@@ -1781,10 +1862,15 @@ mod tests {
         ]
         .into_iter()
         {
-            let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes()).is_ok());
+            // Add `.endmacro` or it will error out on an unclosed macro
+            // statement.
+            let real = String::from(line) + "\n.endmacro";
 
-            let node = parser.nodes.last().unwrap();
+            let mut parser = Parser::default();
+            assert!(parser.parse(real.as_bytes()).is_ok());
+
+            let nodes = parser.nodes();
+            let node = &nodes[nodes.len() - 2];
             assert_node(
                 node,
                 NodeType::Control(ControlType::StartMacro),
@@ -1801,6 +1887,83 @@ mod tests {
             assert_node(args.first().unwrap(), NodeType::Value, line, "arg1");
             assert_node(args.last().unwrap(), NodeType::Value, line, "arg2");
         }
+    }
+
+    #[test]
+    fn parse_control_unclosed() {
+        let mut parser = Parser::default();
+        let err = parser.parse(".macro MACRO".as_bytes()).unwrap_err();
+
+        assert_eq!(
+            err.first().unwrap().message,
+            "expecting a 'control function (.endmacro)' but there are no more statements"
+        );
+    }
+
+    #[test]
+    fn parse_control_too_many_closes() {
+        let mut parser = Parser::default();
+        let err = parser.parse(".endmacro".as_bytes()).unwrap_err();
+
+        assert_eq!(
+            err.first().unwrap().message,
+            "unexpected 'control function (.endmacro)'"
+        );
+    }
+
+    #[test]
+    fn parse_control_wrong_close() {
+        let code = r#".scope Scope
+.macro Macro
+.endscope
+.endmacro"#;
+        let mut parser = Parser::default();
+        let err = parser.parse(code.as_bytes()).unwrap_err();
+
+        assert_eq!(
+            err.first().unwrap().message,
+            "expecting 'control function (.endmacro)', found 'control function (.endscope)'"
+        );
+        assert_eq!(
+            err.last().unwrap().message,
+            "expecting 'control function (.endscope)', found 'control function (.endmacro)'"
+        );
+    }
+
+    #[test]
+    fn parse_control_body() {
+        let code = r#".macro MACRO
+nop
+inc $20
+.endmacro"#;
+        let mut parser = Parser::default();
+        assert!(parser.parse(code.as_bytes()).is_ok());
+
+        let nodes = parser.nodes();
+        assert_eq!(nodes.len(), 2); // .macro and .endmacro
+
+        let node = nodes.first().unwrap();
+        assert_node(
+            node,
+            NodeType::Control(ControlType::StartMacro),
+            code,
+            ".macro",
+        );
+
+        let left = node.left.clone().unwrap();
+        assert_node(&left, NodeType::Value, code, "MACRO");
+
+        let right = node.right.clone().unwrap();
+        assert_node(&right, NodeType::ControlBody, code, "");
+
+        let inner = right.args.unwrap();
+        assert_node(inner.first().unwrap(), NodeType::Instruction, "nop", "nop");
+        assert_node(
+            inner.last().unwrap(),
+            NodeType::Instruction,
+            "inc $20",
+            "inc",
+        );
     }
 
     #[test]
@@ -1822,7 +1985,7 @@ mod tests {
             let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
-            let node = parser.nodes.last().unwrap();
+            let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "lda");
             assert!(node.right.is_none());
             assert!(node.args.is_none());
@@ -1859,7 +2022,7 @@ mod tests {
             let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
-            let node = parser.nodes.last().unwrap();
+            let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "lda");
             assert!(node.right.is_none());
             assert!(node.args.is_none());
@@ -1903,7 +2066,7 @@ mod tests {
             let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
-            let node = parser.nodes.last().unwrap();
+            let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "lda");
             assert!(node.args.is_none());
 
@@ -1948,7 +2111,7 @@ mod tests {
             let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
-            let node = parser.nodes.last().unwrap();
+            let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Assignment, line, "lala");
             assert!(node.right.is_none());
             assert!(node.args.is_none());
@@ -1999,7 +2162,7 @@ mod tests {
             let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
-            let node = parser.nodes.last().unwrap();
+            let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Value, line, "MACRO_CALL");
             assert!(node.left.is_none());
             assert!(node.right.is_none());
@@ -2021,7 +2184,7 @@ mod tests {
             let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
-            let node = parser.nodes.last().unwrap();
+            let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Call, line, "MACRO_CALL");
             assert!(node.left.is_none());
             assert!(node.right.is_none());
@@ -2042,7 +2205,7 @@ mod tests {
             let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
-            let node = parser.nodes.last().unwrap();
+            let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Call, line, "MACRO_CALL");
             assert!(node.left.is_none());
             assert!(node.right.is_none());
@@ -2066,7 +2229,7 @@ mod tests {
             let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
-            let node = parser.nodes.last().unwrap();
+            let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Call, line, "MACRO_CALL");
             assert!(node.left.is_none());
             assert!(node.right.is_none());
