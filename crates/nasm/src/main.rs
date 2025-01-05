@@ -3,8 +3,7 @@ use clap::Parser as ClapParser;
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::Path;
-use xixanta::assembler::Assembler;
-use xixanta::mapping::get_mapping_configuration;
+use xixanta::assembler::assemble;
 
 /// Assembler for the 6502 microprocessor that targets the NES/Famicom.
 #[derive(ClapParser, Debug)]
@@ -80,47 +79,31 @@ fn main() -> Result<()> {
 
     // Select the linker configuration.
     let config = args.config.unwrap_or("nrom".to_string());
-    let mapping = match get_mapping_configuration(&config) {
-        Ok(cfg) => cfg,
-        Err(e) => {
-            eprintln!("error: {}", e);
-            std::process::exit(1);
-        }
-    };
 
     // And assemble.
     let mut error_count = 0;
-    let mut assembler = Assembler::new(mapping);
-    match assembler.assemble(working_directory.to_path_buf(), input) {
-        Ok(bundles) => {
-            for warning in assembler.warnings() {
-                if warn_as_errors {
-                    eprintln!("error: {}", warning);
-                    error_count += 1;
-                } else {
-                    eprintln!("warning: {}", warning);
-                }
-            }
-            if error_count == 0 {
-                for b in bundles {
-                    for i in 0..b.size {
-                        output.write_all(&[b.bytes[i as usize]])?;
-                    }
-                }
-            }
+    let res = assemble(input, config.as_str(), working_directory.to_path_buf());
+
+    // Print warnings and errors first, while also computing the amount of them
+    // that exists.
+    for warning in res.warnings {
+        if warn_as_errors {
+            eprintln!("error: {}", warning);
+            error_count += 1;
+        } else {
+            eprintln!("warning: {}", warning);
         }
-        Err(errors) => {
-            for warning in assembler.warnings() {
-                if warn_as_errors {
-                    eprintln!("error: {}", warning);
-                    error_count += 1;
-                } else {
-                    eprintln!("warning: {}", warning);
-                }
-            }
-            for err in errors {
-                eprintln!("error: {}", err);
-                error_count += 1;
+    }
+    for error in res.errors {
+        eprintln!("error: {}", error);
+        error_count += 1;
+    }
+
+    // If everything was right, just deliver the bundles.
+    if error_count == 0 {
+        for b in res.bundles {
+            for i in 0..b.size {
+                output.write_all(&[b.bytes[i as usize]])?;
             }
         }
     }

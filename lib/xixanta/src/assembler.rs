@@ -1,5 +1,5 @@
 use crate::errors::{ContextError, ContextErrorReason, Error, EvalError};
-use crate::mapping::Mapping;
+use crate::mapping::{get_mapping_configuration, Mapping};
 use crate::node::{ControlType, NodeType, OperationType, PNode, PString};
 use crate::object::{Bundle, Context, Object, ObjectType};
 use crate::opcodes::{AddressingMode, INSTRUCTIONS};
@@ -53,11 +53,11 @@ pub struct PendingNode {
     labels_seen: usize,
 }
 
-pub struct Assembler {
+pub struct Assembler<'a> {
     context: Context,
     literal_mode: Option<LiteralMode>,
     stage: Stage,
-    macros: HashMap<String, usize>,
+    macros: HashMap<String, &'a PNode>,
     mappings: Vec<Mapping>,
     current_mapping: usize,
     current_segment: usize,
@@ -81,7 +81,115 @@ pub struct Assembler {
     directories: Vec<PathBuf>,
 }
 
-impl Assembler {
+#[derive(Debug)]
+pub struct AssemblerResult {
+    pub bundles: Vec<Bundle>,
+    pub errors: Vec<Error>,
+    pub warnings: Vec<Error>,
+}
+
+/// Read the contents from the `reader` as a source file and produce a list of
+/// bundles that can be formatted as binary data. You also need to pass the
+/// initial working directory `init_directory`, as otherwise control statements
+/// like ".import" or ".incbin" wouldn't know how to resolve relative paths. You
+/// can specify the mapper to be used as an identifier in `mapping`, which will
+/// be handled via `get_mapping_configuration`.
+pub fn assemble(reader: impl Read, mapping: &str, init_directory: PathBuf) -> AssemblerResult {
+    let config = match get_mapping_configuration(mapping) {
+        Ok(config) => config,
+        Err(e) => {
+            return AssemblerResult {
+                bundles: vec![],
+                errors: vec![Error::Eval(EvalError {
+                    global: true,
+                    line: 0,
+                    message: e,
+                })],
+                warnings: vec![],
+            };
+        }
+    };
+
+    assemble_with_mapping(reader, config, init_directory)
+}
+
+/// Read the contents from the `reader` as a source file and produce a list of
+/// bundles that can be formatted as binary data. You also need to pass the
+/// initial working directory `init_directory`, as otherwise control statements
+/// like ".import" or ".incbin" wouldn't know how to resolve relative paths. You
+/// also need to provide the `mapping` as handled internally. If you are unsure
+/// how to use it, just call `assemble`.
+pub fn assemble_with_mapping(
+    reader: impl Read,
+    mapping: Vec<Mapping>,
+    init_directory: PathBuf,
+) -> AssemblerResult {
+    let mut asm = Assembler::new(mapping);
+
+    // Push the initial directory into our stack of directories.
+    asm.directories.push(init_directory);
+
+    // First of all, parse the input so we get a list of nodes we can work
+    // with.
+    let mut parser = Parser::default();
+    if let Err(errors) = parser.parse(reader) {
+        return AssemblerResult {
+            bundles: vec![],
+            errors: errors.iter().map(|e| Error::Parse(e.clone())).collect(),
+            warnings: asm.warnings,
+        };
+    }
+
+    let nodes = parser.nodes();
+
+    // Build the context by iterating over the parsed nodes and checking
+    // where scopes start/end, evaluating values for variables, labels, etc.
+    if let Err(errors) = asm.eval_context(&nodes) {
+        return AssemblerResult {
+            bundles: vec![],
+            errors,
+            warnings: asm.warnings,
+        };
+    }
+
+    // Convert the relevant nodes into binary bundles which can be used by
+    // the caller. This is done for most nodes, even if some of them will
+    // have to be marked as pending, since they depend on knowing the exact
+    // size for a given segment.
+    if let Err(errors) = asm.bundle(&nodes) {
+        return AssemblerResult {
+            bundles: vec![],
+            errors,
+            warnings: asm.warnings,
+        };
+    }
+
+    // Now we know how much each segment spans, and we can resolve (crunch)
+    // the nodes marked as pending.
+    if let Err(errors) = asm.crunch() {
+        return AssemblerResult {
+            bundles: vec![],
+            errors,
+            warnings: asm.warnings,
+        };
+    }
+
+    // All set, fill the vector of bundles to be returned.
+    match asm.fill() {
+        Ok(bundles) => AssemblerResult {
+            bundles,
+            errors: vec![],
+            warnings: asm.warnings,
+        },
+        Err(errors) => AssemblerResult {
+            bundles: vec![],
+            errors,
+            warnings: asm.warnings,
+        },
+    }
+}
+
+impl<'a> Assembler<'a> {
     pub fn new(mappings: Vec<Mapping>) -> Self {
         Self {
             context: Context::new(),
@@ -98,53 +206,6 @@ impl Assembler {
             warnings: vec![],
             directories: vec![],
         }
-    }
-
-    /// Returns the warnings accumulated over the current session.
-    pub fn warnings(&self) -> &Vec<Error> {
-        &self.warnings
-    }
-
-    /// Read the contents from the `reader` as a source file and produce a list
-    /// of bundles that can be formatted as binary data. You also need to pass
-    /// the initial working directory `init_directory`, as otherwise control
-    /// statements like ".import" or ".incbin" wouldn't know how to resolve
-    /// relative paths.
-    pub fn assemble(
-        &mut self,
-        init_directory: PathBuf,
-        reader: impl Read,
-    ) -> Result<Vec<Bundle>, Vec<Error>> {
-        // Push the initial directory into our stack of directories.
-        self.directories.push(init_directory);
-
-        // First of all, parse the input so we get a list of nodes we can work
-        // with.
-        let mut parser = Parser::default();
-        if let Err(errors) = parser.parse(reader) {
-            return Err(errors.iter().map(|e| Error::Parse(e.clone())).collect());
-        }
-
-        let nodes = parser.nodes();
-
-        // Build the context by iterating over the parsed nodes and checking
-        // where scopes start/end, evaluating values for variables, labels, etc.
-        self.eval_context(&nodes)?;
-
-        // Convert the relevant nodes into binary bundles which can be used by
-        // the caller. This is done for most nodes, even if some of them will
-        // have to be marked as pending, since they depend on knowing the exact
-        // size for a given segment.
-        self.stage = Stage::Bundling;
-        self.bundle(&nodes)?;
-
-        // Now we know how much each segment spans, and we can resolve (crunch)
-        // the nodes marked as pending.
-        self.stage = Stage::Crunching;
-        self.crunch()?;
-
-        // All set, fill the vector of bundles to be returned.
-        self.fill()
     }
 
     // Define a new variable by taking the given `id`. This variable will only
@@ -166,10 +227,10 @@ impl Assembler {
         )
     }
 
-    fn eval_context(&mut self, nodes: &[PNode]) -> Result<(), Vec<Error>> {
+    fn eval_context(&mut self, nodes: &'a [PNode]) -> Result<(), Vec<Error>> {
         let mut errors = Vec::new();
 
-        for (idx, node) in nodes.iter().enumerate() {
+        for node in nodes {
             match &node.node_type {
                 // At this stage we only define the label into the current
                 // context so it's known. The actual value cannot be computed
@@ -241,11 +302,12 @@ impl Assembler {
                             // illegal definitions.
                             self.macros_seen += 1;
 
-                            // TODO: reserve the name so it cannot be used as a
-                            // value (e.g. trying to use it as a variable).
+                            // Insert a reference to this node so it can be
+                            // unrolled whenever we have to perform a macro
+                            // call.
                             self.macros
                                 .entry(node.left.as_ref().unwrap().value.value.clone())
-                                .or_insert(idx);
+                                .or_insert(node);
                         }
                         ControlType::EndMacro => {
                             if self.macros_seen > 0 {
@@ -344,8 +406,10 @@ impl Assembler {
         Ok(())
     }
 
-    fn bundle(&mut self, nodes: &[PNode]) -> Result<(), Vec<Error>> {
+    fn bundle(&mut self, nodes: &'a [PNode]) -> Result<(), Vec<Error>> {
         let mut errors = Vec::new();
+
+        self.stage = Stage::Bundling;
 
         for node in nodes {
             match &node.node_type {
@@ -425,7 +489,7 @@ impl Assembler {
                     }
                 }
                 NodeType::Value | NodeType::Call => {
-                    if let Err(mut ers) = self.bundle_call(node, nodes) {
+                    if let Err(mut ers) = self.bundle_call(node) {
                         errors.append(&mut ers);
                     }
                 }
@@ -443,6 +507,8 @@ impl Assembler {
 
     fn crunch(&mut self) -> Result<(), Vec<Error>> {
         let mut errors = vec![];
+
+        self.stage = Stage::Crunching;
 
         for pn in self.pending.clone() {
             self.labels_seen = pn.labels_seen;
@@ -528,9 +594,9 @@ impl Assembler {
     }
 
     // Consume a node which contains a macro call by pushing its bundles now.
-    fn bundle_call(&mut self, node: &PNode, nodes: &[PNode]) -> Result<(), Vec<Error>> {
-        // Get the index for the macro we are trying to reproduce.
-        let idx = self.macros.get(&node.value.value).ok_or(EvalError {
+    fn bundle_call(&mut self, node: &PNode) -> Result<(), Vec<Error>> {
+        // Get the macro we are trying to reproduce.
+        let mcr = *self.macros.get(&node.value.value).ok_or(EvalError {
             line: node.value.line,
             message: format!(
                 "could not find a macro with the name '{}'",
@@ -538,8 +604,6 @@ impl Assembler {
             ),
             global: false,
         })?;
-
-        let mcr = &nodes[*idx];
 
         // Detect missmatches between the number of arguments provided and the
         // ones defined by the macro.
@@ -1663,67 +1727,70 @@ mod tests {
         get_mapping_configuration("empty").unwrap()
     }
 
-    fn minimal_header() -> Vec<Bundle> {
-        vec![
-            Bundle::fill(0x4E), // N
-            Bundle::fill(0x45), // E
-            Bundle::fill(0x53), // S
-            Bundle::fill(0x1A), // MS-DOS \0
-            Bundle::fill(0x01), // 1 * 8KB of PRG ROM
-            Bundle::fill(0x00), // No CHR ROM
-        ]
+    fn minimal_header() -> &'static str {
+        // NES\0
+        // 1 * 8KB of PRG ROM
+        // No CHR ROM
+        r#".segment "HEADER"
+.byte 'N', 'E', 'S', $1A, $01, $00
+.segment "CODE"
+"#
     }
 
+    // Just run `assemble_with_mapping` by assuming `minimal_header()` and an
+    // empty mapper.
+    fn just_assemble(line: &str) -> AssemblerResult {
+        // The line cannot be given as is, but we have to prepend the header or
+        // the assembler will freak out.
+        let real_line = minimal_header().to_string() + line;
+
+        assemble_with_mapping(
+            real_line.as_bytes(),
+            empty(),
+            std::env::current_dir().unwrap().to_path_buf(),
+        )
+    }
+
+    // Like `just_assemble` but it only returns bundles passed the header.
+    fn just_bundles(line: &str) -> Vec<Bundle> {
+        let res = just_assemble(line);
+
+        assert_eq!(res.errors.len(), 0);
+        res.bundles[0x10..].to_vec()
+    }
+
+    // Given an instruction in `line`, assert that the resulting bundle matches
+    // the given `hex` values.
     fn assert_instruction(line: &str, hex: &[u8]) {
-        // Set up the empty mapper, but we have to push a minimal header
-        // (otherwise an early assertion will fail), and we need to point to the
-        // "CODE" segment (which is in the mapping indexed by 1).
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
+        let res = just_assemble(line);
 
-        // Grab the result passed the initial header.
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                line.as_bytes(),
-            )
-            .unwrap()[0x10..];
+        assert!(res.warnings.is_empty());
+        assert!(res.errors.is_empty());
 
-        assert_eq!(res.len(), 1);
+        assert_eq!(res.bundles.len(), 0x11);
 
-        for i in 0..res[0].size {
-            assert_eq!(hex[i as usize], res[0].bytes[i as usize]);
+        let bundles = &res.bundles[0x10..];
+        for i in 0..bundles[0].size {
+            assert_eq!(hex[i as usize], bundles[0].bytes[i as usize]);
         }
     }
 
+    // Given a code in `line`, assemble it and assert that an error with the
+    // given `message` is reported. The line number `line_num` should also
+    // appear if `global` is set to false. Note that the line number doesn't
+    // have to account for the inserted header.
     fn assert_error(line: &str, line_num: usize, global: bool, message: &str) {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-
-        assert_error_with_assembler(&mut asm, line, line_num, global, message);
-    }
-
-    fn assert_error_with_assembler(
-        asm: &mut Assembler,
-        line: &str,
-        line_num: usize,
-        global: bool,
-        message: &str,
-    ) {
-        let res = asm.assemble(
-            std::env::current_dir().unwrap().to_path_buf(),
-            line.as_bytes(),
-        );
+        let res = just_assemble(line);
         let msg = if global {
             message.to_string()
         } else {
-            format!("{} (line {})", message, line_num)
+            // +3 to account for the header.
+            format!("{} (line {})", message, line_num + 3)
         };
-        assert_eq!(res.unwrap_err().first().unwrap().to_string().as_str(), msg);
+
+        assert!(res.bundles.is_empty());
+        assert!(!res.errors.is_empty());
+        assert_eq!(res.errors[0].to_string().as_str(), msg);
     }
 
     // Empty
@@ -1731,19 +1798,14 @@ mod tests {
     #[test]
     fn empty_line() {
         for line in vec!["", "  ", ";; Comment", "  ;; Comment"].into_iter() {
-            let mut asm = Assembler::new(empty());
-            asm.mappings[0].segments[0].bundles = minimal_header();
-            asm.mappings[0].offset = 6;
-            asm.current_mapping = 1;
+            let res = just_assemble(line);
 
-            let res = &asm
-                .assemble(
-                    std::env::current_dir().unwrap().to_path_buf(),
-                    line.as_bytes(),
-                )
-                .unwrap()[0x10..];
+            assert!(res.errors.is_empty());
+            assert!(res.bundles[0x10..].is_empty());
 
-            assert!(res.is_empty());
+            // Warning for empty CODE segment.
+            assert_eq!(res.warnings.len(), 1);
+            assert_eq!(res.warnings[0].to_string(), "segment 'CODE' is empty");
         }
     }
 
@@ -1771,9 +1833,9 @@ mod tests {
         );
         assert_error(
             r#"
-        Variable = 42
-        adc %Variable
-        "#,
+            Variable = 42
+            adc %Variable
+            "#,
             3,
             false,
             "you cannot use variables like 'Variable' in binary literals",
@@ -1797,18 +1859,18 @@ mod tests {
         );
         assert_error(
             r#"
-Variable = 42
-adc $Variable
-"#,
+    Variable = 42
+    adc $Variable
+    "#,
             3,
             false,
             "you cannot use variables like 'Variable' in hexadecimal literals",
         );
         assert_error(
             r#"
-Four = 4
-adc $Four
-"#,
+    Four = 4
+    adc $Four
+    "#,
             3,
             false,
             "you cannot use variables like 'Four' in hexadecimal literals",
@@ -1823,10 +1885,10 @@ adc $Four
         assert_error("adc #256", 1, false, "decimal value is too big");
         assert_error("adc #2000", 1, false, "decimal value is too big");
         assert_error(
-            "adc #2A",
-            1, false,
-            "'A' is not a decimal value and could not find variable '2A' in the global scope either",
-        );
+                "adc #2A",
+                1, false,
+                "'A' is not a decimal value and could not find variable '2A' in the global scope either",
+            );
         assert_instruction("adc #1", &[0x69, 0x01]);
     }
 
@@ -1834,33 +1896,25 @@ adc $Four
 
     #[test]
     fn scoped_variable() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"
-.scope One   ; This is a comment
-  adc #Variable
+        let res = just_bundles(
+            r#"
+    .scope One   ; This is a comment
+      adc #Variable
 
-  Variable = $20
-.endscope
+      Variable = $20
+    .endscope
 
-.scope Another
-  Variable = $40
-.endscope
+    .scope Another
+      Variable = $40
+    .endscope
 
-Variable = $30
-adc #Variable
+    Variable = $30
+    adc #Variable
 
-adc #One::Variable
-adc #Another::Variable
-"#
-                .as_bytes(),
-            )
-            .unwrap()[0x10..];
+    adc #One::Variable
+    adc #Another::Variable
+    "#,
+        );
 
         assert_eq!(res.len(), 4);
         let instrs: Vec<[u8; 2]> = vec![[0x69, 0x20], [0x69, 0x30], [0x69, 0x20], [0x69, 0x40]];
@@ -1874,20 +1928,12 @@ adc #Another::Variable
 
     #[test]
     fn bare_variables() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"
-Variable = 4
-adc Variable
-"#
-                .as_bytes(),
-            )
-            .unwrap()[0x10..];
+        let res = just_bundles(
+            r#"
+    Variable = 4
+    adc Variable
+    "#,
+        );
 
         assert_eq!(res.len(), 1);
 
@@ -1899,24 +1945,16 @@ adc Variable
 
     #[test]
     fn reference_outer_variables() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"
-foo:
-  rts
+        let res = just_bundles(
+            r#"
+    foo:
+      rts
 
-.proc inner
-    jsr foo
-.endproc
-"#
-                .as_bytes(),
-            )
-            .unwrap()[0x10..];
+    .proc inner
+        jsr foo
+    .endproc
+    "#,
+        );
 
         assert_eq!(res.len(), 2);
 
@@ -1934,10 +1972,10 @@ foo:
     #[test]
     fn bad_variable_but_valid_identifier_in_instruction() {
         assert_error(
-            "adc Variable",
-            1, false,
-            "no prefix was given to operand and could not find variable 'Variable' in the global scope either",
-        );
+                "adc Variable",
+                1, false,
+                "no prefix was given to operand and could not find variable 'Variable' in the global scope either",
+            );
         assert_error(
             "adc Scoped::Variable",
             1,
@@ -1950,14 +1988,14 @@ foo:
     fn redefined_variable() {
         assert_error(
             r#"
-.scope One
-  Variable = 1
-.endscope
+    .scope One
+      Variable = 1
+    .endscope
 
-Variable = 1
-Yet = 3
-Yet = 4
-"#,
+    Variable = 1
+    Yet = 3
+    Yet = 4
+    "#,
             8,
             false,
             "'Yet' already defined in the global scope: you cannot re-assign names",
@@ -1971,7 +2009,7 @@ Yet = 4
             1,
             false,
             "'e' is not a decimal value and could not find variable \
-                      'Variable' in the global scope either",
+                          'Variable' in the global scope either",
         );
         assert_error(
             "lda #Scope::Variable",
@@ -1981,10 +2019,10 @@ Yet = 4
         );
         assert_error(
             r#"
-.scope Scope
-.endscope
-lda #Scope::Variable
-"#,
+    .scope Scope
+    .endscope
+    lda #Scope::Variable
+    "#,
             4,
             false,
             "'e' is not a decimal value and could not find variable 'Variable' in 'Scope' either",
@@ -1993,25 +2031,17 @@ lda #Scope::Variable
 
     #[test]
     fn operations_with_variables() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"
-Value = 4
-ldx #(2 + Value)
-ldx #(2 - Value)
-ldx #(2 * -Value)
-ldx #(Value / 2)
-ldx #(Value << 2)
-ldx #~Value
-"#
-                .as_bytes(),
-            )
-            .unwrap()[0x10..];
+        let res = just_bundles(
+            r#"
+    Value = 4
+    ldx #(2 + Value)
+    ldx #(2 - Value)
+    ldx #(2 * -Value)
+    ldx #(Value / 2)
+    ldx #(Value << 2)
+    ldx #~Value
+    "#,
+        );
 
         assert_eq!(res.len(), 6);
 
@@ -2033,21 +2063,13 @@ ldx #~Value
 
     #[test]
     fn signed_with_variables() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"
-Value = -2
-ldx #Value
-ldx #+Value
-"#
-                .as_bytes(),
-            )
-            .unwrap()[0x10..];
+        let res = just_bundles(
+            r#"
+    Value = -2
+    ldx #Value
+    ldx #+Value
+    "#,
+        );
 
         assert_eq!(res.len(), 2);
 
@@ -2066,45 +2088,25 @@ ldx #+Value
 
     #[test]
     fn divide_by_zero() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"Value = 0
-ldx #(2 / Value)
-"#
-                .as_bytes(),
-            )
-            .unwrap_err();
-
-        assert_eq!(
-            res.first().unwrap().to_string(),
-            "attempting to divide by zero (line 2)"
+        assert_error(
+            r#"Value = 0
+    ldx #(2 / Value)
+"#,
+            2,
+            false,
+            "attempting to divide by zero",
         );
     }
 
     #[test]
     fn bad_shift() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"Value = #$11
-ldx #(2 << Value)
-"#
-                .as_bytes(),
-            )
-            .unwrap_err();
-
-        assert_eq!(
-            res.first().unwrap().to_string(),
-            "shift operator too big (line 2)"
+        assert_error(
+            r#"Value = #$11
+    ldx #(2 << Value)
+    "#,
+            2,
+            false,
+            "shift operator too big",
         );
     }
 
@@ -2406,24 +2408,16 @@ ldx #(2 << Value)
 
     #[test]
     fn same_segment_labels() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"
-nop
-@hello:
-    jmp @hello
-    jmp @end
-@end:
+        let res = just_bundles(
+            r#"
     nop
-"#
-                .as_bytes(),
-            )
-            .unwrap()[0x10..];
+    @hello:
+        jmp @hello
+        jmp @end
+    @end:
+        nop
+    "#,
+        );
 
         assert_eq!(res.len(), 4);
 
@@ -2442,31 +2436,23 @@ nop
 
     #[test]
     fn anonymous_relative_jumps() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"
-nop
-:
+        let res = just_bundles(
+            r#"
     nop
-@hello:
-    jmp :--
-    jmp :+
-    jmp @hello
-    jmp :+++
-@end:
-    nop
-:
-    nop
-: nop
-"#
-                .as_bytes(),
-            )
-            .unwrap()[0x10..];
+    :
+        nop
+    @hello:
+        jmp :--
+        jmp :+
+        jmp @hello
+        jmp :+++
+    @end:
+        nop
+    :
+        nop
+    : nop
+    "#,
+        );
 
         assert_eq!(res.len(), 9);
 
@@ -2511,31 +2497,23 @@ nop
 
     #[test]
     fn anonymous_relative_branches() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"
-nop
-:
+        let res = just_bundles(
+            r#"
     nop
-@hello:
-    beq :--
-    beq :+
-    beq @hello
-    beq :+++
-@end:
-    nop
-:
-    nop
-: nop
-"#
-                .as_bytes(),
-            )
-            .unwrap()[0x10..];
+    :
+        nop
+    @hello:
+        beq :--
+        beq :+
+        beq @hello
+        beq :+++
+    @end:
+        nop
+    :
+        nop
+    : nop
+    "#,
+        );
 
         assert_eq!(res.len(), 9);
 
@@ -2576,24 +2554,16 @@ nop
 
     #[test]
     fn conditional_branch_to_labels() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"
-nop
-@hello:
-    beq @hello
-    beq @end
-@end:
+        let res = just_bundles(
+            r#"
     nop
-"#
-                .as_bytes(),
-            )
-            .unwrap()[0x10..];
+    @hello:
+        beq @hello
+        beq @end
+    @end:
+        nop
+    "#,
+        );
 
         assert_eq!(res.len(), 4);
 
@@ -2610,23 +2580,15 @@ nop
 
     #[test]
     fn jsr_to_proc() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"nop
-.proc hello
-  nop
-  rts
-.endproc
-  jsr hello
-"#
-                .as_bytes(),
-            )
-            .unwrap()[0x10..];
+        let res = just_bundles(
+            r#"nop
+    .proc hello
+      nop
+      rts
+    .endproc
+      jsr hello
+    "#,
+        );
 
         assert_eq!(res.len(), 4);
 
@@ -2647,23 +2609,15 @@ nop
 
     #[test]
     fn label_in_instruction_addressing() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"
-  ldx #0
-@load_palettes_loop:
-  lda palettes, x
-palettes:
-  .byte $0F, $12, $22, $32
-"#
-                .as_bytes(),
-            )
-            .unwrap()[0x10..];
+        let res = just_bundles(
+            r#"
+      ldx #0
+    @load_palettes_loop:
+      lda palettes, x
+    palettes:
+      .byte $0F, $12, $22, $32
+    "#,
+        );
 
         assert_instruction("ldx #0", &res[0].bytes);
         assert_instruction("lda $8005, x", &res[1].bytes);
@@ -2685,24 +2639,16 @@ palettes:
 
     #[test]
     fn byte_literals() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"
-.scope Vars
-    Variable = 4
-.endscope
+        let res = just_bundles(
+            r#"
+    .scope Vars
+        Variable = 4
+    .endscope
 
-.byte #Vars::Variable
-.dw $2001, $02
-"#
-                .as_bytes(),
-            )
-            .unwrap()[0x10..];
+    .byte #Vars::Variable
+    .dw $2001, $02
+    "#,
+        );
 
         assert_eq!(res.len(), 3);
 
@@ -2724,23 +2670,15 @@ palettes:
 
     #[test]
     fn hi_lo_byte() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"
-Var = $2002
-lda #.lobyte(Var)
-lda #<Var
-lda #.hibyte(Var)
-lda #>Var
-"#
-                .as_bytes(),
-            )
-            .unwrap()[0x10..];
+        let res = just_bundles(
+            r#"
+    Var = $2002
+    lda #.lobyte(Var)
+    lda #<Var
+    lda #.hibyte(Var)
+    lda #>Var
+    "#,
+        );
 
         assert_eq!(res.len(), 4);
         let instrs: Vec<[u8; 2]> = vec![[0xA9, 0x02], [0xA9, 0x02], [0xA9, 0x20], [0xA9, 0x20]];
@@ -2754,34 +2692,28 @@ lda #>Var
 
     #[test]
     fn warnings_on_empty_proc_scope_macro() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let _ = asm.assemble(
-            std::env::current_dir().unwrap().to_path_buf(),
+        let res = just_assemble(
             r#".proc Proc
-.endproc
+    .endproc
 
-.scope Scope
-.endscope
+    .scope Scope
+    .endscope
 
-.macro MACRO
-.endmacro
+    .macro MACRO
+    .endmacro
 
-MACRO
-"#
-            .as_bytes(),
+    MACRO
+    "#,
         );
 
-        let warnings = asm.warnings();
+        let warnings = res.warnings;
         assert_eq!(warnings.len(), 4);
 
-        assert_eq!(warnings[0].to_string(), "empty .proc 'Proc' (line 1)");
-        assert_eq!(warnings[1].to_string(), "empty .scope 'Scope' (line 4)");
+        assert_eq!(warnings[0].to_string(), "empty .proc 'Proc' (line 4)");
+        assert_eq!(warnings[1].to_string(), "empty .scope 'Scope' (line 7)");
         assert_eq!(
             warnings[2].to_string(),
-            "trying to apply empty macro 'MACRO' (line 10)"
+            "trying to apply empty macro 'MACRO' (line 13)"
         );
         assert_eq!(warnings[3].to_string(), "segment 'CODE' is empty");
     }
@@ -2790,26 +2722,18 @@ MACRO
 
     #[test]
     fn macro_no_arguments() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"
-lda #42
+        let res = just_bundles(
+            r#"
+    lda #42
 
-.macro MACRO
-    lda #2
-.endmacro
+    .macro MACRO
+        lda #2
+    .endmacro
 
-lda #1
-MACRO
-"#
-                .as_bytes(),
-            )
-            .unwrap()[0x10..];
+    lda #1
+    MACRO
+    "#,
+        );
 
         assert_eq!(res.len(), 3);
         let instrs: Vec<[u8; 2]> = vec![[0xA9, 0x2A], [0xA9, 0x01], [0xA9, 0x02]];
@@ -2823,84 +2747,56 @@ MACRO
 
     #[test]
     fn macro_not_enough_arguments() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"
-lda #42
+        assert_error(
+            r#"
+    lda #42
 
-.macro MACRO(Var)
-    lda #Var
-.endmacro
+    .macro MACRO(Var)
+        lda #Var
+    .endmacro
 
-lda #1
-MACRO
-"#
-                .as_bytes(),
-            )
-            .unwrap_err();
-
-        assert_eq!(
-            res.first().unwrap().to_string(),
-            "wrong number of arguments for 'MACRO': 1 required but 0 given (line 9)"
+    lda #1
+    MACRO
+    "#,
+            9,
+            false,
+            "wrong number of arguments for 'MACRO': 1 required but 0 given",
         );
     }
 
     #[test]
     fn macro_too_many_arguments() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"
-lda #42
+        assert_error(
+            r#"
+    lda #42
 
-.macro MACRO(Var)
-    lda #Var
-.endmacro
+    .macro MACRO(Var)
+        lda #Var
+    .endmacro
 
-lda #1
-MACRO(1, 2)
-"#
-                .as_bytes(),
-            )
-            .unwrap_err();
-
-        assert_eq!(
-            res.first().unwrap().to_string(),
-            "wrong number of arguments for 'MACRO': 1 required but 2 given (line 9)"
+    lda #1
+    MACRO(1, 2)
+    "#,
+            9,
+            false,
+            "wrong number of arguments for 'MACRO': 1 required but 2 given",
         );
     }
 
     #[test]
     fn macro_with_one_argument() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"
-lda #42
+        let res = just_bundles(
+            r#"
+    lda #42
 
-.macro MACRO(Var)
-    lda #Var
-.endmacro
+    .macro MACRO(Var)
+        lda #Var
+    .endmacro
 
-lda #1
-MACRO(2)
-"#
-                .as_bytes(),
-            )
-            .unwrap()[0x10..];
+    lda #1
+    MACRO(2)
+    "#,
+        );
 
         assert_eq!(res.len(), 3);
         let instrs: Vec<[u8; 2]> = vec![[0xA9, 0x2A], [0xA9, 0x01], [0xA9, 0x02]];
@@ -2914,59 +2810,41 @@ MACRO(2)
 
     #[test]
     fn macro_unknown_arguments() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"
-lda #42
+        assert_error(
+            r#"
+    lda #42
 
-.macro MACRO(Var)
-    lda #Va
-.endmacro
+    .macro MACRO(Var)
+        lda #Va
+    .endmacro
 
-lda #1
-MACRO(1)
-"#
-                .as_bytes(),
-            )
-            .unwrap_err();
-
-        assert_eq!(
-            res.first().unwrap().to_string(),
+    lda #1
+    MACRO(1)
+    "#,
+            5,
+            false,
             "'a' is not a decimal value and \
-             could not find variable 'Va' in the global scope either (line 5)"
+                 could not find variable 'Va' in the global scope either",
         );
     }
 
     #[test]
     fn macro_multiple_arguments() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"
-.macro WRITE_PPU_DATA address, value
-    bit $2002                   ; PPUSTATUS
-    lda #.HIBYTE(address)
-    sta $2006                   ; PPUADDR
-    lda #.LOBYTE(address)
-    sta $2006                   ; PPUADDR
-    lda #value
-    sta $2007                   ; PPUDATA
-.endmacro
+        let res = just_bundles(
+            r#"
+    .macro WRITE_PPU_DATA address, value
+        bit $2002                   ; PPUSTATUS
+        lda #.HIBYTE(address)
+        sta $2006                   ; PPUADDR
+        lda #.LOBYTE(address)
+        sta $2006                   ; PPUADDR
+        lda #value
+        sta $2007                   ; PPUDATA
+    .endmacro
 
-WRITE_PPU_DATA $20B9, $04
-"#
-                .as_bytes(),
-            )
-            .unwrap()[0x10..];
+    WRITE_PPU_DATA $20B9, $04
+    "#,
+        );
 
         assert_eq!(res.len(), 7);
 
@@ -3012,171 +2890,124 @@ WRITE_PPU_DATA $20B9, $04
 
     #[test]
     fn start_macro_inside_of_scope() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#".scope Some
-.macro WRITE_PPU_DATA
-    bit $2002
-.endmacro
-.endscope
-"#
-                .as_bytes(),
-            )
-            .unwrap_err();
-
-        assert_eq!(
-            res.first().unwrap().to_string(),
-            ".macro must be on the global scope (line 2)"
+        assert_error(
+            r#".scope Some
+    .macro WRITE_PPU_DATA
+        bit $2002
+    .endmacro
+    .endscope
+    "#,
+            2,
+            false,
+            ".macro must be on the global scope",
         );
     }
 
     #[test]
-    fn bad_scope_definition_inside_of_proc() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#".proc Hey
-.scope Something
-.endscope
-.endproc
-"#
-                .as_bytes(),
-            )
-            .unwrap_err();
+    fn macro_call_inside_of_proc() {
+        let res = just_bundles(
+            r#".macro MACRO
+    nop
+    .endmacro
 
-        assert_eq!(
-            res[0].to_string(),
-            "you cannot call '.scope' in this context (line 2)"
+    .proc Foo
+      MACRO
+    .endproc
+    "#,
+        );
+
+        assert_eq!(res.len(), 1);
+
+        assert_eq!(res[0].size, 1);
+        assert_eq!(res[0].bytes[0], 0xEA);
+        assert_eq!(res[0].bytes[1], 0x00);
+        assert_eq!(res[0].bytes[2], 0x00);
+    }
+
+    #[test]
+    fn bad_scope_definition_inside_of_proc() {
+        assert_error(
+            r#".proc Hey
+    .scope Something
+    .endscope
+    .endproc
+    "#,
+            2,
+            false,
+            "you cannot call '.scope' in this context",
         );
     }
 
     #[test]
     fn bad_scope_definition_inside_of_macro() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#".macro Hey
-.scope Something
-.endscope
-.endmacro
-"#
-                .as_bytes(),
-            )
-            .unwrap_err();
-
-        assert_eq!(
-            res[0].to_string(),
-            "you cannot call '.scope' in this context (line 2)"
+        assert_error(
+            r#".macro Hey
+    .scope Something
+    .endscope
+    .endmacro
+    "#,
+            2,
+            false,
+            "you cannot call '.scope' in this context",
         );
     }
 
     #[test]
     fn bad_proc_definition_inside_of_proc() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#".proc Hey
-.proc Something
-.endproc
-.endproc
-"#
-                .as_bytes(),
-            )
-            .unwrap_err();
-
-        assert_eq!(
-            res[0].to_string(),
-            "you cannot call '.proc' in this context (line 2)"
+        assert_error(
+            r#".proc Hey
+    .proc Something
+    .endproc
+    .endproc
+    "#,
+            2,
+            false,
+            "you cannot call '.proc' in this context",
         );
     }
 
     #[test]
     fn bad_proc_definition_inside_of_macro() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#".macro Hey
-.proc Something
-.endproc
-.endmacro
-"#
-                .as_bytes(),
-            )
-            .unwrap_err();
-
-        assert_eq!(
-            res[0].to_string(),
-            "you cannot call '.proc' in this context (line 2)"
+        assert_error(
+            r#".macro Hey
+    .proc Something
+    .endproc
+    .endmacro
+    "#,
+            2,
+            false,
+            "you cannot call '.proc' in this context",
         );
     }
 
     #[test]
     fn error_on_named_label_inside_macro() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#".macro MACRO
-@label:
-  jmp @label
-.endmacro
-"#
-                .as_bytes(),
-            )
-            .unwrap_err();
-
-        assert_eq!(
-            res.first().unwrap().to_string(),
-            "using a named label ('@label') inside of a macro definition (line 2)"
+        assert_error(
+            r#".macro MACRO
+    @label:
+      jmp @label
+    .endmacro
+    "#,
+            2,
+            false,
+            "using a named label ('@label') inside of a macro definition",
         );
     }
 
     #[test]
     fn jumps_inside_of_macros() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#".macro MACRO address, value
-    lda #.HIBYTE(address)
-    lda #.LOBYTE(address)
-:
-    lda #value
-    beq :-
-.endmacro
+        let res = just_bundles(
+            r#".macro MACRO address, value
+        lda #.HIBYTE(address)
+        lda #.LOBYTE(address)
+    :
+        lda #value
+        beq :-
+    .endmacro
 
-MACRO $20B9, $04
-"#
-                .as_bytes(),
-            )
-            .unwrap()[0x10..];
+    MACRO $20B9, $04
+    "#,
+        );
 
         assert_eq!(res.len(), 4);
 
@@ -3205,40 +3036,39 @@ MACRO $20B9, $04
 
     #[test]
     fn error_on_unknown_segment() {
-        let mut asm = Assembler::new(one_two().to_vec());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
+        assert_error(
+            r#"
+    .segment "THREE"
 
-        let line = r#"
-.segment "THREE"
-
-.segment "TWO"
-nop
-"#;
-        assert_error_with_assembler(&mut asm, line, 2, false, "unknown segment 'THREE'")
+    .segment "TWO"
+    nop'
+    "#,
+            2,
+            false,
+            "unknown segment 'THREE'",
+        );
     }
 
     #[test]
-    fn error_on_empty_segment() {
-        let mut asm = Assembler::new(one_two().to_vec());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        let bundles = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"
-.segment "ONE"
+    fn warning_on_empty_segment() {
+        let res = assemble_with_mapping(
+            r#"
+.segment "HEADER"
+.byte 'N', 'E', 'S', $1A, $01, $00
 
-.segment "TWO"
-nop
-"#
-                .as_bytes(),
-            )
-            .unwrap()[0x10..]; // Ignoring HEADER
+    .segment "ONE"
 
-        assert_eq!(bundles.len(), 1);
+    .segment "TWO"
+    nop
+    "#
+            .as_bytes(),
+            one_two().to_vec(),
+            std::env::current_dir().unwrap().to_path_buf(),
+        );
 
-        let warnings = asm.warnings();
+        assert_eq!(res.bundles.len(), 0x11);
+
+        let warnings = res.warnings;
         assert_eq!(warnings.len(), 1);
         assert_eq!(
             warnings.first().unwrap().to_string(),
@@ -3248,36 +3078,36 @@ nop
 
     #[test]
     fn jmp_and_beq_inside_segment() {
-        let mut asm = Assembler::new(one_two().to_vec());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        let bundles = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"
-.segment "ONE"
-nop
+        let res = assemble_with_mapping(
+            r#".segment "HEADER"
+.byte 'N', 'E', 'S', $1A, $01, $00
 
-.segment "TWO"
-nop
-:
+    .segment "ONE"
     nop
-@hello:
-    beq :--
-    beq :+
-    jmp @hello
-    beq @hello
-    beq :+++
-    beq @end
-@end:
+
+    .segment "TWO"
     nop
-:
-    nop
-: nop
-"#
-                .as_bytes(),
-            )
-            .unwrap()[0x11..]; // Ignoring HEADER + nop from ONE
+    :
+        nop
+    @hello:
+        beq :--
+        beq :+
+        jmp @hello
+        beq @hello
+        beq :+++
+        beq @end
+    @end:
+        nop
+    :
+        nop
+    : nop
+    "#
+            .as_bytes(),
+            one_two().to_vec(),
+            std::env::current_dir().unwrap().to_path_buf(),
+        );
+
+        let bundles = &res.bundles[0x11..];
 
         // First two nop's
         assert_eq!(bundles[0].size, 1);
@@ -3327,30 +3157,30 @@ nop
 
     #[test]
     fn jmp_on_different_segments_intertwined() {
-        let mut asm = Assembler::new(one_two().to_vec());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        let bundles = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"
-.segment "ONE"
-lala:
-    rts
-    .byte $F3
+        let res = assemble_with_mapping(
+            r#".segment "HEADER"
+.byte 'N', 'E', 'S', $1A, $01, $00
 
-.segment "TWO"
-code:
-    jsr lala
-    jsr code
-    rts
+    .segment "ONE"
+    lala:
+        rts
+        .byte $F3
 
-.segment "ONE"
-    jsr code
-"#
-                .as_bytes(),
-            )
-            .unwrap()[0x12..]; // Ignoring HEADER + first two ONE
+    .segment "TWO"
+    code:
+        jsr lala
+        jsr code
+        rts
+
+    .segment "ONE"
+        jsr code
+    "#
+            .as_bytes(),
+            one_two().to_vec(),
+            std::env::current_dir().unwrap().to_path_buf(),
+        );
+
+        let bundles = &res.bundles[0x12..]; // Ignoring HEADER + first two ONE
 
         // "jsr code" from ONE (notice that it's intertwined!)
         assert_eq!(bundles[0].size, 3);
@@ -3373,30 +3203,31 @@ code:
 
     #[test]
     fn jumps_and_labels_inside_proc() {
-        let mut asm = Assembler::new(one_two().to_vec());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        let bundles = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#".segment "ONE"
-nop
-.segment "TWO"
-.proc Foo
-    lda #$10
-:
-    beq :-
-    jmp @label
-    nop
-@label:
-    rts
-.endproc
+        let res = assemble_with_mapping(
+            r#".segment "HEADER"
+.byte 'N', 'E', 'S', $1A, $01, $00
 
-jsr Foo
-"#
-                .as_bytes(),
-            )
-            .unwrap()[0x11..]; // Ignoring HEADER + first nop
+.segment "ONE"
+    nop
+    .segment "TWO"
+    .proc Foo
+        lda #$10
+    :
+        beq :-
+        jmp @label
+        nop
+    @label:
+        rts
+    .endproc
+
+    jsr Foo
+    "#
+            .as_bytes(),
+            one_two().to_vec(),
+            std::env::current_dir().unwrap().to_path_buf(),
+        );
+
+        let bundles = &res.bundles[0x11..]; // Ignoring HEADER + first nop
 
         assert_eq!(bundles.len(), 6);
 
@@ -3433,24 +3264,24 @@ jsr Foo
 
     #[test]
     fn proc_reference_another_segment() {
-        let mut asm = Assembler::new(one_two().to_vec());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        let bundles = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"
-.segment "ONE"
-.addr code
+        let res = assemble_with_mapping(
+            r#".segment "HEADER"
+.byte 'N', 'E', 'S', $1A, $01, $00
 
-.segment "TWO"
-nop
-code:
-    rts
-"#
-                .as_bytes(),
-            )
-            .unwrap()[0x10..]; // Ignoring HEADER
+    .segment "ONE"
+    .addr code
+
+    .segment "TWO"
+    nop
+    code:
+        rts
+    "#
+            .as_bytes(),
+            one_two().to_vec(),
+            std::env::current_dir().unwrap().to_path_buf(),
+        );
+
+        let bundles = &res.bundles[0x10..];
 
         assert_eq!(bundles[0].size, 2);
         assert_eq!(bundles[0].bytes[0], 0x03);
@@ -3459,45 +3290,41 @@ code:
 
     #[test]
     fn cannot_fit_address_in_one_byte() {
-        let mut asm = Assembler::new(one_two().to_vec());
-        assert_error_with_assembler(
-            &mut asm,
-            r#".segment "ONE"
-    .byte code
+        let res = assemble_with_mapping(
+            r#".segment "HEADER"
+.byte 'N', 'E', 'S', $1A, $01, $00
 
-    .segment "TWO"
-    nop
-    code:
-        rts
-    "#,
-            2,
-            false,
-            "expecting an argument that fits into a byte",
+.segment "ONE"
+        .byte code
+
+        .segment "TWO"
+        nop
+        code:
+            rts
+        "#
+            .as_bytes(),
+            one_two().to_vec(),
+            std::env::current_dir().unwrap().to_path_buf(),
+        );
+
+        assert_eq!(
+            res.errors[0].to_string(),
+            "expecting an argument that fits into a byte (line 5)"
         );
     }
 
     #[test]
     fn cannot_switch_to_segment_inside_of_scope() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                r#"
-    .scope Vars
-    .segment "CODE"
-    nop
-    .endscope
-    "#
-                .as_bytes(),
-            )
-            .unwrap_err();
-
-        assert_eq!(
-            res.first().unwrap().to_string(),
-            ".segment must be on the global scope (line 3)"
+        assert_error(
+            r#"
+        .scope Vars
+        .segment "CODE"
+        nop
+        .endscope
+        "#,
+            3,
+            false,
+            ".segment must be on the global scope",
         );
     }
 

@@ -351,7 +351,7 @@ impl Context {
             NodeType::Control(ControlType::StartMacro)
             | NodeType::Control(ControlType::StartProc)
             | NodeType::Control(ControlType::StartScope) => {
-                self.context_push(&node.left.as_ref().unwrap());
+                self.context_push(node.left.as_ref().unwrap());
                 Ok(true)
             }
             NodeType::Control(ControlType::EndMacro)
