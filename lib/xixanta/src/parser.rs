@@ -21,10 +21,18 @@ pub struct Parser {
 
     /// The nodes that have been evaluated for the current parsing session. You
     /// can count on this vector to be filled after calling
-    /// `parser::Parser::parse`.
-    // pub nodes: Vec<PNode>,
+    /// `parser::Parser::parse`. Note that it's a vector of vectors to handle
+    /// statements which contain a block (e.g. '.macro'). In the end of the
+    /// parsing session, though, this vector of vectors is guaranteed to have
+    /// len() == 1, which means that there's only one code "layer" in the end
+    /// because the other blocks have been closed (or forced to be closed on bad
+    /// .end placements).
     nodes: Vec<Vec<PNode>>,
 
+    /// This is a stack of node types that we are expecting for closing the
+    /// currently open inner block. This is done this way to guarantee that end
+    /// statements (e.g. '.endproc') go with their respective start ones (e.g.
+    /// '.proc'), and they don't close another block.
     bodies: Vec<NodeType>,
 }
 
@@ -313,54 +321,7 @@ impl Parser {
                 if line.contains('=') {
                     self.parse_assignment(line, id)
                 } else {
-                    // TODO: move out into its own thing...
-                    let node = self.parse_expression_with_identifier(id, line)?;
-                    let node_type = node.node_type.clone();
-                    let body_type = node.body_type();
-
-                    match body_type {
-                        NodeBodyType::Starts => {
-                            self.bodies.push(node_type.closing_type().unwrap());
-                            self.nodes.last_mut().unwrap().push(node);
-                            self.nodes.push(vec![]);
-                        }
-                        NodeBodyType::Ends => {
-                            let expected_close = match self.bodies.pop() {
-                                Some(ec) => ec,
-                                None => {
-                                    return Err(self.parser_error(
-                                        format!("unexpected '{}'", node_type).as_str(),
-                                    ))
-                                }
-                            };
-                            if node_type != expected_close {
-                                return Err(self.parser_error(
-                                    format!(
-                                        "expecting '{}', found '{}'",
-                                        expected_close, node_type
-                                    )
-                                    .as_str(),
-                                ));
-                            }
-
-                            // Note that empty bodies are possible. This is left
-                            // to the caller (e.g. assembler) to decide whether
-                            // it makes sense or not.
-                            let nodes = self.nodes.pop().unwrap();
-                            self.nodes.last_mut().unwrap().last_mut().unwrap().right =
-                                Some(Box::new(PNode {
-                                    node_type: NodeType::ControlBody,
-                                    value: PString::default(),
-                                    left: None,
-                                    right: None,
-                                    args: Some(nodes),
-                                }));
-                            self.nodes.last_mut().unwrap().push(node);
-                        }
-                        NodeBodyType::None => self.nodes.last_mut().unwrap().push(node),
-                    }
-
-                    Ok(())
+                    self.parse_other(line, id)
                 }
             }
         }
@@ -531,6 +492,58 @@ impl Parser {
             right: None,
             args: None,
         });
+
+        Ok(())
+    }
+
+    // Parse statements which are neither an instruction nor an assignment. This
+    // includes stuff like control statements.
+    fn parse_other(&mut self, line: &str, id: PString) -> Result<(), ParseError> {
+        let node = self.parse_expression_with_identifier(id, line)?;
+        let node_type = node.node_type.clone();
+        let body_type = node.body_type();
+
+        // The given statement might be a start/end one (e.g. '.proc' and
+        // '.endproc'). In these cases there are some things to handle besides
+        // pushing the node into the current level of nodes.
+        match body_type {
+            NodeBodyType::Starts => {
+                self.bodies.push(node_type.closing_type().unwrap());
+                self.nodes.last_mut().unwrap().push(node);
+                self.nodes.push(vec![]);
+            }
+            NodeBodyType::Ends => {
+                // Pop out which start statement was last seen and check that it
+                // makes sense to the end statement we are parsing now.
+                let expected_close = match self.bodies.pop() {
+                    Some(ec) => ec,
+                    None => {
+                        return Err(
+                            self.parser_error(format!("unexpected '{}'", node_type).as_str())
+                        )
+                    }
+                };
+                if node_type != expected_close {
+                    return Err(self.parser_error(
+                        format!("expecting '{}', found '{}'", expected_close, node_type).as_str(),
+                    ));
+                }
+
+                // Note that empty bodies are possible. This is left
+                // to the caller (e.g. assembler) to decide whether
+                // it makes sense or not.
+                let nodes = self.nodes.pop().unwrap();
+                self.nodes.last_mut().unwrap().last_mut().unwrap().right = Some(Box::new(PNode {
+                    node_type: NodeType::ControlBody,
+                    value: PString::default(),
+                    left: None,
+                    right: None,
+                    args: Some(nodes),
+                }));
+                self.nodes.last_mut().unwrap().push(node);
+            }
+            NodeBodyType::None => self.nodes.last_mut().unwrap().push(node),
+        }
 
         Ok(())
     }
