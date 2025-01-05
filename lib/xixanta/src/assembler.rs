@@ -8,7 +8,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
-use std::ops::{Neg, Range};
+use std::ops::Neg;
 use std::path::PathBuf;
 
 /// The mode in which a literal is expressed.
@@ -44,12 +44,6 @@ pub enum Stage {
 }
 
 #[derive(Clone, Debug)]
-pub struct CodeBlock {
-    nodes: Range<usize>,
-    args: Vec<PString>,
-}
-
-#[derive(Clone, Debug)]
 pub struct PendingNode {
     mapping: usize,
     segment: usize,
@@ -63,13 +57,20 @@ pub struct Assembler {
     context: Context,
     literal_mode: Option<LiteralMode>,
     stage: Stage,
-    macros: HashMap<String, CodeBlock>,
-    can_bundle: bool,
+    macros: HashMap<String, usize>,
     mappings: Vec<Mapping>,
     current_mapping: usize,
     current_segment: usize,
     pending: Vec<PendingNode>,
     labels_seen: usize,
+
+    // Number of macro statements seen on a given iteration. Note that the
+    // parser guarantees that macros are defined well (no unclosed macros nor
+    // too many .endmacro's).
+    macros_seen: usize,
+
+    // Same as macros_seen but for .proc's.
+    procs_seen: usize,
 
     // Warnings that have accumulated over the run.
     warnings: Vec<Error>,
@@ -87,12 +88,13 @@ impl Assembler {
             literal_mode: None,
             stage: Stage::Context,
             macros: HashMap::new(),
-            can_bundle: true,
             mappings,
             current_mapping: 0,
             current_segment: 0,
             pending: vec![],
             labels_seen: 0,
+            macros_seen: 0,
+            procs_seen: 0,
             warnings: vec![],
             directories: vec![],
         }
@@ -166,10 +168,6 @@ impl Assembler {
 
     fn eval_context(&mut self, nodes: &[PNode]) -> Result<(), Vec<Error>> {
         let mut errors = Vec::new();
-        let mut current_macro = None;
-        let mut macro_seen = 0;
-        let mut proc_seen = 0;
-        let mut scope_seen = 0;
 
         for (idx, node) in nodes.iter().enumerate() {
             match &node.node_type {
@@ -180,7 +178,7 @@ impl Assembler {
                 NodeType::Label => {
                     // There's no good reason to declare a named label inside of
                     // a macro. If that's the case, just error out.
-                    if macro_seen > 0 && !node.value.is_empty() {
+                    if self.macros_seen > 0 && !node.value.is_empty() {
                         errors.push(Error::Eval(EvalError {
                             line: node.value.line,
                             message: format!(
@@ -196,7 +194,7 @@ impl Assembler {
                     }
                 }
                 NodeType::Assignment => {
-                    if macro_seen > 0 {
+                    if self.macros_seen > 0 {
                         errors.push(Error::Eval(EvalError {
                             message: "cannot have assignments inside of macro definitions"
                                 .to_string(),
@@ -236,47 +234,27 @@ impl Assembler {
 
                     match control_type {
                         ControlType::StartMacro => {
-                            macro_seen += 1;
+                            // NOTE: macros inside of macros cannot happen
+                            // because of the previous check of them needing to
+                            // be on the global scope. Hence, we don't have to
+                            // do a similar check as for .proc's or .scope's on
+                            // illegal definitions.
+                            self.macros_seen += 1;
 
-                            current_macro = Some(&node.left.as_ref().unwrap().value);
+                            // TODO: reserve the name so it cannot be used as a
+                            // value (e.g. trying to use it as a variable).
                             self.macros
                                 .entry(node.left.as_ref().unwrap().value.value.clone())
-                                .or_insert(CodeBlock {
-                                    nodes: Range {
-                                        start: idx + 1,
-                                        end: idx + 1,
-                                    },
-                                    args: node
-                                        .args
-                                        .clone()
-                                        .unwrap_or_default()
-                                        .into_iter()
-                                        .map(|a| a.value)
-                                        .collect::<Vec<_>>(),
-                                });
+                                .or_insert(idx);
                         }
                         ControlType::EndMacro => {
-                            if macro_seen == 0 {
-                                errors.push(Error::Context(ContextError {
-                                    message: "trying to end a macro when there is none".to_string(),
-                                    line: node.value.line,
-                                    global: false,
-                                    reason: ContextErrorReason::BadEnd,
-                                }));
-                                continue;
+                            if self.macros_seen > 0 {
+                                self.macros_seen -= 1;
                             }
-                            macro_seen -= 1;
-
-                            if let Some(name) = current_macro {
-                                self.macros
-                                    .entry(name.value.clone())
-                                    .and_modify(|m| m.nodes.end = idx - 1);
-                            }
-                            current_macro = None;
                         }
                         // Same as NodeType::Label.
                         ControlType::StartProc => {
-                            if macro_seen > 0 || proc_seen > 0 {
+                            if self.macros_seen > 0 || self.procs_seen > 0 {
                                 errors.push(Error::Context(ContextError {
                                     message: "you cannot call '.proc' in this context".to_string(),
                                     line: node.value.line,
@@ -286,26 +264,20 @@ impl Assembler {
                                 continue;
                             }
 
-                            proc_seen += 1;
+                            self.procs_seen += 1;
                             let proc_name = &node.left.as_ref().unwrap().value;
                             if let Err(err) = self.define_variable(proc_name) {
                                 errors.push(Error::Context(err));
                             }
                         }
                         ControlType::EndProc => {
-                            if proc_seen == 0 {
-                                errors.push(Error::Context(ContextError {
-                                    message: "trying to end a proc when there is none".to_string(),
-                                    line: node.value.line,
-                                    global: false,
-                                    reason: ContextErrorReason::BadEnd,
-                                }));
-                                continue;
+                            // Same case as with macros.
+                            if self.procs_seen > 0 {
+                                self.procs_seen -= 1;
                             }
-                            proc_seen -= 1;
                         }
                         ControlType::StartScope => {
-                            if macro_seen > 0 || proc_seen > 0 {
+                            if self.macros_seen > 0 || self.procs_seen > 0 {
                                 errors.push(Error::Context(ContextError {
                                     message: "you cannot call '.scope' in this context".to_string(),
                                     line: node.value.line,
@@ -314,23 +286,21 @@ impl Assembler {
                                 }));
                                 continue;
                             }
-                            scope_seen += 1;
-                        }
-                        ControlType::EndScope => {
-                            if scope_seen == 0 {
-                                errors.push(Error::Context(ContextError {
-                                    message: "trying to end a scope when there is none".to_string(),
-                                    line: node.value.line,
-                                    global: false,
-                                    reason: ContextErrorReason::BadEnd,
-                                }));
-                            }
-                            scope_seen -= 1;
                         }
                         _ => {}
                     }
+
+                    // If this control statement implies a context change, do it
+                    // now.
                     if let Err(err) = self.context.change_context(node) {
                         errors.push(Error::Context(err));
+                    }
+
+                    // If this control statement actually has a body, go inside
+                    // of it.
+                    if control_type.has_body() {
+                        let inner = &node.right.as_ref().unwrap().args.as_ref().unwrap();
+                        self.eval_context(inner)?;
                     }
                 }
                 _ => {}
@@ -378,7 +348,7 @@ impl Assembler {
         let mut errors = Vec::new();
 
         for node in nodes {
-            match node.node_type {
+            match &node.node_type {
                 // Initialize the label to the offset address of the current
                 // segment. Note that this is only the offset from the beginning
                 // of the offset, the effective address will only be available
@@ -399,23 +369,59 @@ impl Assembler {
                     if let Err(e) = self.context.change_context(node) {
                         errors.push(Error::Context(e));
                     }
-                }
-                NodeType::Instruction => {
-                    if self.can_bundle {
-                        self.literal_mode = None;
-                        match self.evaluate_node(node) {
-                            Ok(bundle) => {
-                                if let Err(e) = self.push_bundle(bundle, node) {
-                                    errors.push(Error::Eval(e));
-                                }
-                            }
-                            Err(e) => errors.push(Error::Eval(e)),
-                        }
+
+                    // And now go inside of its body if it exists (note that its
+                    // existence might not be guaranteed if the parser gave an
+                    // error on this block).
+                    // if node.right.as_ref().is_some() {
+                    let args = &node.right.as_ref().unwrap().args.as_ref().unwrap();
+                    if args.is_empty() {
+                        self.warnings.push(Error::Eval(EvalError {
+                            line: node.value.line,
+                            message: format!("empty .proc '{}'", proc_name.value),
+                            global: false,
+                        }));
+                    } else {
+                        self.bundle(args)?;
                     }
                 }
-                NodeType::Control(_) => {
+                NodeType::Instruction => {
+                    self.literal_mode = None;
+                    match self.evaluate_node(node) {
+                        Ok(bundle) => {
+                            if let Err(e) = self.push_bundle(bundle, node) {
+                                errors.push(Error::Eval(e));
+                            }
+                        }
+                        Err(e) => errors.push(Error::Eval(e)),
+                    }
+                }
+                NodeType::Control(control_type) => {
                     if let Err(e) = self.evaluate_control_statement(node) {
                         errors.push(Error::Eval(e));
+                    }
+
+                    // If this is the start of a .scope statement, then go
+                    // inside of its body too if it exists (note that its
+                    // existence might not be guaranteed if the parser gave an
+                    // error on this block). Note that we do that too for
+                    // .proc's in its specialized branch, and we don't want to
+                    // do it for macros as they will be evaluated on a per call
+                    // basis.
+                    if matches!(control_type, ControlType::StartScope)
+                        && node.right.as_ref().is_some()
+                    {
+                        let scope_name = &node.left.as_ref().unwrap().value;
+                        let args = &node.right.as_ref().unwrap().args.as_ref().unwrap();
+                        if args.is_empty() {
+                            self.warnings.push(Error::Eval(EvalError {
+                                line: node.value.line,
+                                message: format!("empty .scope '{}'", scope_name.value),
+                                global: false,
+                            }));
+                        } else {
+                            self.bundle(args)?;
+                        }
                     }
                 }
                 NodeType::Value | NodeType::Call => {
@@ -523,45 +529,38 @@ impl Assembler {
 
     // Consume a node which contains a macro call by pushing its bundles now.
     fn bundle_call(&mut self, node: &PNode, nodes: &[PNode]) -> Result<(), Vec<Error>> {
-        // Get the macro object for the given identifier.
-        let mcr = self
-            .macros
-            .get(&node.value.value)
-            .ok_or(EvalError {
-                line: node.value.line,
-                message: format!(
-                    "could not find a macro with the name '{}'",
-                    node.value.value
-                ),
-                global: false,
-            })?
-            .clone();
+        // Get the index for the macro we are trying to reproduce.
+        let idx = self.macros.get(&node.value.value).ok_or(EvalError {
+            line: node.value.line,
+            message: format!(
+                "could not find a macro with the name '{}'",
+                node.value.value
+            ),
+            global: false,
+        })?;
+
+        let mcr = &nodes[*idx];
 
         // Detect missmatches between the number of arguments provided and the
         // ones defined by the macro.
-        let args = node.args.as_ref();
-        let nargs = match args {
-            Some(v) => v.len(),
-            None => 0,
-        };
-        if mcr.args.len() != nargs {
+        let given_args = node.args.as_ref().unwrap_or(&vec![]).len();
+        let macro_args = mcr.args.as_ref().unwrap_or(&vec![]).len();
+        if macro_args != given_args {
             return Err(vec![Error::Eval(EvalError {
                 line: node.value.line,
                 message: format!(
                     "wrong number of arguments for '{}': {} required but {} given",
-                    node.value.value,
-                    mcr.args.len(),
-                    nargs
+                    node.value.value, macro_args, given_args,
                 ),
                 global: false,
             })]);
         }
 
         // If there are arguments defined by the macro, set their values now.
-        if nargs > 0 {
-            let mut margs = mcr.args.iter();
+        if given_args > 0 {
+            let mut margs = mcr.args.as_ref().unwrap().iter();
 
-            for arg in args.unwrap().iter() {
+            for arg in node.args.as_ref().unwrap().iter() {
                 let obj = Object {
                     bundle: self.evaluate_node(arg)?,
                     mapping: self.current_mapping,
@@ -573,19 +572,27 @@ impl Assembler {
                 // calls, just in case a macro is applied multiple times and we
                 // need to get the latest value.
                 self.context
-                    .set_variable(margs.next().unwrap(), &obj, true)?;
+                    .set_variable(&margs.next().unwrap().value, &obj, true)?;
             }
         }
 
         // And now replicate the nodes as contained inside of the macro
         // definition. In order to handle inner statements from macros such as
         // anonymous labels and stuff like that, we simply call again
-        // `Assembler::bundle`.
-        self.bundle(
-            nodes
-                .get(mcr.nodes.start..=mcr.nodes.end)
-                .unwrap_or_default(),
-        )
+        // `Assembler::bundle`. Note that the macro could have been malformed
+        // (i.e. there was an error during parser time), or it could be empty
+        // altogether. Just issue a warning on the latter case.
+        let inner = &mcr.right.as_ref().unwrap().args.as_ref().unwrap();
+        if inner.is_empty() {
+            self.warnings.push(Error::Eval(EvalError {
+                line: node.value.line,
+                message: format!("trying to apply empty macro '{}'", node.value.value),
+                global: false,
+            }));
+        } else {
+            self.bundle(inner)?;
+        }
+        Ok(())
     }
 
     fn push_bundle(&mut self, mut bundle: Bundle, node: &PNode) -> Result<(), EvalError> {
@@ -1074,13 +1081,10 @@ impl Assembler {
     }
 
     fn evaluate_control_statement(&mut self, node: &PNode) -> Result<(), EvalError> {
-        let changed;
-
         // This might just be a statement that changes the context (e.g.
         // ".macro", ".proc", etc.). In this case change the context and leave
         // early.
-        (changed, self.can_bundle) = self.context.change_context(node)?;
-        if changed {
+        if self.context.change_context(node)? {
             return Ok(());
         }
 
@@ -2748,6 +2752,40 @@ lda #>Var
         }
     }
 
+    #[test]
+    fn warnings_on_empty_proc_scope_macro() {
+        let mut asm = Assembler::new(empty());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let _ = asm.assemble(
+            std::env::current_dir().unwrap().to_path_buf(),
+            r#".proc Proc
+.endproc
+
+.scope Scope
+.endscope
+
+.macro MACRO
+.endmacro
+
+MACRO
+"#
+            .as_bytes(),
+        );
+
+        let warnings = asm.warnings();
+        assert_eq!(warnings.len(), 4);
+
+        assert_eq!(warnings[0].to_string(), "empty .proc 'Proc' (line 1)");
+        assert_eq!(warnings[1].to_string(), "empty .scope 'Scope' (line 4)");
+        assert_eq!(
+            warnings[2].to_string(),
+            "trying to apply empty macro 'MACRO' (line 10)"
+        );
+        assert_eq!(warnings[3].to_string(), "segment 'CODE' is empty");
+    }
+
     // Macros
 
     #[test]
@@ -2998,64 +3036,7 @@ WRITE_PPU_DATA $20B9, $04
     }
 
     #[test]
-    fn error_out_on_bad_scope_end() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                ".endscope".as_bytes(),
-            )
-            .unwrap_err();
-
-        assert_eq!(
-            res.first().unwrap().to_string(),
-            "trying to end a scope when there is none (line 1)"
-        );
-    }
-
-    #[test]
-    fn error_out_on_bad_macro_end() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                ".endmacro".as_bytes(),
-            )
-            .unwrap_err();
-
-        assert_eq!(
-            res.first().unwrap().to_string(),
-            "trying to end a macro when there is none (line 1)"
-        );
-    }
-
-    #[test]
-    fn error_out_on_bad_proc_end() {
-        let mut asm = Assembler::new(empty());
-        asm.mappings[0].segments[0].bundles = minimal_header();
-        asm.mappings[0].offset = 6;
-        asm.current_mapping = 1;
-        let res = &asm
-            .assemble(
-                std::env::current_dir().unwrap().to_path_buf(),
-                ".endproc".as_bytes(),
-            )
-            .unwrap_err();
-
-        assert_eq!(
-            res.first().unwrap().to_string(),
-            "trying to end a proc when there is none (line 1)"
-        );
-    }
-
-    #[test]
-    fn bad_scope_definition_inside_of_stuff() {
+    fn bad_scope_definition_inside_of_proc() {
         let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
@@ -3067,8 +3048,28 @@ WRITE_PPU_DATA $20B9, $04
 .scope Something
 .endscope
 .endproc
-.macro HAHA
-.scope Something_else
+"#
+                .as_bytes(),
+            )
+            .unwrap_err();
+
+        assert_eq!(
+            res[0].to_string(),
+            "you cannot call '.scope' in this context (line 2)"
+        );
+    }
+
+    #[test]
+    fn bad_scope_definition_inside_of_macro() {
+        let mut asm = Assembler::new(empty());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
+            .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
+                r#".macro Hey
+.scope Something
 .endscope
 .endmacro
 "#
@@ -3080,14 +3081,10 @@ WRITE_PPU_DATA $20B9, $04
             res[0].to_string(),
             "you cannot call '.scope' in this context (line 2)"
         );
-        assert_eq!(
-            res[3].to_string(),
-            "you cannot call '.scope' in this context (line 6)"
-        );
     }
 
     #[test]
-    fn bad_proc_definition_inside_of_stuff() {
+    fn bad_proc_definition_inside_of_proc() {
         let mut asm = Assembler::new(empty());
         asm.mappings[0].segments[0].bundles = minimal_header();
         asm.mappings[0].offset = 6;
@@ -3099,8 +3096,28 @@ WRITE_PPU_DATA $20B9, $04
 .proc Something
 .endproc
 .endproc
-.macro HAHA
-.proc Something_else
+"#
+                .as_bytes(),
+            )
+            .unwrap_err();
+
+        assert_eq!(
+            res[0].to_string(),
+            "you cannot call '.proc' in this context (line 2)"
+        );
+    }
+
+    #[test]
+    fn bad_proc_definition_inside_of_macro() {
+        let mut asm = Assembler::new(empty());
+        asm.mappings[0].segments[0].bundles = minimal_header();
+        asm.mappings[0].offset = 6;
+        asm.current_mapping = 1;
+        let res = &asm
+            .assemble(
+                std::env::current_dir().unwrap().to_path_buf(),
+                r#".macro Hey
+.proc Something
 .endproc
 .endmacro
 "#
@@ -3111,10 +3128,6 @@ WRITE_PPU_DATA $20B9, $04
         assert_eq!(
             res[0].to_string(),
             "you cannot call '.proc' in this context (line 2)"
-        );
-        assert_eq!(
-            res[2].to_string(),
-            "you cannot call '.proc' in this context (line 6)"
         );
     }
 

@@ -166,6 +166,15 @@ impl ControlType {
     pub fn must_be_global(&self) -> bool {
         matches!(self, ControlType::StartMacro | ControlType::Segment)
     }
+
+    /// Returns true if the control type guarantees that a body is going to be
+    /// present under an inner node.
+    pub fn has_body(&self) -> bool {
+        matches!(
+            self,
+            ControlType::StartMacro | Self::StartProc | Self::StartScope
+        )
+    }
 }
 
 /// The type of operation being used.

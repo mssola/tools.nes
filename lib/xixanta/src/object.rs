@@ -331,10 +331,9 @@ impl Context {
         scope.push(object.clone());
     }
 
-    /// Change the current context given a `node`. Returns a tuple which states:
-    ///   0. Whether the context has changed.
-    ///   1. Whether a caller can bundle nodes safely.
-    pub fn change_context(&mut self, node: &PNode) -> Result<(bool, bool), ContextError> {
+    /// Change the current context given a `node`. Returns true if the context
+    /// has changed.
+    pub fn change_context(&mut self, node: &PNode) -> Result<bool, ContextError> {
         // The parser already guarantees that the control node is
         // from a function that we already know, so calling `unwrap`
         // is not dangerous.
@@ -344,27 +343,24 @@ impl Context {
 
         // If the control function does not touch the context, leave early.
         if !control.touches_context {
-            return Ok((false, true));
+            return Ok(false);
         }
 
         // And push/pop the context depending on the control being used.
         match node.node_type {
-            NodeType::Control(ControlType::StartMacro) => {
-                self.context_push(&node.left.clone().unwrap());
-                Ok((true, false))
-            }
-            NodeType::Control(ControlType::StartProc)
+            NodeType::Control(ControlType::StartMacro)
+            | NodeType::Control(ControlType::StartProc)
             | NodeType::Control(ControlType::StartScope) => {
-                self.context_push(&node.left.clone().unwrap());
-                Ok((true, true))
+                self.context_push(&node.left.as_ref().unwrap());
+                Ok(true)
             }
             NodeType::Control(ControlType::EndMacro)
             | NodeType::Control(ControlType::EndProc)
             | NodeType::Control(ControlType::EndScope) => {
                 self.context_pop(&node.value)?;
-                Ok((true, true))
+                Ok(true)
             }
-            _ => Ok((false, true)),
+            _ => Ok(false),
         }
     }
 

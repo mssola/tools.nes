@@ -313,6 +313,7 @@ impl Parser {
                 if line.contains('=') {
                     self.parse_assignment(line, id)
                 } else {
+                    // TODO: move out into its own thing...
                     let node = self.parse_expression_with_identifier(id, line)?;
                     let node_type = node.node_type.clone();
                     let body_type = node.body_type();
@@ -342,17 +343,18 @@ impl Parser {
                                 ));
                             }
 
+                            // Note that empty bodies are possible. This is left
+                            // to the caller (e.g. assembler) to decide whether
+                            // it makes sense or not.
                             let nodes = self.nodes.pop().unwrap();
-                            if !nodes.is_empty() {
-                                self.nodes.last_mut().unwrap().last_mut().unwrap().right =
-                                    Some(Box::new(PNode {
-                                        node_type: NodeType::ControlBody,
-                                        value: PString::default(),
-                                        left: None,
-                                        right: None,
-                                        args: Some(nodes),
-                                    }));
-                            }
+                            self.nodes.last_mut().unwrap().last_mut().unwrap().right =
+                                Some(Box::new(PNode {
+                                    node_type: NodeType::ControlBody,
+                                    value: PString::default(),
+                                    left: None,
+                                    right: None,
+                                    args: Some(nodes),
+                                }));
                             self.nodes.last_mut().unwrap().push(node);
                         }
                         NodeBodyType::None => self.nodes.last_mut().unwrap().push(node),
@@ -1806,7 +1808,7 @@ mod tests {
                 line,
                 ".scope",
             );
-            assert!(node.right.is_none());
+            assert!(node.right.is_some());
             assert!(node.args.is_none());
 
             let left = node.left.clone().unwrap();
@@ -1840,7 +1842,7 @@ mod tests {
                 line,
                 ".macro",
             );
-            assert!(node.right.is_none());
+            assert!(node.right.is_some());
 
             let left = node.left.clone().unwrap();
             assert_node(&left, NodeType::Value, line, "Macro");
@@ -1877,7 +1879,7 @@ mod tests {
                 line,
                 ".macro",
             );
-            assert!(node.right.is_none());
+            assert!(node.right.is_some());
 
             let left = node.left.clone().unwrap();
             assert_node(&left, NodeType::Value, line, "Macro");
