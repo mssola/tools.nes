@@ -268,6 +268,7 @@ impl<'a> Assembler<'a> {
                         }));
                         continue;
                     }
+                    self.literal_mode = None;
                     match self.evaluate_node(node.left.as_ref().unwrap()) {
                         Ok(value) => {
                             if let Err(err) = self.context.set_variable(
@@ -2228,6 +2229,20 @@ mod tests {
             false,
             "shift operator too big",
         );
+    }
+
+    #[test]
+    fn reset_literal_mode_on_assignment() {
+        let res = just_bundles(
+            r#"var1 = $31
+var2 = 20
+cpx #(4 * var2)"#,
+        );
+
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0].bytes[0], 0xE0);
+        assert_eq!(res[0].bytes[1], 0x50);
+        assert_eq!(res[0].bytes[2], 0x00);
     }
 
     // Regular instructions
