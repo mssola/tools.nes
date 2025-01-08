@@ -1,4 +1,3 @@
-use crate::errors::{ContextError, ContextErrorReason};
 use crate::mapping::Mapping;
 use crate::node::{ControlType, NodeType, PNode, PString};
 use crate::opcodes::CONTROL_FUNCTIONS;
@@ -174,7 +173,7 @@ impl Context {
     /// this `id` can be scoped or not, and this function will try to pick the
     /// variable from the right scope. The value itself will be resolved if the
     /// type is ObjectType::Address.
-    pub fn get_variable(&self, id: &PString, mappings: &[Mapping]) -> Result<Object, ContextError> {
+    pub fn get_variable(&self, id: &PString, mappings: &[Mapping]) -> Result<Object, String> {
         // First of all, figure out the name of the scope and the real name of
         // the variable. If this was not scoped at all (None case when trying to
         // rsplit by the "::" operator), then we assume on the current scope.
@@ -183,7 +182,7 @@ impl Context {
             None => (self.name(), id.value.as_str()),
         };
 
-        self.get_variable_in_scope(id.line, scope_name, var_name, mappings)
+        self.get_variable_in_scope(scope_name, var_name, mappings)
     }
 
     // Get the `var_name` variable on the `scope_name` scope (or parents). For
@@ -191,11 +190,10 @@ impl Context {
     // labels, and `line` when producing context errors.
     fn get_variable_in_scope(
         &self,
-        line: usize,
         scope_name: &str,
         var_name: &str,
         mappings: &[Mapping],
-    ) -> Result<Object, ContextError> {
+    ) -> Result<Object, String> {
         // And with that, the only thing left is to find the scope and the
         // variable in it.
         match self.map.get(scope_name) {
@@ -209,16 +207,11 @@ impl Context {
                     // the scope hierarchy to see if we can fetch it there. For
                     // that, though, we first prepare an error so we return the
                     // original one, not the propagated one (see below).
-                    let err = Err(ContextError {
-                        message: format!(
-                            "could not find variable '{}' in {}",
-                            var_name,
-                            self.to_human_with(scope_name)
-                        ),
-                        line,
-                        reason: ContextErrorReason::UnknownVariable,
-                        global: false,
-                    });
+                    let err = Err(format!(
+                        "could not find variable '{}' in {}",
+                        var_name,
+                        self.to_human_with(scope_name)
+                    ));
 
                     // If we are already in the global context and the object
                     // was not found, just leave with an error.
@@ -231,9 +224,7 @@ impl Context {
                         // error so it better reflects the original scope where
                         // this was first attempted.
                         let parent = self.parent(scope_name);
-                        if let Ok(object) =
-                            self.get_variable_in_scope(line, parent, var_name, mappings)
-                        {
+                        if let Ok(object) = self.get_variable_in_scope(parent, var_name, mappings) {
                             Ok(object)
                         } else {
                             err
@@ -241,12 +232,7 @@ impl Context {
                     }
                 }
             },
-            None => Err(ContextError {
-                message: format!("did not find scope '{}'", scope_name),
-                line,
-                reason: ContextErrorReason::BadScope,
-                global: false,
-            }),
+            None => Err(format!("did not find scope '{}'", scope_name)),
         }
     }
 
@@ -255,11 +241,7 @@ impl Context {
     ///
     /// NOTE: this function asserts that the given `object` is of type
     /// ObjectType::Address, otherwise it doesn't make sense to call it.
-    pub fn resolve_label(
-        &self,
-        mappings: &[Mapping],
-        object: &Object,
-    ) -> Result<Object, ContextError> {
+    pub fn resolve_label(&self, mappings: &[Mapping], object: &Object) -> Result<Object, String> {
         assert!(matches!(object.object_type, ObjectType::Address));
 
         let mut ret = object.clone();
@@ -271,12 +253,7 @@ impl Context {
 
         // Avoid weird out of bound references for addresses.
         if addr > u16::MAX as usize {
-            return Err(ContextError {
-                line: 0,
-                message: format!("address {:x} is out of bounds", addr),
-                reason: ContextErrorReason::Bounds,
-                global: true,
-            });
+            return Err(format!("address {:x} is out of bounds", addr));
         }
 
         let addr_bytes = (addr as u16).to_le_bytes();
@@ -295,23 +272,18 @@ impl Context {
         id: &PString,
         object: &Object,
         overwrite: bool,
-    ) -> Result<(), ContextError> {
+    ) -> Result<(), String> {
         let scope_name = self.name().to_string();
         let scope = self.map.get_mut(&scope_name).unwrap();
 
         match scope.get_mut(&id.value) {
             Some(sc) => {
                 if !overwrite {
-                    return Err(ContextError {
-                        message: format!(
-                            "'{}' already defined in {}: you cannot re-assign names",
-                            id.value,
-                            self.to_human()
-                        ),
-                        line: id.line,
-                        reason: ContextErrorReason::Redefinition,
-                        global: false,
-                    });
+                    return Err(format!(
+                        "'{}' already defined in {}: you cannot re-assign names",
+                        id.value,
+                        self.to_human()
+                    ));
                 }
                 *sc = object.clone();
             }
@@ -333,7 +305,7 @@ impl Context {
 
     /// Change the current context given a `node`. Returns true if the context
     /// has changed.
-    pub fn change_context(&mut self, node: &PNode) -> Result<bool, ContextError> {
+    pub fn change_context(&mut self, node: &PNode) -> Result<bool, String> {
         // The parser already guarantees that the control node is
         // from a function that we already know, so calling `unwrap`
         // is not dangerous.
@@ -406,7 +378,7 @@ impl Context {
         rel: isize,
         labels_seen: usize,
         mappings: &[Mapping],
-    ) -> Result<Object, ContextError> {
+    ) -> Result<Object, String> {
         // Bound check: the given 'rel' parameter has a proper value.
         assert!(
             rel < 5 && rel > -5 && rel != 0,
@@ -416,12 +388,7 @@ impl Context {
         // Bound check: you cannot reference a past label that doesn't exist.
         // This is the programmer's to blame, not on us, so don't assert.
         if labels_seen == 0 && rel < 0 {
-            return Err(ContextError {
-                line: 0,
-                message: "cannot reference an unknown previous label".to_string(),
-                reason: ContextErrorReason::Label,
-                global: false,
-            });
+            return Err("cannot reference an unknown previous label".to_string());
         }
 
         // Get the labels as referenced in the current context, and also the
@@ -437,12 +404,7 @@ impl Context {
         // Bound check: is the programmer referencing an "out of bounds" label?
         // If so then it's a mistake on their part.
         if idx < 0 || idx >= labels.len() as isize {
-            return Err(ContextError {
-                line: 0,
-                message: "cannot reference bogus label (out of bounds)".to_string(),
-                reason: ContextErrorReason::Label,
-                global: false,
-            });
+            return Err("cannot reference bogus label (out of bounds)".to_string());
         }
 
         // Everything should be fine from here on, simply return the bundle that
@@ -466,14 +428,9 @@ impl Context {
     }
 
     // Pops out the latest context that was pushed.
-    fn context_pop(&mut self, id: &PString) -> Result<(), ContextError> {
+    fn context_pop(&mut self, id: &PString) -> Result<(), String> {
         if self.stack.is_empty() {
-            return Err(ContextError {
-                message: format!("missplaced '{}' statement", id.value),
-                reason: ContextErrorReason::BadScope,
-                line: id.line,
-                global: false,
-            });
+            return Err(format!("missplaced '{}' statement", id.value));
         }
 
         self.stack.truncate(self.stack.len() - 1);

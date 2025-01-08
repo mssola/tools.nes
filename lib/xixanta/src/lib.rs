@@ -1,6 +1,21 @@
 #[macro_use]
 extern crate lazy_static;
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct SourceInfo {
+    pub working_directory: std::path::PathBuf,
+    pub name: String,
+}
+
+impl Default for SourceInfo {
+    fn default() -> Self {
+        SourceInfo {
+            working_directory: std::env::current_dir().unwrap().to_path_buf(),
+            name: "".to_string(),
+        }
+    }
+}
+
 pub mod assembler;
 pub mod errors;
 pub mod node;

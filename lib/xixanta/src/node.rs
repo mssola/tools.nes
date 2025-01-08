@@ -140,6 +140,7 @@ pub enum ControlType {
     IncBin,
     StartRepeat,
     EndRepeat,
+    IncludeSource,
 }
 
 impl fmt::Display for ControlType {
@@ -160,6 +161,7 @@ impl fmt::Display for ControlType {
             ControlType::IncBin => write!(f, ".incbin"),
             ControlType::StartRepeat => write!(f, ".repeat"),
             ControlType::EndRepeat => write!(f, ".endrepeat"),
+            ControlType::IncludeSource => write!(f, ".include"),
         }
     }
 }
@@ -305,7 +307,7 @@ impl NodeType {
     }
 }
 
-/// A Position Node. This is a node on a binary tree which holds a PString as a
+/// A Positioned Node. This is a node on a tree which holds a PString as a
 /// value. The node type determines the actual representation of the value and
 /// both childs (see the `NodeType` enum). Moreover, out of convenience, a node
 /// also holds an optional list of arguments, which simplifies arrangements such
@@ -330,6 +332,10 @@ pub struct PNode {
     /// Convenience list used by some node types in order to express a list of
     /// optional arguments.
     pub args: Option<Vec<PNode>>,
+
+    /// Index on the list of SourceInfo's maintained by both the parser and the
+    /// assembler.
+    pub source: usize,
 }
 
 /// Whether there is a body for a given node and whether it starts or ends it.

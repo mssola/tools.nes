@@ -1,4 +1,3 @@
-use crate::errors::EvalError;
 use crate::object::Bundle;
 use toml::{Table, Value};
 
@@ -279,18 +278,14 @@ fn validate_configuration(mappings: &[Mapping]) -> Result<(), String> {
 
 /// Perform some sanity checks on the given `mappings`. Only call this function
 /// after all bundles have been produced.
-pub fn validate(mappings: &[Mapping]) -> Result<(), EvalError> {
+pub fn validate(mappings: &[Mapping]) -> Result<(), String> {
     // Guaranteed by `crate::mapping::assert` to be the header.
     let header: &Segment = mappings.first().unwrap().segments.first().unwrap();
 
     // Header must have at least six bytes with proper information provided by
     // the programmer.
     if header.len() < 6 {
-        return Err(EvalError {
-            line: 0,
-            message: String::from("The header must contain at least 6 bytes"),
-            global: true,
-        });
+        return Err(String::from("The header must contain at least 6 bytes"));
     }
 
     // Now check that the length of the evaluated data matches the criteria
@@ -310,18 +305,16 @@ pub fn validate(mappings: &[Mapping]) -> Result<(), EvalError> {
         });
 
     if header_prg_rom_size < prg_rom_len {
-        return Err(EvalError {
-            line: 0,
-            message: format!("PRG ROM size is expected to by {} bytes long, but a total of {} bytes were evaluated", header_prg_rom_size, prg_rom_len),
-            global: true,
-        });
+        return Err(format!(
+            "PRG ROM size is expected to by {} bytes long, but a total of {} bytes were evaluated",
+            header_prg_rom_size, prg_rom_len
+        ));
     }
     if header_chr_rom_size < chr_rom_len {
-        return Err(EvalError {
-            line: 0,
-            message: format!("CHR ROM size is expected to by {} bytes long, but a total of {} bytes were evaluated", header_chr_rom_size, chr_rom_len),
-            global: true,
-        });
+        return Err(format!(
+            "CHR ROM size is expected to by {} bytes long, but a total of {} bytes were evaluated",
+            header_chr_rom_size, chr_rom_len
+        ));
     }
 
     Ok(())
@@ -329,39 +322,23 @@ pub fn validate(mappings: &[Mapping]) -> Result<(), EvalError> {
 
 // Returns a tuple with the sizes for PRG and CHR ROM as described from the
 // computed header. This also does some sanity checks on the header.
-fn parse_header(header: &Segment) -> Result<(usize, usize), EvalError> {
+fn parse_header(header: &Segment) -> Result<(usize, usize), String> {
     let mut header_it = header.bundles.clone().into_iter();
 
     // Validate the magic string: 'N', 'E', 'S', $1A
     if header_it.next().unwrap().bytes[0] != b'N' {
-        return Err(EvalError {
-            line: 0,
-            message: String::from("First byte of the header must be 'N'"),
-            global: true,
-        });
+        return Err(String::from("First byte of the header must be 'N'"));
     }
     if header_it.next().unwrap().bytes[0] != b'E' {
-        return Err(EvalError {
-            line: 0,
-            message: String::from("Second byte of the header must be 'E'"),
-            global: true,
-        });
+        return Err(String::from("Second byte of the header must be 'E'"));
     }
     if header_it.next().unwrap().bytes[0] != b'S' {
-        return Err(EvalError {
-            line: 0,
-            message: String::from("Third byte of the header must be 'S'"),
-            global: true,
-        });
+        return Err(String::from("Third byte of the header must be 'S'"));
     }
     if header_it.next().unwrap().bytes[0] != 26 {
-        return Err(EvalError {
-            line: 0,
-            message: String::from(
-                "Fourth byte of the header must be the MS-DOS termination character",
-            ),
-            global: true,
-        });
+        return Err(String::from(
+            "Fourth byte of the header must be the MS-DOS termination character",
+        ));
     }
 
     Ok((

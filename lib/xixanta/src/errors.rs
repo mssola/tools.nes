@@ -1,3 +1,4 @@
+use crate::SourceInfo;
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -5,6 +6,18 @@ pub enum Error {
     Parse(ParseError),
     Context(ContextError),
     Eval(EvalError),
+}
+
+impl From<ParseError> for Vec<Error> {
+    fn from(err: ParseError) -> Self {
+        vec![Error::Parse(err)]
+    }
+}
+
+impl From<ParseError> for Vec<ParseError> {
+    fn from(err: ParseError) -> Self {
+        vec![err]
+    }
 }
 
 impl From<ContextError> for Vec<Error> {
@@ -33,13 +46,24 @@ impl fmt::Display for Error {
 pub struct ParseError {
     pub line: usize,
     pub message: String,
+    pub source: SourceInfo,
 }
 
 impl std::error::Error for ParseError {}
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} (line {})", self.message, self.line + 1)
+        if self.source.name.is_empty() {
+            write!(f, "{} (line {})", self.message, self.line + 1)
+        } else {
+            write!(
+                f,
+                "{} ({}: line {})",
+                self.message,
+                self.source.name,
+                self.line + 1
+            )
+        }
     }
 }
 
@@ -61,6 +85,7 @@ pub struct ContextError {
     pub reason: ContextErrorReason,
     pub message: String,
     pub global: bool,
+    pub source: SourceInfo,
 }
 
 impl std::error::Error for ContextError {}
@@ -68,9 +93,21 @@ impl std::error::Error for ContextError {}
 impl fmt::Display for ContextError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.global {
-            write!(f, "{}", self.message)
-        } else {
+            if self.source.name.is_empty() {
+                write!(f, "{}", self.message)
+            } else {
+                write!(f, "{} ({})", self.message, self.source.name)
+            }
+        } else if self.source.name.is_empty() {
             write!(f, "{} (line {})", self.message, self.line + 1)
+        } else {
+            write!(
+                f,
+                "{} ({}: line {})",
+                self.message,
+                self.source.name,
+                self.line + 1
+            )
         }
     }
 }
@@ -80,6 +117,7 @@ pub struct EvalError {
     pub line: usize,
     pub message: String,
     pub global: bool,
+    pub source: SourceInfo,
 }
 
 impl std::error::Error for EvalError {}
@@ -90,6 +128,7 @@ impl From<ContextError> for EvalError {
             line: err.line,
             message: err.message,
             global: false,
+            source: SourceInfo::default(), // TODO
         }
     }
 }
@@ -97,9 +136,21 @@ impl From<ContextError> for EvalError {
 impl fmt::Display for EvalError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.global {
-            write!(f, "{}", self.message)
-        } else {
+            if self.source.name.is_empty() {
+                write!(f, "{}", self.message)
+            } else {
+                write!(f, "{} ({})", self.message, self.source.name)
+            }
+        } else if self.source.name.is_empty() {
             write!(f, "{} (line {})", self.message, self.line + 1)
+        } else {
+            write!(
+                f,
+                "{} ({}: line {})",
+                self.message,
+                self.source.name,
+                self.line + 1
+            )
         }
     }
 }

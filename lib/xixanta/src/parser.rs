@@ -1,9 +1,11 @@
 use crate::errors::ParseError;
-use crate::node::{NodeBodyType, NodeType, OperationType, PNode, PString};
+use crate::node::{ControlType, NodeBodyType, NodeType, OperationType, PNode, PString};
 use crate::opcodes::{CONTROL_FUNCTIONS, INSTRUCTIONS};
+use crate::SourceInfo;
 use rand::distributions::{Alphanumeric, DistString};
 use std::cmp::Ordering;
 use std::io::{self, BufRead, Read};
+use std::path;
 
 /// The Parser struct holds basic data for the current parsing session.
 #[derive(Default)]
@@ -35,22 +37,46 @@ pub struct Parser {
     /// statements (e.g. '.endproc') go with their respective start ones (e.g.
     /// '.proc'), and they don't close another block.
     bodies: Vec<NodeType>,
+
+    /// List of sources that have been parsed for this parsing session. Consume
+    /// it after calling `parse` in order to get the list of sources that have
+    /// been evaluated. Note that the `source` index on each PNode points to
+    /// this list.
+    pub sources: Vec<SourceInfo>,
+
+    /// The index of the source that explicitely belongs to this session (and
+    /// not subsequent calls done afterwards). Initialized on `parse`.
+    current_source: usize,
 }
 
 impl Parser {
     /// Parse the input from the given `reader`. You can then access the results
     /// from the `nodes` field. Otherwise, a vector of ParseError's might be
     /// returned.
-    pub fn parse(&mut self, reader: impl Read) -> Result<(), Vec<ParseError>> {
+    pub fn parse(&mut self, reader: impl Read, source: SourceInfo) -> Result<(), Vec<ParseError>> {
         let mut errors = Vec::new();
 
+        // Push the sources for the parsing session (note that this list might
+        // be initialized by the caller already). The `current_source` is simply
+        // the one we push upon initialization.
+        self.sources.push(SourceInfo {
+            working_directory: path::absolute(&source.working_directory)
+                .unwrap_or(source.working_directory),
+            name: source.name,
+        });
+        self.current_source = self.sources.len() - 1;
+
+        // Make sure that there is a first layer of nodes.
         self.nodes.push(vec![]);
 
+        // This is a line parser (i.e. there cannot be statements which span
+        // more than one line). Hence, consume the reader line by line and parse
+        // each one.
         for line in io::BufReader::new(reader).lines() {
             match line {
                 Ok(l) => {
-                    if let Err(err) = self.parse_line(l.as_str()) {
-                        errors.push(err);
+                    if let Err(mut err) = self.parse_line(l.as_str()) {
+                        errors.append(&mut err);
                     }
                 }
                 Err(_) => errors.push(self.parser_error("could not get line")),
@@ -58,7 +84,7 @@ impl Parser {
             self.line += 1;
         }
 
-        // Are there any more statements which are begging for a closing
+        // Are there any more statements which are still waiting for a closing
         // statement? If so, then there's something wrong.
         if !self.bodies.is_empty() {
             errors.push(
@@ -91,7 +117,7 @@ impl Parser {
     }
 
     // Parse a single `line` and push the parsed nodes into `self.nodes`.
-    fn parse_line(&mut self, line: &str) -> Result<(), ParseError> {
+    fn parse_line(&mut self, line: &str) -> Result<(), Vec<ParseError>> {
         self.column = 0;
         self.offset = 0;
 
@@ -132,6 +158,7 @@ impl Parser {
                 left: None,
                 right: None,
                 args: None,
+                source: self.current_source,
             });
 
             self.skip_whitespace(l);
@@ -147,7 +174,9 @@ impl Parser {
             self.offset = 0;
             (id, nt) = self.parse_identifier(l)?;
             if nt == NodeType::Label {
-                return Err(self.parser_error("cannot have multiple labels at the same location"));
+                return Err(self
+                    .parser_error("cannot have multiple labels at the same location")
+                    .into());
             }
 
             self.skip_whitespace(l);
@@ -210,8 +239,9 @@ impl Parser {
                                     // there is something wrong (e.g. "Bad:+").
                                     if base_offset != self.offset {
                                         return Err(ParseError {
-                                        line: self.line,
-                                        message: "you cannot have a relative label inside of an identifier".to_string(),
+                                            line: self.line,
+                                            source: self.sources[self.current_source].clone(),
+                                            message: "you cannot have a relative label inside of an identifier".to_string(),
                                     });
                                     }
 
@@ -233,6 +263,7 @@ impl Parser {
                                         if size > 4 {
                                             return Err(ParseError {
                                             line: self.line,
+                                            source: self.sources[self.current_source].clone(),
                                             message: "you can only jump to a maximum of four relative labels".to_string(),
                                         });
                                         }
@@ -244,6 +275,7 @@ impl Parser {
                                                 if next == '+' { "forward" } else { "backward" };
                                             return Err(ParseError {
                                                 line: self.line,
+                                                source: self.sources[self.current_source].clone(),
                                                 message: format!(
                                                 "{} relative label can only have '{}' characters",
                                                 msg, next
@@ -312,17 +344,17 @@ impl Parser {
 
     // Parse the top-level statement as found on the given `line` which has a
     // leading `id` positioned-string which may be an identifier.
-    fn parse_statement(&mut self, line: &str, id: PString) -> Result<(), ParseError> {
+    fn parse_statement(&mut self, line: &str, id: PString) -> Result<(), Vec<ParseError>> {
         // There are only two top-level statements: instructions and
         // assignments. Other kinds of expressions can also be used in the
         // middle of assignments or instructions, and so they have to be handled
         // as common expressions. Whether expressions make sense at the
         // different levels is something to be figured out by the assembler.
         match INSTRUCTIONS.get(&id.value) {
-            Some(_) => self.parse_instruction(line, id),
+            Some(_) => Ok(self.parse_instruction(line, id)?),
             None => {
                 if line.contains('=') {
-                    self.parse_assignment(line, id)
+                    Ok(self.parse_assignment(line, id)?)
                 } else {
                     self.parse_other(line, id)
                 }
@@ -426,6 +458,7 @@ impl Parser {
                 left,
                 right,
                 args: None,
+                source: self.current_source,
             }));
 
             // Do we have anything as a right arm?
@@ -454,6 +487,7 @@ impl Parser {
             left,
             right,
             args: None,
+            source: self.current_source,
         });
 
         Ok(())
@@ -494,6 +528,7 @@ impl Parser {
             left: Some(Box::new(left)),
             right: None,
             args: None,
+            source: self.current_source,
         });
 
         Ok(())
@@ -501,15 +536,42 @@ impl Parser {
 
     // Parse statements which are neither an instruction nor an assignment. This
     // includes stuff like control statements.
-    fn parse_other(&mut self, line: &str, id: PString) -> Result<(), ParseError> {
+    fn parse_other(&mut self, line: &str, id: PString) -> Result<(), Vec<ParseError>> {
+        // The main job of this function is to parse the expression and
+        // afterwards deal with corner cases. So, let's first just parse this.
         let node = self.parse_expression_with_identifier(id, line)?;
-        let node_type = node.node_type.clone();
-        let body_type = node.body_type();
+
+        // If this was an .include statement we have to handle it now as this is
+        // not a regular statement but more like a preprocessor statement which
+        // can lead to inner parsing sessions.
+        if matches!(
+            &node.node_type,
+            NodeType::Control(ControlType::IncludeSource)
+        ) {
+            // Validate that it's a top layer statement.
+            if self.nodes.len() > 1 {
+                return Err(ParseError {
+                    line: node.value.line,
+                    message: ".include statement cannot be inside of a code block".to_string(),
+                    source: self.sources[self.current_source].clone(),
+                }
+                .into());
+            }
+
+            // Before including all the nodes from the referenced file, add the
+            // .include statement. This should be ignored by the assembler, but
+            // maybe other tools want to make use of it.
+            self.nodes.last_mut().unwrap().push(node.clone());
+
+            // And append nodes from the referenced source.
+            return self.include_source(&node);
+        }
 
         // The given statement might be a start/end one (e.g. '.proc' and
         // '.endproc'). In these cases there are some things to handle besides
         // pushing the node into the current level of nodes.
-        match body_type {
+        let node_type = node.node_type.clone();
+        match node.body_type() {
             NodeBodyType::Starts => {
                 self.bodies.push(node_type.closing_type().unwrap());
                 self.nodes.last_mut().unwrap().push(node);
@@ -521,15 +583,18 @@ impl Parser {
                 let expected_close = match self.bodies.pop() {
                     Some(ec) => ec,
                     None => {
-                        return Err(
-                            self.parser_error(format!("unexpected '{}'", node_type).as_str())
-                        )
+                        return Err(self
+                            .parser_error(format!("unexpected '{}'", node_type).as_str())
+                            .into())
                     }
                 };
                 if node_type != expected_close {
-                    return Err(self.parser_error(
-                        format!("expecting '{}', found '{}'", expected_close, node_type).as_str(),
-                    ));
+                    return Err(self
+                        .parser_error(
+                            format!("expecting '{}', found '{}'", expected_close, node_type)
+                                .as_str(),
+                        )
+                        .into());
                 }
 
                 // Note that empty bodies are possible. This is left
@@ -542,6 +607,7 @@ impl Parser {
                     left: None,
                     right: None,
                     args: Some(nodes),
+                    source: self.current_source,
                 }));
                 self.nodes.last_mut().unwrap().push(node);
             }
@@ -549,6 +615,98 @@ impl Parser {
         }
 
         Ok(())
+    }
+
+    // Consume the given `node` by assuming it's an `.include` statement. This
+    // will in turn produce a new parsing session for the given file if possible
+    // and push the parsed nodes from it to our current list.
+    fn include_source(&mut self, node: &PNode) -> Result<(), Vec<ParseError>> {
+        // First of all, parse the string as it was given and join it with our
+        // working directory. This way we construct the absolute path for the
+        // given file.
+        let file_path = self.fetch_path_from(node.args.as_ref().unwrap().first().unwrap())?;
+        let Some(current_source) = self.sources.get(self.current_source) else {
+            panic!("mismatch between the number of sources and the current one");
+        };
+        let abs_file = current_source.working_directory.join(file_path);
+
+        // Validate that this is really a path that points to a file.
+        let path = std::path::Path::new(&abs_file);
+        if !path.is_file() {
+            return Err(ParseError {
+                line: node.value.line,
+                source: current_source.clone(),
+                message: "expecting a file ({})".to_string(),
+            }
+            .into());
+        }
+
+        // And open the file. This is the object to be passed as a reader for
+        // the recursive `parse` call, but it also allows us to construct the
+        // SourceInfo for the next session because we need to point to its
+        // parent in the file system.
+        let file = match std::fs::File::open(path) {
+            Ok(f) => f,
+            Err(e) => {
+                return Err(ParseError {
+                    line: node.value.line,
+                    source: current_source.clone(),
+                    message: format!("could not open source file: {}", e),
+                }
+                .into())
+            }
+        };
+        let Some(parent) = path.parent() else {
+            return Err(ParseError {
+                line: node.value.line,
+                source: current_source.clone(),
+                message: "could not find out the parent directory for file".to_string(),
+            }
+            .into());
+        };
+
+        // Set up a new parsing session, push the current sources, and call
+        // `parse`.
+        let mut parser = Parser {
+            sources: self.sources.clone(),
+            ..Default::default()
+        };
+        parser.parse(
+            file,
+            SourceInfo {
+                working_directory: parent.to_path_buf(),
+                name: path.file_name().unwrap().to_str().unwrap().to_string(),
+            },
+        )?;
+
+        // If everything was fine on the previous parsing session, append the
+        // nodes from it and also grab its sources, since the previous parsing
+        // session might have done further parsing iterations of its own.
+        self.nodes.last_mut().unwrap().append(&mut parser.nodes());
+        self.sources = parser.sources.clone();
+
+        Ok(())
+    }
+
+    // Returns a string containing the path being referenced in the given node.
+    // The path is assumed to be available directly inside of the value of the
+    // PNode.
+    fn fetch_path_from<'a>(&mut self, node: &'a PNode) -> Result<&'a str, ParseError> {
+        let value = &node.value.value;
+
+        // Validate the path literal.
+        if value.len() < 3 || !value.starts_with('"') || !value.ends_with('"') {
+            return Err(ParseError {
+                line: node.value.line,
+                source: self.sources[self.current_source].clone(),
+                message: format!(
+                    "path has to be written inside of double quotes ('{}' given instead)",
+                    value,
+                ),
+            });
+        }
+
+        Ok(value[1..value.len() - 1].trim())
     }
 
     // Parse any possible arguments for the given `line`. The offset is supposed
@@ -765,6 +923,7 @@ impl Parser {
                 left: None,
                 right: Some(Box::new(right)),
                 args: None,
+                source: self.current_source,
             });
         }
 
@@ -854,6 +1013,7 @@ impl Parser {
                 if next == '#' || (start != '#' && (next == '$' || next == '%')) {
                     return Err(ParseError {
                         line: id.line,
+                        source: self.sources[self.current_source].clone(),
                         message: "bad literal syntax".to_string(),
                     });
                 }
@@ -880,6 +1040,7 @@ impl Parser {
                     left: None,
                     right: None,
                     args: None,
+                    source: self.current_source,
                 }));
 
                 // Fetch a trimmed version of the string that comes after the
@@ -905,6 +1066,7 @@ impl Parser {
                     left,
                     right: Some(Box::new(right)),
                     args: None,
+                    source: self.current_source,
                 });
             }
 
@@ -919,6 +1081,7 @@ impl Parser {
                     left: None,
                     right: None,
                     args: if args.is_empty() { None } else { Some(args) },
+                    source: self.current_source,
                 });
             }
 
@@ -931,6 +1094,7 @@ impl Parser {
                 left: None,
                 right: None,
                 args: None,
+                source: self.current_source,
             })
         }
     }
@@ -975,6 +1139,7 @@ impl Parser {
                 left: None,
                 right: None,
                 args: None,
+                source: self.current_source,
             }));
         }
 
@@ -997,6 +1162,7 @@ impl Parser {
             left,
             right: None,
             args: if args.is_empty() { None } else { Some(args) },
+            source: self.current_source,
         })
     }
 
@@ -1020,6 +1186,7 @@ impl Parser {
             if c.is_whitespace() {
                 return Err(ParseError {
                     line: id.line,
+                    source: self.sources[self.current_source].clone(),
                     message: "numeric literals cannot have white spaces".to_string(),
                 });
             }
@@ -1035,6 +1202,7 @@ impl Parser {
             left: Some(Box::new(left)),
             right: None,
             args: None,
+            source: self.current_source,
         })
     }
 
@@ -1073,9 +1241,11 @@ impl Parser {
                 left: None,
                 right: None,
                 args: None,
+                source: self.current_source,
             })),
             right: None,
             args: None,
+            source: self.current_source,
         })
     }
 
@@ -1083,6 +1253,7 @@ impl Parser {
     fn parser_error(&self, msg: &str) -> ParseError {
         ParseError {
             message: String::from(msg),
+            source: self.sources[self.current_source].clone(),
             line: self.line,
         }
     }
@@ -1122,7 +1293,7 @@ mod tests {
     use crate::node::ControlType;
 
     fn assert_one_valid(parser: &mut Parser, line: &str) {
-        assert!(parser.parse(line.as_bytes()).is_ok());
+        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
         assert!(parser.nodes.len() == 1);
     }
 
@@ -1140,14 +1311,16 @@ mod tests {
     #[test]
     fn empty_line() {
         let mut parser = Parser::default();
-        assert!(parser.parse("".as_bytes()).is_ok());
+        assert!(parser.parse("".as_bytes(), SourceInfo::default()).is_ok());
         assert_eq!(parser.nodes.last().unwrap().len(), 0);
     }
 
     #[test]
     fn spaced_line() {
         let mut parser = Parser::default();
-        assert!(parser.parse("   ".as_bytes()).is_ok());
+        assert!(parser
+            .parse("   ".as_bytes(), SourceInfo::default())
+            .is_ok());
         assert_eq!(parser.nodes.last().unwrap().len(), 0);
     }
 
@@ -1155,7 +1328,7 @@ mod tests {
     fn just_a_comment_line() {
         for line in vec![";; This is a comment", "    ;; Comment"].into_iter() {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes()).is_ok());
+            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
             assert_eq!(parser.nodes.last().unwrap().len(), 0);
         }
     }
@@ -1165,7 +1338,7 @@ mod tests {
     #[test]
     fn anonymous_label() {
         let mut parser = Parser::default();
-        assert!(parser.parse(":".as_bytes()).is_ok());
+        assert!(parser.parse(":".as_bytes(), SourceInfo::default()).is_ok());
 
         let mut nodes = parser.nodes.last().unwrap();
         assert_eq!(nodes.len(), 1);
@@ -1174,7 +1347,9 @@ mod tests {
         assert_eq!(nodes.first().unwrap().value.end, 0);
 
         parser = Parser::default();
-        assert!(parser.parse("  :".as_bytes()).is_ok());
+        assert!(parser
+            .parse("  :".as_bytes(), SourceInfo::default())
+            .is_ok());
 
         nodes = parser.nodes.last().unwrap();
         assert_eq!(nodes.len(), 1);
@@ -1186,7 +1361,9 @@ mod tests {
     #[test]
     fn named_label() {
         let mut parser = Parser::default();
-        assert!(parser.parse("label:".as_bytes()).is_ok());
+        assert!(parser
+            .parse("label:".as_bytes(), SourceInfo::default())
+            .is_ok());
 
         let mut nodes = parser.nodes.last().unwrap();
         assert_eq!(nodes.len(), 1);
@@ -1195,7 +1372,9 @@ mod tests {
         assert_eq!(nodes.first().unwrap().value.end, 5);
 
         parser = Parser::default();
-        assert!(parser.parse("  label:".as_bytes()).is_ok());
+        assert!(parser
+            .parse("  label:".as_bytes(), SourceInfo::default())
+            .is_ok());
 
         nodes = parser.nodes.last().unwrap();
         assert_eq!(nodes.len(), 1);
@@ -1209,7 +1388,7 @@ mod tests {
         let line = "label: dex";
 
         let mut parser = Parser::default();
-        assert!(parser.parse(line.as_bytes()).is_ok());
+        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
         let nodes = parser.nodes();
         assert_eq!(nodes.len(), 2);
@@ -1229,7 +1408,7 @@ mod tests {
     fn parse_pound_literal() {
         for line in vec!["#20", " #20 ", "  #20   ; Comment", "  label:   #20"].into_iter() {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes()).is_ok());
+            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_eq!(node.node_type, NodeType::Literal);
@@ -1247,7 +1426,7 @@ mod tests {
     fn parse_compound_literal() {
         let line = "#$20";
         let mut parser = Parser::default();
-        assert!(parser.parse(line.as_bytes()).is_ok());
+        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
         let node = parser.nodes.last().unwrap().last().unwrap();
         assert_eq!(node.node_type, NodeType::Literal);
@@ -1273,7 +1452,7 @@ mod tests {
     fn parse_variable_in_literal() {
         let line = "#Variable";
         let mut parser = Parser::default();
-        assert!(parser.parse(line.as_bytes()).is_ok());
+        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
         let node = parser.nodes.last().unwrap().last().unwrap();
         assert_eq!(node.node_type, NodeType::Literal);
@@ -1293,7 +1472,7 @@ mod tests {
     fn parse_paren_expression() {
         let line = "ldx #(Variable)";
         let mut parser = Parser::default();
-        assert!(parser.parse(line.as_bytes()).is_ok());
+        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
         let instr = parser.nodes.last().unwrap().last().unwrap();
         assert_eq!(instr.node_type, NodeType::Instruction);
@@ -1318,14 +1497,18 @@ mod tests {
     fn parse_bad_literals() {
         for line in vec!["#", "#%", "$"].into_iter() {
             let mut parser = Parser::default();
-            let err = parser.parse(line.as_bytes()).unwrap_err();
+            let err = parser
+                .parse(line.as_bytes(), SourceInfo::default())
+                .unwrap_err();
 
             assert_eq!(err.first().unwrap().message, "invalid identifier");
         }
 
         for line in vec!["$ 2", "#% 2", "# 2"].into_iter() {
             let mut parser = Parser::default();
-            let err = parser.parse(line.as_bytes()).unwrap_err();
+            let err = parser
+                .parse(line.as_bytes(), SourceInfo::default())
+                .unwrap_err();
 
             assert_eq!(
                 err.first().unwrap().message,
@@ -1335,7 +1518,9 @@ mod tests {
 
         for line in vec!["##2", "#$$2", "$$2", "#$#$2", "#$#2", "###"].into_iter() {
             let mut parser = Parser::default();
-            let err = parser.parse(line.as_bytes()).unwrap_err();
+            let err = parser
+                .parse(line.as_bytes(), SourceInfo::default())
+                .unwrap_err();
 
             assert_eq!(err.first().unwrap().message, "bad literal syntax");
         }
@@ -1355,7 +1540,7 @@ mod tests {
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes()).is_ok());
+            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "dex");
@@ -1441,7 +1626,7 @@ mod tests {
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes()).is_ok());
+            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "inc");
@@ -1468,7 +1653,7 @@ mod tests {
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes()).is_ok());
+            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "lda");
@@ -1493,7 +1678,7 @@ mod tests {
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes()).is_ok());
+            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "lda");
@@ -1510,7 +1695,9 @@ mod tests {
     fn bad_indirect_addressing_x() {
         let mut parser = Parser::default();
 
-        let err = parser.parse("lda (Variable, x), y".as_bytes()).unwrap_err();
+        let err = parser
+            .parse("lda (Variable, x), y".as_bytes(), SourceInfo::default())
+            .unwrap_err();
         assert_eq!(err.first().unwrap().message, "bad indirect addressing");
     }
 
@@ -1518,7 +1705,7 @@ mod tests {
     fn indirect_addressing_y() {
         for line in vec!["lda ($20), y"].into_iter() {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes()).is_ok());
+            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "lda");
@@ -1537,7 +1724,7 @@ mod tests {
     fn variable_in_instruction() {
         let line = "lda Variable, x";
         let mut parser = Parser::default();
-        assert!(parser.parse(line.as_bytes()).is_ok());
+        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
         let node = parser.nodes.last().unwrap().last().unwrap();
         assert_node(node, NodeType::Instruction, line, "lda");
@@ -1556,7 +1743,7 @@ mod tests {
     fn variable_literal_in_instruction() {
         let line = "lda #Variable, x";
         let mut parser = Parser::default();
-        assert!(parser.parse(line.as_bytes()).is_ok());
+        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
         let node = parser.nodes.last().unwrap().last().unwrap();
         assert_node(node, NodeType::Instruction, line, "lda");
@@ -1576,7 +1763,7 @@ mod tests {
         for var in vec!["Scope::Variable", "Scope::Inner::Variable"].into_iter() {
             let line = format!("lda #{}", var);
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes()).is_ok());
+            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line.as_str(), "lda");
@@ -1596,7 +1783,9 @@ mod tests {
     fn bad_variable_scoping() {
         let mut parser = Parser::default();
 
-        let err = parser.parse("adc #One:Variable".as_bytes()).unwrap_err();
+        let err = parser
+            .parse("adc #One:Variable".as_bytes(), SourceInfo::default())
+            .unwrap_err();
         assert_eq!(
             err.first().unwrap().message,
             "not expecting a label defined here"
@@ -1607,7 +1796,9 @@ mod tests {
     fn reserved_mnemonic_name() {
         let mut parser = Parser::default();
 
-        let err = parser.parse("lda = $10".as_bytes()).unwrap_err();
+        let err = parser
+            .parse("lda = $10".as_bytes(), SourceInfo::default())
+            .unwrap_err();
         assert_eq!(
             err.first().unwrap().message,
             "cannot use the reserved mnemonic 'lda' as a variable name"
@@ -1619,7 +1810,7 @@ mod tests {
         for label in vec![":+", ":++", ":+++ ", ":++++", ":-", ":--", ":---", ":----"].into_iter() {
             let line = format!("jmp {}", label);
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes()).is_ok());
+            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line.as_str(), "jmp");
@@ -1640,28 +1831,36 @@ mod tests {
         let mut parser = Parser::default();
 
         let mut line = "jmp :+++++";
-        let mut err = parser.parse(line.as_bytes()).unwrap_err();
+        let mut err = parser
+            .parse(line.as_bytes(), SourceInfo::default())
+            .unwrap_err();
         assert_eq!(
             err.first().unwrap().message,
             "you can only jump to a maximum of four relative labels"
         );
 
         line = "jmp :+-";
-        err = parser.parse(line.as_bytes()).unwrap_err();
+        err = parser
+            .parse(line.as_bytes(), SourceInfo::default())
+            .unwrap_err();
         assert_eq!(
             err.first().unwrap().message,
             "forward relative label can only have '+' characters"
         );
 
         line = "jmp :-+-";
-        err = parser.parse(line.as_bytes()).unwrap_err();
+        err = parser
+            .parse(line.as_bytes(), SourceInfo::default())
+            .unwrap_err();
         assert_eq!(
             err.first().unwrap().message,
             "backward relative label can only have '-' characters"
         );
 
         line = "jmp Identifier:++";
-        err = parser.parse(line.as_bytes()).unwrap_err();
+        err = parser
+            .parse(line.as_bytes(), SourceInfo::default())
+            .unwrap_err();
         assert_eq!(
             err.first().unwrap().message,
             "you cannot have a relative label inside of an identifier"
@@ -1674,22 +1873,30 @@ mod tests {
     fn bad_assignments() {
         let mut parser = Parser::default();
 
-        let mut err = parser.parse("abc = $10".as_bytes()).unwrap_err();
+        let mut err = parser
+            .parse("abc = $10".as_bytes(), SourceInfo::default())
+            .unwrap_err();
         assert_eq!(
             err.first().unwrap().message,
             "cannot use names which are valid hexadecimal values such as 'abc'"
         );
 
         parser = Parser::default();
-        err = parser.parse("var =".as_bytes()).unwrap_err();
+        err = parser
+            .parse("var =".as_bytes(), SourceInfo::default())
+            .unwrap_err();
         assert_eq!(err.first().unwrap().message, "incomplete assignment");
 
         parser = Parser::default();
-        err = parser.parse("var =   ".as_bytes()).unwrap_err();
+        err = parser
+            .parse("var =   ".as_bytes(), SourceInfo::default())
+            .unwrap_err();
         assert_eq!(err.first().unwrap().message, "incomplete assignment");
 
         parser = Parser::default();
-        err = parser.parse("var =   ; Comment".as_bytes()).unwrap_err();
+        err = parser
+            .parse("var =   ; Comment".as_bytes(), SourceInfo::default())
+            .unwrap_err();
         assert_eq!(err.first().unwrap().message, "incomplete assignment");
     }
 
@@ -1699,7 +1906,7 @@ mod tests {
     fn constant_expression_test() {
         let line = "ldx #(4 * NUM_SPRITES)";
         let mut parser = Parser::default();
-        assert!(parser.parse(line.as_bytes()).is_ok());
+        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
         let node = parser.nodes.last().unwrap().last().unwrap();
         assert_node(node, NodeType::Instruction, line, "ldx");
@@ -1724,7 +1931,7 @@ mod tests {
     fn unary_operator_test() {
         let line = "ldx #<NUM_SPRITES";
         let mut parser = Parser::default();
-        assert!(parser.parse(line.as_bytes()).is_ok());
+        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
         let node = parser.nodes.last().unwrap().last().unwrap();
         assert_node(node, NodeType::Instruction, line, "ldx");
@@ -1751,7 +1958,7 @@ mod tests {
     fn parse_control_no_args() {
         for line in vec![".byte", "    .byte", " label: .byte   ; Comment"].into_iter() {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes()).is_ok());
+            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Control(ControlType::Byte), line, ".byte");
@@ -1773,7 +1980,7 @@ mod tests {
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes()).is_ok());
+            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(
@@ -1803,7 +2010,7 @@ mod tests {
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes()).is_ok());
+            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Control(ControlType::Byte), line, ".byte");
@@ -1821,7 +2028,7 @@ mod tests {
     fn parse_byte_with_character_literals() {
         let line = ".byte 'N', 'E', 'S', $1A";
         let mut parser = Parser::default();
-        assert!(parser.parse(line.as_bytes()).is_ok());
+        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
         let args = parser
             .nodes
@@ -1873,7 +2080,7 @@ mod tests {
             let real = String::from(line) + "\n.endscope";
 
             let mut parser = Parser::default();
-            assert!(parser.parse(real.as_bytes()).is_ok());
+            assert!(parser.parse(real.as_bytes(), SourceInfo::default()).is_ok());
 
             let nodes = parser.nodes();
             let node = &nodes[nodes.len() - 2];
@@ -1907,7 +2114,7 @@ mod tests {
             let real = String::from(line) + "\n.endmacro";
 
             let mut parser = Parser::default();
-            assert!(parser.parse(real.as_bytes()).is_ok());
+            assert!(parser.parse(real.as_bytes(), SourceInfo::default()).is_ok());
 
             let nodes = parser.nodes();
             let node = &nodes[nodes.len() - 2];
@@ -1944,7 +2151,7 @@ mod tests {
             let real = String::from(line) + "\n.endmacro";
 
             let mut parser = Parser::default();
-            assert!(parser.parse(real.as_bytes()).is_ok());
+            assert!(parser.parse(real.as_bytes(), SourceInfo::default()).is_ok());
 
             let nodes = parser.nodes();
             let node = &nodes[nodes.len() - 2];
@@ -1969,7 +2176,9 @@ mod tests {
     #[test]
     fn parse_control_unclosed() {
         let mut parser = Parser::default();
-        let err = parser.parse(".macro MACRO".as_bytes()).unwrap_err();
+        let err = parser
+            .parse(".macro MACRO".as_bytes(), SourceInfo::default())
+            .unwrap_err();
 
         assert_eq!(
             err.first().unwrap().message,
@@ -1980,7 +2189,9 @@ mod tests {
     #[test]
     fn parse_control_too_many_closes() {
         let mut parser = Parser::default();
-        let err = parser.parse(".endmacro".as_bytes()).unwrap_err();
+        let err = parser
+            .parse(".endmacro".as_bytes(), SourceInfo::default())
+            .unwrap_err();
 
         assert_eq!(
             err.first().unwrap().message,
@@ -1995,7 +2206,9 @@ mod tests {
 .endscope
 .endmacro"#;
         let mut parser = Parser::default();
-        let err = parser.parse(code.as_bytes()).unwrap_err();
+        let err = parser
+            .parse(code.as_bytes(), SourceInfo::default())
+            .unwrap_err();
 
         assert_eq!(
             err.first().unwrap().message,
@@ -2014,7 +2227,7 @@ nop
 inc $20
 .endmacro"#;
         let mut parser = Parser::default();
-        assert!(parser.parse(code.as_bytes()).is_ok());
+        assert!(parser.parse(code.as_bytes(), SourceInfo::default()).is_ok());
 
         let nodes = parser.nodes();
         assert_eq!(nodes.len(), 2); // .macro and .endmacro
@@ -2047,7 +2260,9 @@ inc $20
     fn parse_control_bad_number_args() {
         for line in vec![".hibyte", ".hibyte($20, $22)"].into_iter() {
             let mut parser = Parser::default();
-            let err = parser.parse(line.as_bytes()).unwrap_err();
+            let err = parser
+                .parse(line.as_bytes(), SourceInfo::default())
+                .unwrap_err();
 
             assert_eq!(
                 err.first().unwrap().message,
@@ -2060,7 +2275,7 @@ inc $20
     fn parse_control_in_instructions() {
         for line in vec!["lda #.hibyte($2010)", "  label:   lda #.hibyte   $2010   "].into_iter() {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes()).is_ok());
+            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "lda");
@@ -2097,7 +2312,7 @@ inc $20
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes()).is_ok());
+            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "lda");
@@ -2141,7 +2356,7 @@ inc $20
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes()).is_ok());
+            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "lda");
@@ -2186,7 +2401,7 @@ inc $20
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes()).is_ok());
+            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Assignment, line, "lala");
@@ -2217,7 +2432,9 @@ inc $20
     #[test]
     fn parse_repeat_control() {
         let mut parser = Parser::default();
-        let err = parser.parse(".repeat\n.endrepeat".as_bytes()).unwrap_err();
+        let err = parser
+            .parse(".repeat\n.endrepeat".as_bytes(), SourceInfo::default())
+            .unwrap_err();
         assert_eq!(
             err.first().unwrap().message,
             "wrong number of arguments for function '.repeat'"
@@ -2225,7 +2442,10 @@ inc $20
 
         let mut parser = Parser::default();
         let err = parser
-            .parse(".repeat 1, 2, 3\n.endrepeat".as_bytes())
+            .parse(
+                ".repeat 1, 2, 3\n.endrepeat".as_bytes(),
+                SourceInfo::default(),
+            )
             .unwrap_err();
         assert_eq!(
             err.first().unwrap().message,
@@ -2237,7 +2457,7 @@ inc $20
         parser = Parser::default();
         let mut line = ".repeat 2\n.endrepeat";
 
-        assert!(parser.parse(line.as_bytes()).is_ok());
+        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
         let mut control = parser.nodes.last().unwrap().first().unwrap();
         assert_node(
             control,
@@ -2263,7 +2483,7 @@ inc $20
         parser = Parser::default();
         line = ".repeat 2, I\n.endrepeat";
 
-        assert!(parser.parse(line.as_bytes()).is_ok());
+        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
         control = parser.nodes.last().unwrap().first().unwrap();
         assert_node(
             control,
@@ -2289,11 +2509,15 @@ inc $20
     #[test]
     fn parse_unknown_control() {
         let mut parser = Parser::default();
-        let mut err = parser.parse(".".as_bytes()).unwrap_err();
+        let mut err = parser
+            .parse(".".as_bytes(), SourceInfo::default())
+            .unwrap_err();
         assert_eq!(err.first().unwrap().message, "unknown function '.'");
 
         parser = Parser::default();
-        err = parser.parse(".whatever".as_bytes()).unwrap_err();
+        err = parser
+            .parse(".whatever".as_bytes(), SourceInfo::default())
+            .unwrap_err();
         assert_eq!(err.first().unwrap().message, "unknown function '.whatever'");
     }
 
@@ -2309,7 +2533,7 @@ inc $20
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes()).is_ok());
+            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Value, line, "MACRO_CALL");
@@ -2331,7 +2555,7 @@ inc $20
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes()).is_ok());
+            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Call, line, "MACRO_CALL");
@@ -2352,7 +2576,7 @@ inc $20
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes()).is_ok());
+            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Call, line, "MACRO_CALL");
@@ -2376,7 +2600,7 @@ inc $20
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes()).is_ok());
+            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Call, line, "MACRO_CALL");

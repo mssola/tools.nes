@@ -4,6 +4,7 @@ use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::Path;
 use xixanta::assembler::assemble;
+use xixanta::SourceInfo;
 
 /// Assembler for the 6502 microprocessor that targets the NES/Famicom.
 #[derive(ClapParser, Debug)]
@@ -40,7 +41,7 @@ fn main() -> Result<()> {
 
     // Select the input stream and the current working directory.
     let input: Box<dyn Read>;
-    let working_directory = match &args.file {
+    let source_info = match &args.file {
         Some(file) => {
             let path = Path::new(file);
             if !path.is_file() {
@@ -48,13 +49,22 @@ fn main() -> Result<()> {
             }
             input = Box::new(File::open(file)?);
 
-            path.parent()
-                .with_context(|| String::from("Failed to find directory for given file"))?
+            SourceInfo {
+                working_directory: path
+                    .parent()
+                    .with_context(|| String::from("Failed to find directory for given file"))?
+                    .to_path_buf(),
+                name: path.file_name().unwrap().to_str().unwrap().to_string(),
+            }
         }
         None => {
             input = Box::new(std::io::stdin());
-            &std::env::current_dir()
-                .with_context(|| String::from("Could not fetch current directory"))?
+            SourceInfo {
+                working_directory: std::env::current_dir()
+                    .with_context(|| String::from("Could not fetch current directory"))?
+                    .to_path_buf(),
+                name: "<stdin>".to_string(),
+            }
         }
     };
 
@@ -82,7 +92,7 @@ fn main() -> Result<()> {
 
     // And assemble.
     let mut error_count = 0;
-    let res = assemble(input, config.as_str(), working_directory.to_path_buf());
+    let res = assemble(input, config.as_str(), source_info);
 
     // Print warnings and errors first, while also computing the amount of them
     // that exists.
