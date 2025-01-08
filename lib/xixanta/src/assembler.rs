@@ -1660,6 +1660,20 @@ impl<'a> Assembler<'a> {
                 // address being referenced, which is never on the zeropage
                 // section, so it wouldn't fit on a single byte anyways.
                 if val.size == 1 || (val.resolved && val.bytes[1] == 0x00) {
+                    // If despite all of the above the parsed instruction +
+                    // zeropage indexing is actually not valid but the absolute
+                    // indexing is, then convert this instruction to absolute
+                    // indexing.
+                    let mnemonic = node.value.value.to_lowercase();
+                    if let Some(entries) = INSTRUCTIONS.get(&mnemonic) {
+                        if entries.get(&AddressingMode::ZeropageIndexedX).is_none()
+                            && entries.get(&AddressingMode::IndexedX).is_some()
+                        {
+                            val.size = 2;
+                            return Ok((AddressingMode::IndexedX, val));
+                        }
+                    }
+
                     // Re-inforce the optimization when val.size == 2 by forcing
                     // the size to 1.
                     val.size = 1;
@@ -1671,6 +1685,17 @@ impl<'a> Assembler<'a> {
             "y" => {
                 // Same optimization as with the "x" case.
                 if val.size == 1 || (val.resolved && val.bytes[1] == 0x00) {
+                    // Similar to the case on "x" indexing.
+                    let mnemonic = node.value.value.to_lowercase();
+                    if let Some(entries) = INSTRUCTIONS.get(&mnemonic) {
+                        if entries.get(&AddressingMode::ZeropageIndexedY).is_none()
+                            && entries.get(&AddressingMode::IndexedY).is_some()
+                        {
+                            val.size = 2;
+                            return Ok((AddressingMode::IndexedY, val));
+                        }
+                    }
+
                     val.size = 1;
                     Ok((AddressingMode::ZeropageIndexedY, val))
                 } else {
@@ -2360,6 +2385,9 @@ mod tests {
         assert_instruction("lda ($20, x)", &[0xA1, 0x20]);
         assert_instruction("lda ($20), y", &[0xB1, 0x20]);
 
+        // Expand zeropage-looking into absolute index.
+        assert_instruction("lda $42, y", &[0xB9, 0x42, 0x00]);
+
         // ldx
         assert_instruction("ldx #$20", &[0xA2, 0x20]);
         assert_instruction("ldx $20", &[0xA6, 0x20]);
@@ -2481,6 +2509,9 @@ mod tests {
         assert_instruction("sta $2002, y", &[0x99, 0x02, 0x20]);
         assert_instruction("sta ($20, x)", &[0x81, 0x20]);
         assert_instruction("sta ($20), y", &[0x91, 0x20]);
+
+        // Expand zeropage-looking into absolute index.
+        assert_instruction("sta $42, y", &[0x99, 0x42, 0x00]);
 
         // stx
         assert_instruction("stx $20", &[0x86, 0x20]);
