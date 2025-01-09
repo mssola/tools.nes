@@ -690,6 +690,7 @@ impl<'a> Assembler<'a> {
             let mut margs = mcr.args.as_ref().unwrap().iter();
 
             for arg in node.args.as_ref().unwrap().iter() {
+                self.literal_mode = None;
                 let obj = Object {
                     bundle: self.evaluate_node(arg)?,
                     mapping: self.current_mapping,
@@ -3092,6 +3093,25 @@ cpx #(4 * var2)"#,
             assert_eq!(res[i].bytes[0], instrs[i][0]);
             assert_eq!(res[i].bytes[1], instrs[i][1]);
         }
+    }
+
+    #[test]
+    fn macro_variable_argument() {
+        let res = just_bundles(
+            r#".macro MACRO arg
+    lda arg
+.endmacro
+
+Var1 = $20
+
+MACRO Var1
+"#,
+        );
+
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0].size, 2);
+        assert_eq!(res[0].bytes[0], 0xA5);
+        assert_eq!(res[0].bytes[1], 0x20);
     }
 
     #[test]
