@@ -232,7 +232,7 @@ impl Context {
                     }
                 }
             },
-            None => Err(format!("did not find scope '{}'", scope_name)),
+            None => Err(format!("could not find scope '{}'", scope_name)),
         }
     }
 

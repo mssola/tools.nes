@@ -791,10 +791,7 @@ impl<'a> Assembler<'a> {
                                 Ok(v)
                             }
                             Err(err) => Err(Error {
-                                message: format!(
-                                    "no prefix was given to operand and {} either",
-                                    err.message
-                                ),
+                                message: err.message,
                                 line: node.value.line,
                                 source: self.source_for(node),
                                 global: false,
@@ -2239,15 +2236,16 @@ mod tests {
     #[test]
     fn bad_variable_but_valid_identifier_in_instruction() {
         assert_error(
-                "adc Variable",
-                1, false,
-                "no prefix was given to operand and could not find variable 'Variable' in the global scope either",
-            );
+            "adc Variable",
+            1,
+            false,
+            "could not find variable 'Variable' in the global scope",
+        );
         assert_error(
             "adc Scoped::Variable",
             1,
             false,
-            "no prefix was given to operand and did not find scope 'Scoped' either",
+            "could not find scope 'Scoped'",
         );
     }
 
@@ -2292,7 +2290,7 @@ mod tests {
             "lda #Scope::Variable",
             1,
             false,
-            "'e' is not a decimal value and did not find scope 'Scope' either",
+            "'e' is not a decimal value and could not find scope 'Scope' either",
         );
         assert_error(
             r#"
