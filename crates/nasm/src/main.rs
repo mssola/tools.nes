@@ -50,7 +50,7 @@ fn main() -> Result<()> {
             input = Box::new(File::open(file)?);
 
             SourceInfo {
-                working_directory: path
+                directory: path
                     .parent()
                     .with_context(|| String::from("Failed to find directory for given file"))?
                     .to_path_buf(),
@@ -60,7 +60,7 @@ fn main() -> Result<()> {
         None => {
             input = Box::new(std::io::stdin());
             SourceInfo {
-                working_directory: std::env::current_dir()
+                directory: std::env::current_dir()
                     .with_context(|| String::from("Could not fetch current directory"))?
                     .to_path_buf(),
                 name: "<stdin>".to_string(),

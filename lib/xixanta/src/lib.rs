@@ -1,16 +1,20 @@
 #[macro_use]
 extern crate lazy_static;
 
+/// Information for a file that has been parsed/assembled.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SourceInfo {
-    pub working_directory: std::path::PathBuf,
+    /// Directory where the file is located.
+    pub directory: std::path::PathBuf,
+
+    /// Friendly name for the given file.
     pub name: String,
 }
 
 impl Default for SourceInfo {
     fn default() -> Self {
         SourceInfo {
-            working_directory: std::env::current_dir().unwrap().to_path_buf(),
+            directory: std::env::current_dir().unwrap().to_path_buf(),
             name: "".to_string(),
         }
     }

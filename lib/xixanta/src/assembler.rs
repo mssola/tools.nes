@@ -1310,7 +1310,7 @@ impl<'a> Assembler<'a> {
         // `File` operations work in this way, set the current directory now.
         match &self.sources.get(node.source) {
             Some(source) => {
-                if let Err(e) = std::env::set_current_dir(&source.working_directory) {
+                if let Err(e) = std::env::set_current_dir(&source.directory) {
                     return Err(Error {
                         line: node.value.line,
                         message: format!("could not move to the directory of '{}': {}", value, e),
@@ -1935,7 +1935,7 @@ impl<'a> Assembler<'a> {
         self.sources
             .get(node.source)
             .unwrap_or(&SourceInfo {
-                working_directory: self.sources[0].working_directory.clone(),
+                directory: self.sources[0].directory.clone(),
                 name: self.sources[0].name.clone(),
             })
             .clone()

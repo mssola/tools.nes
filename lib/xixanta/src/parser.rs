@@ -59,8 +59,7 @@ impl Parser {
         // be initialized by the caller already). The `current_source` is simply
         // the one we push upon initialization.
         self.sources.push(SourceInfo {
-            working_directory: path::absolute(&source.working_directory)
-                .unwrap_or(source.working_directory),
+            directory: path::absolute(&source.directory).unwrap_or(source.directory),
             name: source.name,
         });
         self.current_source = self.sources.len() - 1;
@@ -631,7 +630,7 @@ impl Parser {
         let Some(current_source) = self.sources.get(self.current_source) else {
             panic!("mismatch between the number of sources and the current one");
         };
-        let abs_file = current_source.working_directory.join(file_path);
+        let abs_file = current_source.directory.join(file_path);
 
         // Validate that this is really a path that points to a file.
         let path = std::path::Path::new(&abs_file);
@@ -680,7 +679,7 @@ impl Parser {
         parser.parse(
             file,
             SourceInfo {
-                working_directory: parent.to_path_buf(),
+                directory: parent.to_path_buf(),
                 name: path.file_name().unwrap().to_str().unwrap().to_string(),
             },
         )?;
