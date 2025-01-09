@@ -929,6 +929,7 @@ impl<'a> Assembler<'a> {
         Ok(right)
     }
 
+    // Evaluate the given node as a relative reference.
     fn evaluate_anonymous_relative_reference(&mut self, node: &PNode) -> Result<Bundle, Error> {
         self.literal_mode = Some(LiteralMode::Plain);
 
@@ -957,7 +958,12 @@ impl<'a> Assembler<'a> {
                     }),
                 }
             }
-            _ => panic!("unexpected evaluation of relative reference"),
+            Stage::Context => Err(Error {
+                line: node.value.line,
+                source: self.source_for(node),
+                global: false,
+                message: "trying to evaluate a relative reference as a bare value".to_string(),
+            }),
         }
     }
 
@@ -2260,6 +2266,16 @@ mod tests {
             8,
             false,
             "'Yet' already defined in the global scope: you cannot re-assign names",
+        );
+    }
+
+    #[test]
+    fn trying_to_assign_on_relative_reference() {
+        assert_error(
+            "Var = :-",
+            1,
+            false,
+            "trying to evaluate a relative reference as a bare value",
         );
     }
 
