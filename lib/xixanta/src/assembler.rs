@@ -1,9 +1,9 @@
-use crate::errors::{ContextError, Error, EvalError};
 use crate::mapping::{get_mapping_configuration, Mapping};
 use crate::node::{ControlType, NodeType, OperationType, PNode};
 use crate::object::{Bundle, Context, Object, ObjectType};
 use crate::opcodes::{AddressingMode, INSTRUCTIONS};
 use crate::parser::Parser;
+use crate::Error;
 use crate::SourceInfo;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -101,12 +101,12 @@ pub fn assemble(reader: impl Read, mapping: &str, source: SourceInfo) -> Assembl
         Err(e) => {
             return AssemblerResult {
                 bundles: vec![],
-                errors: vec![Error::Eval(EvalError {
+                errors: vec![Error {
                     global: true,
                     line: 0,
                     message: e,
                     source,
-                })],
+                }],
                 warnings: vec![],
             };
         }
@@ -134,7 +134,7 @@ pub fn assemble_with_mapping(
     if let Err(errors) = parser.parse(reader, source) {
         return AssemblerResult {
             bundles: vec![],
-            errors: errors.iter().map(|e| Error::Parse(e.clone())).collect(),
+            errors,
             warnings: asm.warnings,
         };
     }
@@ -212,7 +212,7 @@ impl<'a> Assembler<'a> {
     // Define a new variable by taking the given `id`. This variable will only
     // be created if `id` is not empty. The function will error out if the given
     // name is already taken.
-    fn define_variable(&mut self, node: &PNode) -> Result<(), ContextError> {
+    fn define_variable(&mut self, node: &PNode) -> Result<(), Error> {
         if node.value.is_empty() {
             return Ok(());
         }
@@ -226,7 +226,7 @@ impl<'a> Assembler<'a> {
             ),
             false,
         ) {
-            return Err(ContextError {
+            return Err(Error {
                 message,
                 line: node.value.line,
                 global: false,
@@ -250,7 +250,7 @@ impl<'a> Assembler<'a> {
                     // There's no good reason to declare a named label inside of
                     // a macro. If that's the case, just error out.
                     if (self.macros_seen > 0 || self.repeats_seen > 0) && !node.value.is_empty() {
-                        errors.push(Error::Eval(EvalError {
+                        errors.push(Error {
                             line: node.value.line,
                             message: format!(
                                 "using a named label ('{}') inside of a macro/repeat definition",
@@ -258,22 +258,22 @@ impl<'a> Assembler<'a> {
                             ),
                             source: self.source_for(node),
                             global: false,
-                        }));
+                        });
                         continue;
                     }
                     if let Err(err) = self.define_variable(node) {
-                        errors.push(Error::Context(err));
+                        errors.push(err);
                     }
                 }
                 NodeType::Assignment => {
                     if self.macros_seen > 0 || self.repeats_seen > 0 {
-                        errors.push(Error::Eval(EvalError {
+                        errors.push(Error {
                             message: "cannot have assignments inside of macro/repeat definitions"
                                 .to_string(),
                             line: node.value.line,
                             source: self.source_for(node),
                             global: false,
-                        }));
+                        });
                         continue;
                     }
                     self.literal_mode = None;
@@ -289,25 +289,25 @@ impl<'a> Assembler<'a> {
                                 },
                                 false,
                             ) {
-                                errors.push(Error::Context(ContextError {
+                                errors.push(Error {
                                     message: err,
                                     line: node.value.line,
                                     global: false,
                                     source: self.source_for(node),
-                                }));
+                                });
                             }
                         }
-                        Err(e) => errors.push(Error::Eval(e)),
+                        Err(e) => errors.push(e),
                     }
                 }
                 NodeType::Control(control_type) => {
                     if !self.context.is_global() && control_type.must_be_global() {
-                        errors.push(Error::Context(ContextError {
+                        errors.push(Error {
                             message: format!("{} must be on the global scope", control_type),
                             line: node.value.line,
                             global: false,
                             source: self.source_for(node),
-                        }));
+                        });
                         continue;
                     }
 
@@ -336,19 +336,19 @@ impl<'a> Assembler<'a> {
                         ControlType::StartProc => {
                             if self.macros_seen > 0 || self.procs_seen > 0 || self.repeats_seen > 0
                             {
-                                errors.push(Error::Context(ContextError {
+                                errors.push(Error {
                                     message: "you cannot call '.proc' in this context".to_string(),
                                     line: node.value.line,
                                     global: false,
                                     source: self.source_for(node),
-                                }));
+                                });
                                 continue;
                             }
 
                             self.procs_seen += 1;
                             let proc_name = &node.left.as_ref().unwrap();
                             if let Err(err) = self.define_variable(proc_name) {
-                                errors.push(Error::Context(err));
+                                errors.push(err);
                             }
                         }
                         ControlType::EndProc => {
@@ -360,12 +360,12 @@ impl<'a> Assembler<'a> {
                         ControlType::StartScope => {
                             if self.macros_seen > 0 || self.procs_seen > 0 || self.repeats_seen > 0
                             {
-                                errors.push(Error::Context(ContextError {
+                                errors.push(Error {
                                     message: "you cannot call '.scope' in this context".to_string(),
                                     line: node.value.line,
                                     source: self.source_for(node),
                                     global: false,
-                                }));
+                                });
                                 continue;
                             }
                         }
@@ -383,12 +383,12 @@ impl<'a> Assembler<'a> {
                     // If this control statement implies a context change, do it
                     // now.
                     if let Err(message) = self.context.change_context(node) {
-                        errors.push(Error::Context(ContextError {
+                        errors.push(Error {
                             message,
                             line: node.value.line,
                             global: false,
                             source: self.source_for(node),
-                        }));
+                        });
                     }
 
                     // If this control statement actually has a body, go inside
@@ -413,7 +413,7 @@ impl<'a> Assembler<'a> {
     // it's empty (i.e. anonymous label). In either case, the computed label
     // will be pushed into the context's list of known labels with the current
     // segment offset.
-    fn apply_segment_offset_to_label(&mut self, node: &PNode) -> Result<(), ContextError> {
+    fn apply_segment_offset_to_label(&mut self, node: &PNode) -> Result<(), Error> {
         let segment = &self.mappings[self.current_mapping].segments[self.current_segment];
         let value = segment.offset.to_le_bytes();
         let object = Object {
@@ -433,7 +433,7 @@ impl<'a> Assembler<'a> {
 
         if !node.value.is_empty() {
             if let Err(message) = self.context.set_variable(&node.value, &object, true) {
-                return Err(ContextError {
+                return Err(Error {
                     message,
                     line: node.value.line,
                     global: false,
@@ -459,7 +459,7 @@ impl<'a> Assembler<'a> {
                 // after calling `Context::get_variable`
                 NodeType::Label => {
                     if let Err(e) = self.apply_segment_offset_to_label(node) {
-                        errors.push(Error::Context(e));
+                        errors.push(e);
                     }
                 }
                 // Same as with labels but with the addition that ".proc"
@@ -468,15 +468,15 @@ impl<'a> Assembler<'a> {
                 NodeType::Control(ControlType::StartProc) => {
                     let proc_name = &node.left.as_ref().unwrap();
                     if let Err(e) = self.apply_segment_offset_to_label(proc_name) {
-                        errors.push(Error::Context(e));
+                        errors.push(e);
                     }
                     if let Err(message) = self.context.change_context(node) {
-                        errors.push(Error::Context(ContextError {
+                        errors.push(Error {
                             message,
                             line: node.value.line,
                             global: false,
                             source: self.source_for(node),
-                        }));
+                        });
                     }
 
                     // And now go inside of its body if it exists (note that its
@@ -485,12 +485,12 @@ impl<'a> Assembler<'a> {
                     // if node.right.as_ref().is_some() {
                     let args = &node.right.as_ref().unwrap().args.as_ref().unwrap();
                     if args.is_empty() {
-                        self.warnings.push(Error::Eval(EvalError {
+                        self.warnings.push(Error {
                             line: node.value.line,
                             message: format!("empty .proc '{}'", proc_name.value.value),
                             source: self.source_for(node),
                             global: false,
-                        }));
+                        });
                     } else {
                         self.bundle(args)?;
                     }
@@ -500,15 +500,15 @@ impl<'a> Assembler<'a> {
                     match self.evaluate_node(node) {
                         Ok(bundle) => {
                             if let Err(e) = self.push_bundle(bundle, node) {
-                                errors.push(Error::Eval(e));
+                                errors.push(e);
                             }
                         }
-                        Err(e) => errors.push(Error::Eval(e)),
+                        Err(e) => errors.push(e),
                     }
                 }
                 NodeType::Control(control_type) => {
                     if let Err(e) = self.evaluate_control_statement(node) {
-                        errors.push(Error::Eval(e));
+                        errors.push(e);
                     }
 
                     // On control statements which modify the context, there are
@@ -529,12 +529,12 @@ impl<'a> Assembler<'a> {
                                 let scope_name = &node.left.as_ref().unwrap().value;
                                 let args = &node.right.as_ref().unwrap().args.as_ref().unwrap();
                                 if args.is_empty() {
-                                    self.warnings.push(Error::Eval(EvalError {
+                                    self.warnings.push(Error {
                                         line: node.value.line,
                                         message: format!("empty .scope '{}'", scope_name.value),
                                         source: self.source_for(node),
                                         global: false,
-                                    }));
+                                    });
                                 } else {
                                     self.bundle(args)?;
                                 }
@@ -578,14 +578,14 @@ impl<'a> Assembler<'a> {
                     if pn.node.is_branch() {
                         bundle.resolved = true;
                         if let Err(e) = self.to_relative_address(&pn.node, &mut bundle) {
-                            errors.push(Error::Eval(e));
+                            errors.push(e);
                         }
                     }
 
                     let current_mut = &mut self.mappings[pn.mapping].segments[pn.segment];
                     current_mut.bundles[pn.bundle_index].bytes = bundle.bytes;
                 }
-                Err(e) => errors.push(Error::Eval(e)),
+                Err(e) => errors.push(e),
             }
 
             self.context.force_context_pop();
@@ -604,12 +604,12 @@ impl<'a> Assembler<'a> {
         // Validate the mappings that have been evaluated before spitting it
         // out.
         if let Err(e) = crate::mapping::validate(&self.mappings) {
-            return Err(vec![Error::Eval(EvalError {
+            return Err(vec![Error {
                 line: 0,
                 global: true,
                 message: e,
                 source: self.sources[0].clone(),
-            })]);
+            }]);
         }
 
         let mut res = vec![];
@@ -617,19 +617,19 @@ impl<'a> Assembler<'a> {
         for mapping in &mut self.mappings {
             for segment in mapping.segments.iter_mut() {
                 if segment.is_empty() {
-                    self.warnings.push(Error::Eval(EvalError {
+                    self.warnings.push(Error {
                         line: 0,
                         message: format!("segment '{}' is empty", segment.name),
                         source: self.sources[0].clone(),
                         global: true,
-                    }));
+                    });
                 }
                 res.append(&mut segment.bundles);
             }
 
             let mut diff = mapping.size as isize - mapping.offset as isize;
             if diff < 0 {
-                errors.push(Error::Eval(EvalError{
+                errors.push(Error{
                         line: 0,
                         message: format!(
                             "exceeding segment size for '{}'; expecting {} bytes and {} bytes have already been seen",
@@ -637,7 +637,7 @@ impl<'a> Assembler<'a> {
                         ),
                         source: self.sources[0].clone(),
                         global: false,
-                }));
+                });
             }
 
             if let Some(fill) = mapping.fill {
@@ -658,7 +658,7 @@ impl<'a> Assembler<'a> {
     // Consume a node which contains a macro call by pushing its bundles now.
     fn bundle_call(&mut self, node: &PNode) -> Result<(), Vec<Error>> {
         // Get the macro we are trying to reproduce.
-        let mcr = *self.macros.get(&node.value.value).ok_or(EvalError {
+        let mcr = *self.macros.get(&node.value.value).ok_or(Error {
             line: node.value.line,
             message: format!(
                 "could not find a macro with the name '{}'",
@@ -673,7 +673,7 @@ impl<'a> Assembler<'a> {
         let given_args = node.args.as_ref().unwrap_or(&vec![]).len();
         let macro_args = mcr.args.as_ref().unwrap_or(&vec![]).len();
         if macro_args != given_args {
-            return Err(vec![Error::Eval(EvalError {
+            return Err(Error {
                 line: node.value.line,
                 message: format!(
                     "wrong number of arguments for '{}': {} required but {} given",
@@ -681,7 +681,8 @@ impl<'a> Assembler<'a> {
                 ),
                 source: self.source_for(node),
                 global: false,
-            })]);
+            }
+            .into());
         }
 
         // If there are arguments defined by the macro, set their values now.
@@ -703,12 +704,13 @@ impl<'a> Assembler<'a> {
                     self.context
                         .set_variable(&margs.next().unwrap().value, &obj, true)
                 {
-                    return Err(vec![Error::Context(ContextError {
+                    return Err(Error {
                         line: node.value.line,
                         message,
                         source: self.source_for(node),
                         global: false,
-                    })]);
+                    }
+                    .into());
                 }
             }
         }
@@ -721,19 +723,19 @@ impl<'a> Assembler<'a> {
         // altogether. Just issue a warning on the latter case.
         let inner = &mcr.right.as_ref().unwrap().args.as_ref().unwrap();
         if inner.is_empty() {
-            self.warnings.push(Error::Eval(EvalError {
+            self.warnings.push(Error {
                 line: node.value.line,
                 message: format!("trying to apply empty macro '{}'", node.value.value),
                 source: self.source_for(node),
                 global: false,
-            }));
+            });
         } else {
             self.bundle(inner)?;
         }
         Ok(())
     }
 
-    fn push_bundle(&mut self, mut bundle: Bundle, node: &PNode) -> Result<(), EvalError> {
+    fn push_bundle(&mut self, mut bundle: Bundle, node: &PNode) -> Result<(), Error> {
         let current = &mut self.mappings[self.current_mapping];
         bundle.address = current.start as usize + current.offset;
         current.offset += bundle.size as usize;
@@ -754,7 +756,7 @@ impl<'a> Assembler<'a> {
         Ok(())
     }
 
-    fn evaluate_node(&mut self, node: &PNode) -> Result<Bundle, EvalError> {
+    fn evaluate_node(&mut self, node: &PNode) -> Result<Bundle, Error> {
         match &node.node_type {
             NodeType::Instruction => Ok(self.evaluate_instruction(node)?),
             NodeType::Literal => Ok(self.evaluate_literal(node)?),
@@ -774,7 +776,7 @@ impl<'a> Assembler<'a> {
                         Ok(self.evaluate_anonymous_relative_reference(node)?)
                     } else if node.value.is_valid_identifier(true).is_err() {
                         // If this is not a valid identifier, just error out.
-                        Err(EvalError {
+                        Err(Error {
                             message: "no prefix was given to operand".to_string(),
                             line: node.value.line,
                             source: self.source_for(node),
@@ -788,7 +790,7 @@ impl<'a> Assembler<'a> {
                                 self.literal_mode = Some(LiteralMode::Hexadecimal);
                                 Ok(v)
                             }
-                            Err(err) => Err(EvalError {
+                            Err(err) => Err(Error {
                                 message: format!(
                                     "no prefix was given to operand and {} either",
                                     err.message
@@ -801,7 +803,7 @@ impl<'a> Assembler<'a> {
                     }
                 }
             },
-            _ => Err(EvalError {
+            _ => Err(Error {
                 message: format!("unexpected '{}' expression type", node.node_type),
                 line: node.value.line,
                 source: self.source_for(node),
@@ -816,7 +818,7 @@ impl<'a> Assembler<'a> {
         &mut self,
         node: &PNode,
         operation_type: &OperationType,
-    ) -> Result<Bundle, EvalError> {
+    ) -> Result<Bundle, Error> {
         let mut right = self.evaluate_node(node.right.as_ref().unwrap())?;
         let rval = right.value();
 
@@ -858,7 +860,7 @@ impl<'a> Assembler<'a> {
             }
             OperationType::Div => {
                 if rval == 0 {
-                    return Err(EvalError {
+                    return Err(Error {
                         line: node.value.line,
                         global: false,
                         source: self.source_for(node),
@@ -882,7 +884,7 @@ impl<'a> Assembler<'a> {
             }
             OperationType::Lshift => {
                 if rval > 16 {
-                    return Err(EvalError {
+                    return Err(Error {
                         line: node.value.line,
                         global: false,
                         source: self.source_for(node),
@@ -895,7 +897,7 @@ impl<'a> Assembler<'a> {
             }
             OperationType::Rshift => {
                 if rval > 16 {
-                    return Err(EvalError {
+                    return Err(Error {
                         line: node.value.line,
                         global: false,
                         source: self.source_for(node),
@@ -910,7 +912,7 @@ impl<'a> Assembler<'a> {
 
         // Prevent overflows.
         if res > i16::MAX.into() || res < i16::MIN.into() {
-            return Err(EvalError {
+            return Err(Error {
                 line: node.value.line,
                 global: false,
                 source: self.source_for(node),
@@ -927,7 +929,7 @@ impl<'a> Assembler<'a> {
         Ok(right)
     }
 
-    fn evaluate_anonymous_relative_reference(&mut self, node: &PNode) -> Result<Bundle, EvalError> {
+    fn evaluate_anonymous_relative_reference(&mut self, node: &PNode) -> Result<Bundle, Error> {
         self.literal_mode = Some(LiteralMode::Plain);
 
         match &self.stage {
@@ -947,7 +949,7 @@ impl<'a> Assembler<'a> {
                     &self.mappings,
                 ) {
                     Ok(object) => Ok(object.bundle),
-                    Err(message) => Err(EvalError {
+                    Err(message) => Err(Error {
                         line: node.value.line,
                         message,
                         source: self.source_for(node),
@@ -959,7 +961,7 @@ impl<'a> Assembler<'a> {
         }
     }
 
-    fn evaluate_hexadecimal(&mut self, node: &PNode) -> Result<Bundle, EvalError> {
+    fn evaluate_hexadecimal(&mut self, node: &PNode) -> Result<Bundle, Error> {
         let mut chars = node.value.value.chars();
         let mut bytes = [0, 0, 0];
         let size: u8;
@@ -989,7 +991,7 @@ impl<'a> Assembler<'a> {
             }
             _ => {
                 if self.evaluate_variable(node).is_ok() {
-                    return Err(EvalError {
+                    return Err(Error {
                         message: format!(
                             "you cannot use variables like '{}' in hexadecimal literals",
                             node.value.value
@@ -999,7 +1001,7 @@ impl<'a> Assembler<'a> {
                         global: false,
                     });
                 }
-                return Err(EvalError {
+                return Err(Error {
                     message: "expecting a number of 1 to 4 hexadecimal digits".to_string(),
                     line: node.value.line,
                     source: self.source_for(node),
@@ -1019,7 +1021,7 @@ impl<'a> Assembler<'a> {
         })
     }
 
-    fn evaluate_binary(&mut self, node: &PNode) -> Result<Bundle, EvalError> {
+    fn evaluate_binary(&mut self, node: &PNode) -> Result<Bundle, Error> {
         let string = node.value.value.as_str();
         let mut value = 0;
 
@@ -1028,7 +1030,7 @@ impl<'a> Assembler<'a> {
         // case, do not even try evaluating it.
         match string.len().cmp(&8) {
             Ordering::Less => {
-                return Err(EvalError {
+                return Err(Error {
                     message: "missing binary digits to get a full byte".to_string(),
                     line: node.value.line,
                     source: self.source_for(node),
@@ -1036,7 +1038,7 @@ impl<'a> Assembler<'a> {
                 })
             }
             Ordering::Greater => {
-                return Err(EvalError {
+                return Err(Error {
                     message: "too many binary digits for a single byte".to_string(),
                     line: node.value.line,
                     source: self.source_for(node),
@@ -1052,7 +1054,7 @@ impl<'a> Assembler<'a> {
                 value += val;
             } else if c != '0' {
                 if self.evaluate_variable(node).is_ok() {
-                    return Err(EvalError {
+                    return Err(Error {
                         message: format!(
                             "you cannot use variables like '{}' in binary literals",
                             string
@@ -1062,7 +1064,7 @@ impl<'a> Assembler<'a> {
                         global: false,
                     });
                 }
-                return Err(EvalError {
+                return Err(Error {
                     message: format!("bad binary format for '{}'", string),
                     line: node.value.line,
                     global: false,
@@ -1082,10 +1084,10 @@ impl<'a> Assembler<'a> {
         })
     }
 
-    fn evaluate_decimal(&mut self, node: &PNode) -> Result<Bundle, EvalError> {
+    fn evaluate_decimal(&mut self, node: &PNode) -> Result<Bundle, Error> {
         let string = node.value.value.as_str();
         if string.is_empty() {
-            return Err(EvalError {
+            return Err(Error {
                 message: "empty decimal literal".to_string(),
                 line: node.value.line,
                 source: self.source_for(node),
@@ -1098,7 +1100,7 @@ impl<'a> Assembler<'a> {
 
         for c in string.chars().rev() {
             if shift > 100 {
-                return Err(EvalError {
+                return Err(Error {
                     message: "decimal value is too big".to_string(),
                     line: node.value.line,
                     source: self.source_for(node),
@@ -1112,7 +1114,7 @@ impl<'a> Assembler<'a> {
                     }
                     None => {
                         if self.stage == Stage::Context {
-                            return Err(EvalError {
+                            return Err(Error {
                                 message: format!(
                                     "variables must come from a constant expression, \
                                                   you cannot use other variables such as '{}' \
@@ -1127,7 +1129,7 @@ impl<'a> Assembler<'a> {
                         match self.evaluate_variable(node) {
                             Ok(v) => return Ok(v),
                             Err(err) => {
-                                return Err(EvalError {
+                                return Err(Error {
                                     message: format!(
                                         "'{}' is not a decimal value and {} either",
                                         c, err.message
@@ -1145,7 +1147,7 @@ impl<'a> Assembler<'a> {
             shift *= 10;
         }
         if value > 255 {
-            return Err(EvalError {
+            return Err(Error {
                 message: "decimal value is too big".to_string(),
                 line: node.value.line,
                 source: self.source_for(node),
@@ -1164,7 +1166,7 @@ impl<'a> Assembler<'a> {
         })
     }
 
-    fn evaluate_literal(&mut self, node: &PNode) -> Result<Bundle, EvalError> {
+    fn evaluate_literal(&mut self, node: &PNode) -> Result<Bundle, Error> {
         // The value of the literal is guaranteed to not be empty by the parser.
         // If that's not the case, then it's a bug.
         let val = node.value.value.as_str();
@@ -1178,7 +1180,7 @@ impl<'a> Assembler<'a> {
         if val.starts_with('$') {
             lm = Some(LiteralMode::Hexadecimal);
             if left.node_type == NodeType::Literal {
-                return Err(EvalError {
+                return Err(Error {
                     message: "literal cannot embed another literal".to_string(),
                     line: node.value.line,
                     source: self.source_for(node),
@@ -1188,7 +1190,7 @@ impl<'a> Assembler<'a> {
         } else if val.starts_with('%') {
             lm = Some(LiteralMode::Binary);
             if left.node_type == NodeType::Literal {
-                return Err(EvalError {
+                return Err(Error {
                     message: "literal cannot embed another literal".to_string(),
                     line: node.value.line,
                     source: self.source_for(node),
@@ -1207,13 +1209,13 @@ impl<'a> Assembler<'a> {
         Ok(expr)
     }
 
-    fn char_to_hex(&mut self, oc: Option<char>, source: &PNode) -> Result<u8, EvalError> {
+    fn char_to_hex(&mut self, oc: Option<char>, source: &PNode) -> Result<u8, Error> {
         match oc {
             Some(c) => match c.to_digit(16) {
                 Some(c) => Ok(c as u8),
                 None => {
                     if (c.is_alphabetic() || c == '_') && self.evaluate_variable(source).is_ok() {
-                        return Err(EvalError {
+                        return Err(Error {
                             message: format!(
                                 "you cannot use variables like '{}' in hexadecimal literals",
                                 source.value.value
@@ -1223,7 +1225,7 @@ impl<'a> Assembler<'a> {
                             global: false,
                         });
                     }
-                    Err(EvalError {
+                    Err(Error {
                         message: "could not convert digit to hexadecimal".to_string(),
                         line: source.value.line,
                         source: self.source_for(source),
@@ -1231,7 +1233,7 @@ impl<'a> Assembler<'a> {
                     })
                 }
             },
-            None => Err(EvalError {
+            None => Err(Error {
                 message: "digit out of bounds".to_string(),
                 line: source.value.line,
                 source: self.source_for(source),
@@ -1240,7 +1242,7 @@ impl<'a> Assembler<'a> {
         }
     }
 
-    fn evaluate_control_statement(&mut self, node: &PNode) -> Result<(), EvalError> {
+    fn evaluate_control_statement(&mut self, node: &PNode) -> Result<(), Error> {
         // This might just be a statement that changes the context (e.g.
         // ".macro", ".proc", etc.). In this case change the context and leave
         // early.
@@ -1251,7 +1253,7 @@ impl<'a> Assembler<'a> {
                 }
             }
             Err(message) => {
-                return Err(EvalError {
+                return Err(Error {
                     message,
                     line: node.value.line,
                     source: self.source_for(node),
@@ -1272,7 +1274,7 @@ impl<'a> Assembler<'a> {
                 self.incbin(node.args.as_ref().unwrap().first().unwrap())
             }
             NodeType::Control(ControlType::IncludeSource) => Ok(()),
-            _ => Err(EvalError {
+            _ => Err(Error {
                 line: node.value.line,
                 message: format!(
                     "cannot handle control statement '{}' in this context",
@@ -1287,12 +1289,12 @@ impl<'a> Assembler<'a> {
     // Push as many bundles as bytes are in the given file path. If there is any
     // issue with reading the given file, or the parameter is given in a weird
     // format, it will error out.
-    fn incbin(&mut self, node: &PNode) -> Result<(), EvalError> {
+    fn incbin(&mut self, node: &PNode) -> Result<(), Error> {
         let value = &node.value.value;
 
         // Validate the path literal.
         if value.len() < 3 || !value.starts_with('"') || !value.ends_with('"') {
-            return Err(EvalError {
+            return Err(Error {
                 line: node.value.line,
                 message: format!(
                     "path has to be written inside of double quotes ('{}' given instead)",
@@ -1309,7 +1311,7 @@ impl<'a> Assembler<'a> {
         match &self.sources.get(node.source) {
             Some(source) => {
                 if let Err(e) = std::env::set_current_dir(&source.working_directory) {
-                    return Err(EvalError {
+                    return Err(Error {
                         line: node.value.line,
                         message: format!("could not move to the directory of '{}': {}", value, e),
                         source: self.source_for(node),
@@ -1325,7 +1327,7 @@ impl<'a> Assembler<'a> {
         let file = match File::open(path) {
             Ok(f) => f,
             Err(e) => {
-                return Err(EvalError {
+                return Err(Error {
                     global: false,
                     line: node.value.line,
                     source: self.source_for(node),
@@ -1344,14 +1346,14 @@ impl<'a> Assembler<'a> {
                 // limit on where it's included, then it's going to show up at a
                 // later check.
                 if metadata.len() > 512 * 1024 {
-                    return Err(EvalError {
+                    return Err(Error {
                         global: false,
                         line: node.value.line,
                         source: self.source_for(node),
                         message: format!("file '{}' is too big", path),
                     });
                 } else if metadata.len() == 0 {
-                    return Err(EvalError {
+                    return Err(Error {
                         global: false,
                         line: node.value.line,
                         source: self.source_for(node),
@@ -1360,7 +1362,7 @@ impl<'a> Assembler<'a> {
                 }
             }
             Err(e) => {
-                return Err(EvalError {
+                return Err(Error {
                     global: false,
                     line: node.value.line,
                     source: self.source_for(node),
@@ -1388,7 +1390,7 @@ impl<'a> Assembler<'a> {
         let repeats = match first.parse::<usize>() {
             Ok(n) => {
                 if n < 2 {
-                    return Err(EvalError {
+                    return Err(Error {
                         global: false,
                         line: node.value.line,
                         source: self.source_for(node),
@@ -1396,7 +1398,7 @@ impl<'a> Assembler<'a> {
                     }
                     .into());
                 } else if n > 255 {
-                    return Err(EvalError {
+                    return Err(Error {
                         global: false,
                         line: node.value.line,
                         source: self.source_for(node),
@@ -1407,7 +1409,7 @@ impl<'a> Assembler<'a> {
                 n
             }
             Err(_) => {
-                return Err(EvalError {
+                return Err(Error {
                     global: false,
                     line: node.value.line,
                     message: format!(
@@ -1423,12 +1425,12 @@ impl<'a> Assembler<'a> {
         // The code that is to be repeated.
         let code = &node.right.as_ref().unwrap().args.as_ref().unwrap();
         if code.is_empty() {
-            self.warnings.push(Error::Eval(EvalError {
+            self.warnings.push(Error {
                 line: node.value.line,
                 message: "empty .repeat statement".to_string(),
                 source: self.source_for(node),
                 global: false,
-            }));
+            });
             return Ok(());
         }
 
@@ -1447,7 +1449,7 @@ impl<'a> Assembler<'a> {
                     },
                     true,
                 ) {
-                    return Err(EvalError {
+                    return Err(Error {
                         line: node.value.line,
                         message: e,
                         source: self.source_for(node),
@@ -1464,11 +1466,11 @@ impl<'a> Assembler<'a> {
         Ok(())
     }
 
-    fn evaluate_control_expression(&mut self, node: &PNode) -> Result<Bundle, EvalError> {
+    fn evaluate_control_expression(&mut self, node: &PNode) -> Result<Bundle, Error> {
         match node.node_type {
             NodeType::Control(ControlType::Hibyte) => self.evaluate_byte(node, true),
             NodeType::Control(ControlType::Lobyte) => self.evaluate_byte(node, false),
-            _ => Err(EvalError {
+            _ => Err(Error {
                 line: node.value.line,
                 message: format!(
                     "cannot handle control statement '{}' as an expression in this context",
@@ -1480,7 +1482,7 @@ impl<'a> Assembler<'a> {
         }
     }
 
-    fn evaluate_byte(&mut self, node: &PNode, high: bool) -> Result<Bundle, EvalError> {
+    fn evaluate_byte(&mut self, node: &PNode, high: bool) -> Result<Bundle, Error> {
         // The parser actually guarantees that the ".hibyte" and ".lobyte"
         // functions have exactly one argument. Hence, if this is not the case,
         // it's fine to let "unwrap" panic: it's a sign that's something is
@@ -1503,7 +1505,7 @@ impl<'a> Assembler<'a> {
         Ok(bundle)
     }
 
-    fn push_evaluated_arguments(&mut self, node: &PNode, nbytes: u8) -> Result<(), EvalError> {
+    fn push_evaluated_arguments(&mut self, node: &PNode, nbytes: u8) -> Result<(), Error> {
         match &node.args {
             Some(args) => {
                 for arg in args {
@@ -1520,7 +1522,7 @@ impl<'a> Assembler<'a> {
                     if bundle.size != nbytes {
                         match nbytes {
                             1 => {
-                                return Err(EvalError {
+                                return Err(Error {
                                     line: arg.value.line,
                                     message: "expecting an argument that fits into a byte"
                                         .to_string(),
@@ -1540,7 +1542,7 @@ impl<'a> Assembler<'a> {
                 }
             }
             None => {
-                return Err(EvalError {
+                return Err(Error {
                     line: node.value.line,
                     message: format!(
                         "expecting at least one argument for '{}'",
@@ -1555,7 +1557,7 @@ impl<'a> Assembler<'a> {
         Ok(())
     }
 
-    fn switch_to_segment(&mut self, node: &PNode) -> Result<(), EvalError> {
+    fn switch_to_segment(&mut self, node: &PNode) -> Result<(), Error> {
         // First of all, fetch the argument for the ".segment" statement and
         // validate that it has some basic format. Note that the existence of
         // exactly one argument is guaranteed by the parser and, thus,
@@ -1563,7 +1565,7 @@ impl<'a> Assembler<'a> {
         let arg = &node.args.as_ref().unwrap().first().unwrap();
         let val = &arg.value.value;
         if val.len() < 3 || !val.starts_with('"') || !val.ends_with('"') {
-            return Err(EvalError {
+            return Err(Error {
                 line: node.value.line,
                 message: format!(
                     "segment declaration has to be written inside of double quotes ('{}' given instead)",
@@ -1580,7 +1582,7 @@ impl<'a> Assembler<'a> {
             .chars()
             .any(|ch| !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '-'))
         {
-            return Err(EvalError {
+            return Err(Error {
                 line: node.value.line,
                 message: "segment name contains bad characters".to_string(),
                 source: self.source_for(node),
@@ -1602,7 +1604,7 @@ impl<'a> Assembler<'a> {
             }
         }
         if !found {
-            return Err(EvalError {
+            return Err(Error {
                 line: node.value.line,
                 message: format!("unknown segment '{}'", name),
                 source: self.source_for(node),
@@ -1612,10 +1614,10 @@ impl<'a> Assembler<'a> {
         Ok(())
     }
 
-    fn evaluate_variable(&mut self, node: &PNode) -> Result<Bundle, EvalError> {
+    fn evaluate_variable(&mut self, node: &PNode) -> Result<Bundle, Error> {
         match self.context.get_variable(&node.value, &self.mappings) {
             Ok(value) => Ok(value.bundle),
-            Err(e) => Err(EvalError {
+            Err(e) => Err(Error {
                 message: e,
                 line: node.value.line,
                 source: self.source_for(node),
@@ -1624,7 +1626,7 @@ impl<'a> Assembler<'a> {
         }
     }
 
-    fn evaluate_instruction(&mut self, node: &PNode) -> Result<Bundle, EvalError> {
+    fn evaluate_instruction(&mut self, node: &PNode) -> Result<Bundle, Error> {
         self.literal_mode = None;
 
         let (mode, mut bundle) = match &node.left {
@@ -1644,7 +1646,7 @@ impl<'a> Assembler<'a> {
                     bundle.bytes[0] = values.opcode.to_le_bytes()[0];
                 }
                 None => {
-                    return Err(EvalError {
+                    return Err(Error {
                         message: format!(
                             "cannot use {} addressing mode for the instruction '{}'",
                             mode, mnemonic
@@ -1656,7 +1658,7 @@ impl<'a> Assembler<'a> {
                 }
             },
             None => {
-                return Err(EvalError {
+                return Err(Error {
                     message: format!("unknown instruction {}", mnemonic),
                     line: node.value.line,
                     source: self.source_for(node),
@@ -1670,7 +1672,7 @@ impl<'a> Assembler<'a> {
     fn get_addressing_mode_and_bytes(
         &mut self,
         node: &PNode,
-    ) -> Result<(AddressingMode, Bundle), EvalError> {
+    ) -> Result<(AddressingMode, Bundle), Error> {
         let left = &node.left;
 
         if left.as_ref().unwrap().node_type == NodeType::Indirection {
@@ -1682,14 +1684,14 @@ impl<'a> Assembler<'a> {
         }
     }
 
-    fn get_from_indirect(&mut self, node: &PNode) -> Result<(AddressingMode, Bundle), EvalError> {
+    fn get_from_indirect(&mut self, node: &PNode) -> Result<(AddressingMode, Bundle), Error> {
         let left = node.left.as_ref().unwrap();
 
         match node.right.as_ref() {
             Some(right) => {
                 if right.value.value.trim().to_lowercase() == "y" {
                     if left.right.is_some() {
-                        return Err(EvalError {
+                        return Err(Error {
                             message:
                                 "it has to be either X addressing or Y addressing, not all at once"
                                     .to_string(),
@@ -1701,7 +1703,7 @@ impl<'a> Assembler<'a> {
 
                     let val = self.evaluate_node(left.left.as_ref().unwrap())?;
                     if val.size != 1 {
-                        return Err(EvalError {
+                        return Err(Error {
                             message: "address can only be one byte long on indirect Y addressing"
                                 .to_string(),
                             line: node.value.line,
@@ -1711,7 +1713,7 @@ impl<'a> Assembler<'a> {
                     }
                     return Ok((AddressingMode::IndirectY, val));
                 }
-                Err(EvalError {
+                Err(Error {
                     message: "only the Y index is allowed on indirect Y addressing".to_string(),
                     line: node.value.line,
                     source: self.source_for(node),
@@ -1723,7 +1725,7 @@ impl<'a> Assembler<'a> {
                     if right.value.value.trim().to_lowercase() == "x" {
                         let val = self.evaluate_node(left.left.as_ref().unwrap())?;
                         if val.size != 1 {
-                            return Err(EvalError {
+                            return Err(Error {
                                 message:
                                     "address can only be one byte long on indirect X addressing"
                                         .to_string(),
@@ -1734,7 +1736,7 @@ impl<'a> Assembler<'a> {
                         }
                         return Ok((AddressingMode::IndirectX, val));
                     }
-                    Err(EvalError {
+                    Err(Error {
                         message: "only the X index is allowed on indirect X addressing".to_string(),
                         line: node.value.line,
                         source: self.source_for(node),
@@ -1744,7 +1746,7 @@ impl<'a> Assembler<'a> {
                 None => {
                     let val = self.evaluate_node(left.left.as_ref().unwrap())?;
                     if val.size != 2 {
-                        return Err(EvalError {
+                        return Err(Error {
                             message: "expecting a full 16-bit address".to_string(),
                             line: node.value.line,
                             source: self.source_for(node),
@@ -1757,7 +1759,7 @@ impl<'a> Assembler<'a> {
         }
     }
 
-    fn get_from_indexed(&mut self, node: &PNode) -> Result<(AddressingMode, Bundle), EvalError> {
+    fn get_from_indexed(&mut self, node: &PNode) -> Result<(AddressingMode, Bundle), Error> {
         // Evaluate the left arm of the instruction.
         let left = node.left.as_ref().unwrap();
         let mut val = self.evaluate_node(left)?;
@@ -1766,7 +1768,7 @@ impl<'a> Assembler<'a> {
         // instead of some bogus number.
         if let Some(lm) = &self.literal_mode {
             if *lm != LiteralMode::Hexadecimal {
-                return Err(EvalError {
+                return Err(Error {
                     message: "indexed addressing only works with addresses".to_string(),
                     line: node.value.line,
                     source: self.source_for(node),
@@ -1829,7 +1831,7 @@ impl<'a> Assembler<'a> {
                     Ok((AddressingMode::IndexedY, val))
                 }
             }
-            _ => Err(EvalError {
+            _ => Err(Error {
                 message: "can only use X and Y as indices".to_string(),
                 line: node.value.line,
                 source: self.source_for(node),
@@ -1842,7 +1844,7 @@ impl<'a> Assembler<'a> {
         &mut self,
         base: &PNode,
         left_arm: &PNode,
-    ) -> Result<(AddressingMode, Bundle), EvalError> {
+    ) -> Result<(AddressingMode, Bundle), Error> {
         if left_arm.value.value.to_lowercase().trim() == "a" {
             return Ok((AddressingMode::Implied, Bundle::new(true)));
         }
@@ -1868,7 +1870,7 @@ impl<'a> Assembler<'a> {
                 } else if val.size > 1 {
                     match base.value.value.as_str() {
                         "jmp" | "jsr" => Ok((AddressingMode::Absolute, val)),
-                        _ => Err(EvalError {
+                        _ => Err(Error {
                             message: "immediate is too big".to_string(),
                             line: left_arm.value.line,
                             source: self.source_for(base),
@@ -1879,7 +1881,7 @@ impl<'a> Assembler<'a> {
                     Ok((AddressingMode::Immediate, val))
                 }
             }
-            _ => Err(EvalError {
+            _ => Err(Error {
                 message: "left arm of instruction is neither an address nor an immediate"
                     .to_string(),
                 line: left_arm.value.line,
@@ -1889,7 +1891,7 @@ impl<'a> Assembler<'a> {
         }
     }
 
-    fn to_relative_address(&self, node: &PNode, bundle: &mut Bundle) -> Result<(), EvalError> {
+    fn to_relative_address(&self, node: &PNode, bundle: &mut Bundle) -> Result<(), Error> {
         if !bundle.resolved {
             return Ok(());
         }
@@ -1900,7 +1902,7 @@ impl<'a> Assembler<'a> {
         let byte = if target < next {
             let diff = target as i16 - next as i16;
             if diff < -128 {
-                return Err(EvalError {
+                return Err(Error {
                     line: node.value.line,
                     message: "you cannot branch to this location: it's too far away".to_string(),
                     source: self.source_for(node),
@@ -1911,7 +1913,7 @@ impl<'a> Assembler<'a> {
         } else {
             let diff = target - next;
             if diff > 127 {
-                return Err(EvalError {
+                return Err(Error {
                     line: node.value.line,
                     message: "you cannot branch to this location: it's too far away".to_string(),
                     source: self.source_for(node),

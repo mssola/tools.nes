@@ -1,7 +1,6 @@
-use crate::errors::ParseError;
 use crate::node::{ControlType, NodeBodyType, NodeType, OperationType, PNode, PString};
 use crate::opcodes::{CONTROL_FUNCTIONS, INSTRUCTIONS};
-use crate::SourceInfo;
+use crate::{Error, SourceInfo};
 use rand::distributions::{Alphanumeric, DistString};
 use std::cmp::Ordering;
 use std::io::{self, BufRead, Read};
@@ -51,9 +50,9 @@ pub struct Parser {
 
 impl Parser {
     /// Parse the input from the given `reader`. You can then access the results
-    /// from the `nodes` field. Otherwise, a vector of ParseError's might be
+    /// from the `nodes` field. Otherwise, a vector of Error's might be
     /// returned.
-    pub fn parse(&mut self, reader: impl Read, source: SourceInfo) -> Result<(), Vec<ParseError>> {
+    pub fn parse(&mut self, reader: impl Read, source: SourceInfo) -> Result<(), Vec<Error>> {
         let mut errors = Vec::new();
 
         // Push the sources for the parsing session (note that this list might
@@ -117,7 +116,7 @@ impl Parser {
     }
 
     // Parse a single `line` and push the parsed nodes into `self.nodes`.
-    fn parse_line(&mut self, line: &str) -> Result<(), Vec<ParseError>> {
+    fn parse_line(&mut self, line: &str) -> Result<(), Vec<Error>> {
         self.column = 0;
         self.offset = 0;
 
@@ -190,7 +189,7 @@ impl Parser {
     // string which can be used to determine which kind of expression we are
     // dealing with. Returns a PString representing this identifier on success,
     // plus a hint on whether the identifier belongs to a label or not.
-    fn parse_identifier(&mut self, line: &str) -> Result<(PString, NodeType), ParseError> {
+    fn parse_identifier(&mut self, line: &str) -> Result<(PString, NodeType), Error> {
         let start = self.column;
         let base_offset = self.offset;
         let mut nt = NodeType::Value;
@@ -238,8 +237,9 @@ impl Parser {
                                     // Hence, if there was something behind it,
                                     // there is something wrong (e.g. "Bad:+").
                                     if base_offset != self.offset {
-                                        return Err(ParseError {
+                                        return Err(Error {
                                             line: self.line,
+                                            global: false,
                                             source: self.sources[self.current_source].clone(),
                                             message: "you cannot have a relative label inside of an identifier".to_string(),
                                     });
@@ -261,11 +261,12 @@ impl Parser {
                                         //  spaghetti code.
                                         size += 1;
                                         if size > 4 {
-                                            return Err(ParseError {
-                                            line: self.line,
-                                            source: self.sources[self.current_source].clone(),
-                                            message: "you can only jump to a maximum of four relative labels".to_string(),
-                                        });
+                                            return Err(Error {
+                                                line: self.line,
+                                                global: false,
+                                                source: self.sources[self.current_source].clone(),
+                                                message: "you can only jump to a maximum of four relative labels".to_string(),
+                                            });
                                         }
 
                                         // You cannot mix '+'/'-' characters
@@ -273,8 +274,9 @@ impl Parser {
                                         if cc != next {
                                             let msg =
                                                 if next == '+' { "forward" } else { "backward" };
-                                            return Err(ParseError {
+                                            return Err(Error {
                                                 line: self.line,
+                                                global: false,
                                                 source: self.sources[self.current_source].clone(),
                                                 message: format!(
                                                 "{} relative label can only have '{}' characters",
@@ -344,7 +346,7 @@ impl Parser {
 
     // Parse the top-level statement as found on the given `line` which has a
     // leading `id` positioned-string which may be an identifier.
-    fn parse_statement(&mut self, line: &str, id: PString) -> Result<(), Vec<ParseError>> {
+    fn parse_statement(&mut self, line: &str, id: PString) -> Result<(), Vec<Error>> {
         // There are only two top-level statements: instructions and
         // assignments. Other kinds of expressions can also be used in the
         // middle of assignments or instructions, and so they have to be handled
@@ -363,7 +365,7 @@ impl Parser {
     }
 
     // Parse the given `line` as an instruction being identified by `id`.
-    fn parse_instruction(&mut self, line: &str, id: PString) -> Result<(), ParseError> {
+    fn parse_instruction(&mut self, line: &str, id: PString) -> Result<(), Error> {
         let mut paren = 0;
 
         // After the initial instruction identifier (e.g. `lda`), there might be
@@ -495,7 +497,7 @@ impl Parser {
 
     // Parse the given `line` as an assignment statement which declares a
     // variable at `id`.
-    fn parse_assignment(&mut self, line: &str, id: PString) -> Result<(), ParseError> {
+    fn parse_assignment(&mut self, line: &str, id: PString) -> Result<(), Error> {
         // Notice that `parse_identifier` pretty much swallows any kind of
         // identifier without doing any sanity checks. Now it's the time to do
         // so.
@@ -536,7 +538,7 @@ impl Parser {
 
     // Parse statements which are neither an instruction nor an assignment. This
     // includes stuff like control statements.
-    fn parse_other(&mut self, line: &str, id: PString) -> Result<(), Vec<ParseError>> {
+    fn parse_other(&mut self, line: &str, id: PString) -> Result<(), Vec<Error>> {
         // The main job of this function is to parse the expression and
         // afterwards deal with corner cases. So, let's first just parse this.
         let node = self.parse_expression_with_identifier(id, line)?;
@@ -550,8 +552,9 @@ impl Parser {
         ) {
             // Validate that it's a top layer statement.
             if self.nodes.len() > 1 {
-                return Err(ParseError {
+                return Err(Error {
                     line: node.value.line,
+                    global: false,
                     message: ".include statement cannot be inside of a code block".to_string(),
                     source: self.sources[self.current_source].clone(),
                 }
@@ -620,7 +623,7 @@ impl Parser {
     // Consume the given `node` by assuming it's an `.include` statement. This
     // will in turn produce a new parsing session for the given file if possible
     // and push the parsed nodes from it to our current list.
-    fn include_source(&mut self, node: &PNode) -> Result<(), Vec<ParseError>> {
+    fn include_source(&mut self, node: &PNode) -> Result<(), Vec<Error>> {
         // First of all, parse the string as it was given and join it with our
         // working directory. This way we construct the absolute path for the
         // given file.
@@ -633,8 +636,9 @@ impl Parser {
         // Validate that this is really a path that points to a file.
         let path = std::path::Path::new(&abs_file);
         if !path.is_file() {
-            return Err(ParseError {
+            return Err(Error {
                 line: node.value.line,
+                global: false,
                 source: current_source.clone(),
                 message: "expecting a file ({})".to_string(),
             }
@@ -648,8 +652,9 @@ impl Parser {
         let file = match std::fs::File::open(path) {
             Ok(f) => f,
             Err(e) => {
-                return Err(ParseError {
+                return Err(Error {
                     line: node.value.line,
+                    global: false,
                     source: current_source.clone(),
                     message: format!("could not open source file: {}", e),
                 }
@@ -657,8 +662,9 @@ impl Parser {
             }
         };
         let Some(parent) = path.parent() else {
-            return Err(ParseError {
+            return Err(Error {
                 line: node.value.line,
+                global: false,
                 source: current_source.clone(),
                 message: "could not find out the parent directory for file".to_string(),
             }
@@ -691,13 +697,14 @@ impl Parser {
     // Returns a string containing the path being referenced in the given node.
     // The path is assumed to be available directly inside of the value of the
     // PNode.
-    fn fetch_path_from<'a>(&mut self, node: &'a PNode) -> Result<&'a str, ParseError> {
+    fn fetch_path_from<'a>(&mut self, node: &'a PNode) -> Result<&'a str, Error> {
         let value = &node.value.value;
 
         // Validate the path literal.
         if value.len() < 3 || !value.starts_with('"') || !value.ends_with('"') {
-            return Err(ParseError {
+            return Err(Error {
                 line: node.value.line,
+                global: false,
                 source: self.sources[self.current_source].clone(),
                 message: format!(
                     "path has to be written inside of double quotes ('{}' given instead)",
@@ -712,7 +719,7 @@ impl Parser {
     // Parse any possible arguments for the given `line`. The offset is supposed
     // to be at a point where arguments might appear, either between parens or
     // not.
-    fn parse_arguments(&mut self, line: &str) -> Result<Vec<PNode>, ParseError> {
+    fn parse_arguments(&mut self, line: &str) -> Result<Vec<PNode>, Error> {
         // Skip any possible whitespace before the optional opening paren.
         self.skip_whitespace(line);
 
@@ -782,7 +789,7 @@ impl Parser {
 
     // Parse the left arm from an instruction and leave `offset` and `column`
     // past the end of it.
-    fn parse_left_arm(&mut self, line: &str) -> Result<PNode, ParseError> {
+    fn parse_left_arm(&mut self, line: &str) -> Result<PNode, Error> {
         let start_column = self.column;
 
         // We track the start value of the offset and we will keep track of the
@@ -816,7 +823,7 @@ impl Parser {
     // might be opening/closing parenthesis which need to be balanced. On
     // success it returns the index from within the given `line`, and a boolean
     // which is set to true/false on whether a comma was found.
-    fn find_left_end(&self, line: &str) -> Result<(usize, bool), ParseError> {
+    fn find_left_end(&self, line: &str) -> Result<(usize, bool), Error> {
         let mut idx = self.offset;
         let mut parens = 0;
         let mut comma = false;
@@ -849,7 +856,7 @@ impl Parser {
     // Finds the matching parenthesis which closes the parenthesis that was just
     // opened. The `init` index point to the next character after the opening
     // paren from the given `line`.
-    fn find_matching_paren(&self, line: &str, init: usize) -> Result<usize, ParseError> {
+    fn find_matching_paren(&self, line: &str, init: usize) -> Result<usize, Error> {
         let mut idx = init;
         let mut parens = 1;
 
@@ -880,7 +887,7 @@ impl Parser {
     // `line` (e.g. the line might not be a full line but rather a limited range
     // and the offset has been set accordingly). Returns a new node for the
     // expression at hand.
-    fn parse_expression(&mut self, line: &str) -> Result<PNode, ParseError> {
+    fn parse_expression(&mut self, line: &str) -> Result<PNode, Error> {
         // Cases where fetching an "identifier" is really not needed.
         let first = line.chars().next().unwrap_or_default();
         if first == '(' {
@@ -956,10 +963,7 @@ impl Parser {
     // there's no operator, then None is returned for the first element of the
     // Ok tuple. Moreover, the second item on the tuple contains the amount of
     // characters that made up the operator.
-    fn get_operation_from_line(
-        &mut self,
-        line: &str,
-    ) -> Result<(Option<NodeType>, usize), ParseError> {
+    fn get_operation_from_line(&mut self, line: &str) -> Result<(Option<NodeType>, usize), Error> {
         let first = line.chars().nth(0).unwrap_or_default();
         let second = line.chars().nth(1).unwrap_or_default();
 
@@ -991,7 +995,7 @@ impl Parser {
         &mut self,
         id: PString,
         line: &str,
-    ) -> Result<PNode, ParseError> {
+    ) -> Result<PNode, Error> {
         // Reaching this condition is usually a bad sign, but there is so many
         // ways in which it could go wrong, that an `assert!` wouldn't be fair
         // either. Hence, just error out.
@@ -1011,8 +1015,9 @@ impl Parser {
             // to prevent crashes.
             if let Some(next) = line.chars().nth(1) {
                 if next == '#' || (start != '#' && (next == '$' || next == '%')) {
-                    return Err(ParseError {
+                    return Err(Error {
                         line: id.line,
+                        global: false,
                         source: self.sources[self.current_source].clone(),
                         message: "bad literal syntax".to_string(),
                     });
@@ -1106,7 +1111,7 @@ impl Parser {
 
     // Returns a NodeType::Control node with whatever could be parsed
     // considering the given `id` and rest of the `line`.
-    fn parse_control(&mut self, id: PString, line: &str) -> Result<PNode, ParseError> {
+    fn parse_control(&mut self, id: PString, line: &str) -> Result<PNode, Error> {
         let mut left = None;
 
         // Ensure that this is a function that we know of. In the past this was
@@ -1168,7 +1173,7 @@ impl Parser {
 
     // Returns a NodeType::Literal node with whatever could be parsed
     // considering the given `id` and rest of the `line`.
-    fn parse_literal(&mut self, id: PString, line: &str) -> Result<PNode, ParseError> {
+    fn parse_literal(&mut self, id: PString, line: &str) -> Result<PNode, Error> {
         // Force the column to point to the literal character just in case
         // of expressions like '#.hibyte'. Then skip whitespaces for super
         // ugly statements such as '# 20'. This is ugly but we should permit
@@ -1184,8 +1189,9 @@ impl Parser {
         let inner = line.get(self.offset..).unwrap_or("");
         if let Some(c) = inner.chars().nth(0) {
             if c.is_whitespace() {
-                return Err(ParseError {
+                return Err(Error {
                     line: id.line,
+                    global: false,
                     source: self.sources[self.current_source].clone(),
                     message: "numeric literals cannot have white spaces".to_string(),
                 });
@@ -1209,7 +1215,7 @@ impl Parser {
     // Returns a NodeType::Literal node with the given `id` parsed as a
     // character literal. This literal will have on the left node a value which
     // is the character transformed into a decimal value.
-    fn parse_char(&mut self, id: PString) -> Result<PNode, ParseError> {
+    fn parse_char(&mut self, id: PString) -> Result<PNode, Error> {
         if id.value.len() != 3 {
             return Err(self.parser_error("bad character literal"));
         }
@@ -1249,10 +1255,11 @@ impl Parser {
         })
     }
 
-    // Returns a new ParseError by using the current line.
-    fn parser_error(&self, msg: &str) -> ParseError {
-        ParseError {
+    // Returns a new Error by using the current line.
+    fn parser_error(&self, msg: &str) -> Error {
+        Error {
             message: String::from(msg),
+            global: false,
             source: self.sources[self.current_source].clone(),
             line: self.line,
         }

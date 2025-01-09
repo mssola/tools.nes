@@ -16,8 +16,58 @@ impl Default for SourceInfo {
     }
 }
 
+/// Error provides an interface used throughout this crate in which an error
+/// message of type String is located through a line and an associated
+/// SourceInfo. If global is set to true, then `line` does not matter.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Error {
+    /// Line number where the error was found relative to the `source`. You can
+    /// ignore this field if `global` is true.
+    pub line: usize,
+
+    /// Whether the error affects the whole file or not.
+    pub global: bool,
+
+    /// Information on the file where the error was found.
+    pub source: SourceInfo,
+
+    /// Human-readable representation of the error. Don't use this field
+    /// directly, prefer its `std::fmt::Display` implementation. Hence, calling
+    /// `.to_string()` on it is most probably the way to go.
+    pub message: String,
+}
+
+impl From<Error> for Vec<Error> {
+    fn from(err: Error) -> Self {
+        vec![err]
+    }
+}
+
+impl std::error::Error for Error {}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        if self.global {
+            if self.source.name.is_empty() {
+                write!(f, "{}", self.message)
+            } else {
+                write!(f, "{} ({})", self.message, self.source.name)
+            }
+        } else if self.source.name.is_empty() {
+            write!(f, "{} (line {})", self.message, self.line + 1)
+        } else {
+            write!(
+                f,
+                "{} ({}: line {})",
+                self.message,
+                self.source.name,
+                self.line + 1
+            )
+        }
+    }
+}
+
 pub mod assembler;
-pub mod errors;
 pub mod node;
 pub mod object;
 pub mod opcodes;
