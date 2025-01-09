@@ -767,17 +767,16 @@ impl<'a> Assembler<'a> {
                 Some(LiteralMode::Binary) => Ok(self.evaluate_binary(node)?),
                 Some(LiteralMode::Plain) => Ok(self.evaluate_decimal(node)?),
                 None => {
-                    if self.stage == Stage::Context {
-                        // If we are just evaluating the context (e.g. parsing a
-                        // variable), we'll assume that non-prefixed literals are
-                        // just decimal values.
+                    if node.value.value.chars().nth(0).unwrap_or(' ').is_numeric() {
+                        // If the first digit is a number, let's actually try to
+                        // parse it as a decimal value.
                         Ok(self.evaluate_decimal(node)?)
                     } else if node.value.is_anonymous_relative_reference() {
                         Ok(self.evaluate_anonymous_relative_reference(node)?)
                     } else if node.value.is_valid_identifier(true).is_err() {
                         // If this is not a valid identifier, just error out.
                         Err(Error {
-                            message: "no prefix was given to operand".to_string(),
+                            message: "invalid identifier".to_string(),
                             line: node.value.line,
                             source: self.source_for(node),
                             global: false,
@@ -2427,7 +2426,13 @@ cpx #(4 * var2)"#,
             false,
             "cannot use indirect addressing mode for the instruction 'adc'",
         );
-        assert_error("lda 12", 1, false, "no prefix was given to operand")
+        assert_error("lda //", 1, false, "invalid identifier");
+        assert_error(
+            "lda 12",
+            1,
+            false,
+            "left arm of instruction is neither an address nor an immediate",
+        );
     }
 
     #[test]
