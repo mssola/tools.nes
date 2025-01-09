@@ -994,11 +994,22 @@ impl Parser {
         self.column = id.start;
         self.offset = 0;
         self.next();
-        self.skip_whitespace(line);
 
-        // With this, just fetch the inner expression and return the literal
-        // node.
+        // Enforce that literal symbols and their values are not separated by
+        // random white space characters. Other assemblers (e.g. ca65) also take
+        // this stance, and through fuzzy testing I realized that not doing this
+        // could result in general bad behavior.
         let inner = line.get(self.offset..).unwrap_or("");
+        if let Some(c) = inner.chars().nth(0) {
+            if c.is_whitespace() {
+                return Err(ParseError {
+                    line: id.line,
+                    message: "numeric literals cannot have white spaces".to_string(),
+                });
+            }
+        }
+
+        // Just fetch the inner expression and return the literal node.
         self.offset = 0;
         let left = self.parse_expression(inner)?;
 
@@ -1200,7 +1211,7 @@ mod tests {
 
     #[test]
     fn parse_pound_literal() {
-        for line in vec!["#20", " #20 ", "  #20   ; Comment", "  label:   # 20"].into_iter() {
+        for line in vec!["#20", " #20 ", "  #20   ; Comment", "  label:   #20"].into_iter() {
             let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes()).is_ok());
 
@@ -1294,6 +1305,16 @@ mod tests {
             let err = parser.parse(line.as_bytes()).unwrap_err();
 
             assert_eq!(err.first().unwrap().message, "invalid identifier");
+        }
+
+        for line in vec!["$ 2", "#% 2", "# 2"].into_iter() {
+            let mut parser = Parser::default();
+            let err = parser.parse(line.as_bytes()).unwrap_err();
+
+            assert_eq!(
+                err.first().unwrap().message,
+                "numeric literals cannot have white spaces"
+            );
         }
     }
 
