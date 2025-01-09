@@ -840,11 +840,27 @@ impl Parser {
             return Err(self.parser_error("invalid identifier"));
         }
 
+        // Cache the first character on the next part as it's used in lots of
+        // places.
+        let start = line.chars().nth(0).unwrap_or(' ');
+
         if id.value.starts_with(".") {
             self.parse_control(id, line)
-        } else if line.starts_with('$') || line.starts_with('#') || line.starts_with('%') {
+        } else if start == '$' || start == '#' || start == '%' {
+            // Literal symbols come with a single character, or with two only on
+            // '#$' or '#%'. Other variations are illegal and should be avoided
+            // to prevent crashes.
+            if let Some(next) = line.chars().nth(1) {
+                if next == '#' || (start != '#' && (next == '$' || next == '%')) {
+                    return Err(ParseError {
+                        line: id.line,
+                        message: "bad literal syntax".to_string(),
+                    });
+                }
+            }
+
             self.parse_literal(id, line)
-        } else if line.starts_with('\'') {
+        } else if start == '\'' {
             self.parse_char(id)
         } else {
             // Skip any whitespace after our identifier.
@@ -1315,6 +1331,13 @@ mod tests {
                 err.first().unwrap().message,
                 "numeric literals cannot have white spaces"
             );
+        }
+
+        for line in vec!["##2", "#$$2", "$$2", "#$#$2", "#$#2", "###"].into_iter() {
+            let mut parser = Parser::default();
+            let err = parser.parse(line.as_bytes()).unwrap_err();
+
+            assert_eq!(err.first().unwrap().message, "bad literal syntax");
         }
     }
 
