@@ -1,4 +1,4 @@
-use crate::errors::{ContextError, ContextErrorReason, Error, EvalError};
+use crate::errors::{ContextError, Error, EvalError};
 use crate::mapping::{get_mapping_configuration, Mapping};
 use crate::node::{ControlType, NodeType, OperationType, PNode};
 use crate::object::{Bundle, Context, Object, ObjectType};
@@ -231,7 +231,6 @@ impl<'a> Assembler<'a> {
                 line: node.value.line,
                 global: false,
                 source: self.source_for(node),
-                reason: ContextErrorReason::BadScope,
             });
         }
 
@@ -295,7 +294,6 @@ impl<'a> Assembler<'a> {
                                     line: node.value.line,
                                     global: false,
                                     source: self.source_for(node),
-                                    reason: ContextErrorReason::BadScope,
                                 }));
                             }
                         }
@@ -309,7 +307,6 @@ impl<'a> Assembler<'a> {
                             line: node.value.line,
                             global: false,
                             source: self.source_for(node),
-                            reason: ContextErrorReason::BadScope,
                         }));
                         continue;
                     }
@@ -344,7 +341,6 @@ impl<'a> Assembler<'a> {
                                     line: node.value.line,
                                     global: false,
                                     source: self.source_for(node),
-                                    reason: ContextErrorReason::BadStart,
                                 }));
                                 continue;
                             }
@@ -369,7 +365,6 @@ impl<'a> Assembler<'a> {
                                     line: node.value.line,
                                     source: self.source_for(node),
                                     global: false,
-                                    reason: ContextErrorReason::BadStart,
                                 }));
                                 continue;
                             }
@@ -393,7 +388,6 @@ impl<'a> Assembler<'a> {
                             line: node.value.line,
                             global: false,
                             source: self.source_for(node),
-                            reason: ContextErrorReason::BadScope,
                         }));
                     }
 
@@ -444,7 +438,6 @@ impl<'a> Assembler<'a> {
                     line: node.value.line,
                     global: false,
                     source: self.source_for(node),
-                    reason: ContextErrorReason::BadScope,
                 });
             }
         }
@@ -483,7 +476,6 @@ impl<'a> Assembler<'a> {
                             line: node.value.line,
                             global: false,
                             source: self.source_for(node),
-                            reason: ContextErrorReason::BadScope,
                         }));
                     }
 
@@ -716,7 +708,6 @@ impl<'a> Assembler<'a> {
                         message,
                         source: self.source_for(node),
                         global: false,
-                        reason: ContextErrorReason::BadScope,
                     })]);
                 }
             }

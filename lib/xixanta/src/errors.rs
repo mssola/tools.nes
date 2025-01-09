@@ -68,21 +68,8 @@ impl fmt::Display for ParseError {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ContextErrorReason {
-    Redefinition,
-    UnknownVariable,
-    BadScope,
-    Label,
-    Bounds,
-    BadStart,
-    BadEnd,
-    Other,
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub struct ContextError {
     pub line: usize,
-    pub reason: ContextErrorReason,
     pub message: String,
     pub global: bool,
     pub source: SourceInfo,
