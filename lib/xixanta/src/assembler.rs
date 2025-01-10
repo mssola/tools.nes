@@ -587,8 +587,6 @@ impl<'a> Assembler<'a> {
                 }
                 Err(e) => errors.push(e),
             }
-
-            self.context.force_context_pop();
         }
 
         if errors.is_empty() {
@@ -2934,6 +2932,54 @@ cpx #(4 * var2)"#,
         assert_instruction("sty $021, x", &[0x94, 0x21]);
         assert_instruction("sta $002, x", &[0x95, 0x02]);
         assert_instruction("stx $020, y", &[0x96, 0x20]);
+    }
+
+    #[test]
+    fn jsr_inside_multiple_contexts() {
+        let res = just_bundles(
+            r#".scope Movement
+    .proc accelerate
+        rts
+    .endproc
+
+    .proc update
+        jsr accelerate
+        rts
+    .endproc
+.endscope
+
+jsr Movement::accelerate
+jsr Movement::update
+    "#,
+        );
+
+        assert_eq!(res.len(), 5);
+
+        // accelerate -> rts
+        assert_eq!(res[0].size, 1);
+        assert_eq!(res[0].bytes[0], 0x60);
+
+        // jsr accelerate
+        assert_eq!(res[1].size, 3);
+        assert_eq!(res[1].bytes[0], 0x20);
+        assert_eq!(res[1].bytes[1], 0x00);
+        assert_eq!(res[1].bytes[2], 0x80);
+
+        // update -> rts
+        assert_eq!(res[2].size, 1);
+        assert_eq!(res[2].bytes[0], 0x60);
+
+        // jsr Movement::accelerate
+        assert_eq!(res[3].size, 3);
+        assert_eq!(res[3].bytes[0], 0x20);
+        assert_eq!(res[3].bytes[1], 0x00);
+        assert_eq!(res[3].bytes[2], 0x80);
+
+        // jsr Movement::update
+        assert_eq!(res[4].size, 3);
+        assert_eq!(res[4].bytes[0], 0x20);
+        assert_eq!(res[4].bytes[1], 0x01);
+        assert_eq!(res[4].bytes[2], 0x80);
     }
 
     // Control statements

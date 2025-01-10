@@ -339,20 +339,25 @@ impl Context {
     }
 
     /// Change the current context to the given one identified by `name`,
-    /// disregarding any check. This is to be used when switching a context to
-    /// set a very specific value for that context. You should call
-    /// `force_context_pop` immediately.
-    pub fn force_context_switch(&mut self, name: &String) {
-        self.stack.push(name.to_owned());
-    }
+    /// disregarding any check. This is a destructive operation and will clear
+    /// out any previous context. Hence, only call this when you are sure that
+    /// there's no reliance on a specific context in the future.
+    pub fn force_context_switch(&mut self, name: &str) {
+        let mut ax = String::with_capacity(name.len());
 
-    /// Remove the last context being used if any. In contrast with
-    /// `context_pop`, this one does not error out, but does nothing in case we
-    /// are in the global context. This is to be used in conjunction with
-    /// `force_context_switch`.
-    pub fn force_context_pop(&mut self) {
-        if !self.stack.is_empty() {
-            self.stack.truncate(self.stack.len() - 1);
+        // Clear the context stack as we will set it manually.
+        self.stack.truncate(0);
+
+        // Forcing a context switch is not as simple as pushing the given name,
+        // but we have to make sure that the whole scope hierarchy is laid out
+        // so the code that fetches variables continues to work (e.g. if
+        // "A::B::C", then the stack must look like ["A", "A::B", "A::B::C"]).
+        for n in name.split("::") {
+            if !ax.is_empty() {
+                ax += "::";
+            }
+            ax += n;
+            self.stack.push(ax.clone());
         }
     }
 
