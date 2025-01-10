@@ -17,6 +17,10 @@ struct Args {
     #[arg(short = 'c', long)]
     config: Option<String>,
 
+    /// Used for compatibility with 'ca65'.
+    #[arg(long)]
+    target: Option<String>,
+
     /// Place the output into the given <OUT> file.
     #[arg(short = 'o', long)]
     out: String,
@@ -69,6 +73,17 @@ fn main() {
         }
     };
     let args = Args::parse();
+
+    // Sanity check on the target flag from 'ca65'.
+    if let Some(target) = args.target {
+        if target != "nes" {
+            die(format!(
+                "the target has to be 'nes', but '{}' was provided instead",
+                target
+            ));
+            return;
+        }
+    }
 
     // Generate a temporary directory in which both binary files will be placed
     // as an intermediate step.
