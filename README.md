@@ -47,6 +47,15 @@ Alternatively, you can also pass a path to a configuration of your own. Check
 out the [ones already bundled](./lib/xixanta/src/mappings) on this application
 for reference.
 
+## `xa65`
+
+Since `nasm` is still under heavy development, it's a good idea to compare the
+results that it produces with a mature and stable assembler like
+[cc65](https://github.com/cc65/cc65). The purpose of `xa65` is to provide a
+bridge, and so it simply executes both `nasm` and `cc65` with the given
+arguments. If the results from both assemblers are not the same, then it will
+display a warning and produce the binary as taken from `cc65`.
+
 ## `readrom`
 
 The `readrom` program reads a given ROM file and shows all the information that

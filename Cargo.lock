@@ -453,6 +453,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "xa65"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "rand",
+]
+
+[[package]]
 name = "xixanta"
 version = "0.1.0"
 dependencies = [
