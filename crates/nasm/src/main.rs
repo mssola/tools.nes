@@ -1,7 +1,6 @@
-use anyhow::{bail, Context, Result};
 use clap::Parser as ClapParser;
 use std::fs::File;
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use std::path::Path;
 use xixanta::assembler::assemble;
 use xixanta::SourceInfo;
@@ -10,9 +9,8 @@ use xixanta::SourceInfo;
 #[derive(ClapParser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    /// Assemble the instructions given on this file. The standard input is used
-    /// when this argument is not given.
-    file: Option<String>,
+    /// Assemble the instructions given on this file.
+    file: String,
 
     /// Linker configuration to be used. This configuration can be an identifier
     /// for the configurations already baked in into this application, or it can
@@ -36,50 +34,52 @@ struct Args {
     stdout: bool,
 }
 
-fn main() -> Result<()> {
+// Print the given `message` and exit(1).
+fn die(message: String) {
+    eprintln!("error: {}", message);
+    std::process::exit(1);
+}
+
+fn main() {
     let args = Args::parse();
 
-    // Select the input stream and the current working directory.
-    let input: Box<dyn Read>;
-    let source_info = match &args.file {
-        Some(file) => {
-            let path = Path::new(file);
-            if !path.is_file() {
-                bail!("Input file must be a valid file");
-            }
-            input = Box::new(File::open(file)?);
-
-            SourceInfo {
-                directory: path
-                    .parent()
-                    .with_context(|| String::from("Failed to find directory for given file"))?
-                    .to_path_buf(),
-                name: path.file_name().unwrap().to_str().unwrap().to_string(),
-            }
-        }
+    // Select the input stream and build the source object.
+    let path = Path::new(&args.file);
+    let Ok(input) = File::open(path) else {
+        die(format!("failed to open the given file '{}'", &args.file));
+        return;
+    };
+    let source = match path.parent() {
+        Some(parent) => SourceInfo {
+            directory: parent.to_path_buf(),
+            name: path.file_name().unwrap().to_str().unwrap().to_string(),
+        },
         None => {
-            input = Box::new(std::io::stdin());
-            SourceInfo {
-                directory: std::env::current_dir()
-                    .with_context(|| String::from("Could not fetch current directory"))?
-                    .to_path_buf(),
-                name: "<stdin>".to_string(),
-            }
+            die("failed to find directory for the given file".to_string());
+            return;
         }
     };
 
     // Select the output stream.
-    let mut output: Box<dyn Write> = if args.stdout {
-        Box::new(io::stdout())
+    let (mut output, output_name): (Box<dyn Write>, &str) = if args.stdout {
+        (Box::new(io::stdout()), "<stdout>")
     } else {
-        Box::new(File::create(args.out.unwrap_or(String::from("out.nes")))?)
+        let name = args.out.unwrap_or(String::from("out.nes"));
+        match File::create(&name) {
+            Ok(f) => (Box::new(f), args.file.as_str()),
+            Err(_) => {
+                die(format!("could not create file '{}'", name));
+                return;
+            }
+        }
     };
 
     // Check if warnings have to be treated as errors.
     let warn_as_errors = match args.w {
         Some(value) => {
             if value.to_lowercase() != "error" {
-                bail!("The '-W' flag can only be used as '-Werror'");
+                die("the '-W' flag can only be used as '-Werror'".to_string());
+                return;
             } else {
                 true
             }
@@ -87,12 +87,13 @@ fn main() -> Result<()> {
         None => false,
     };
 
-    // Select the linker configuration.
-    let config = args.config.unwrap_or("nrom".to_string());
-
     // And assemble.
     let mut error_count = 0;
-    let res = assemble(input, config.as_str(), source_info);
+    let res = assemble(
+        input,
+        args.config.unwrap_or("nrom".to_string()).as_str(),
+        source,
+    );
 
     // Print warnings and errors first, while also computing the amount of them
     // that exists.
@@ -113,7 +114,10 @@ fn main() -> Result<()> {
     if error_count == 0 {
         for b in res.bundles {
             for i in 0..b.size {
-                output.write_all(&[b.bytes[i as usize]])?;
+                if let Err(e) = output.write_all(&[b.bytes[i as usize]]) {
+                    eprintln!("error: could not write result in '{}': {}", output_name, e);
+                    std::process::exit(1);
+                }
             }
         }
     }
