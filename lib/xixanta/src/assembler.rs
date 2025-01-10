@@ -78,7 +78,8 @@ pub struct Assembler<'a> {
     // Warnings that have accumulated over the run.
     warnings: Vec<Error>,
 
-    // TODO
+    // Sources that have been evaluated for the current session. This is
+    // directly tied to `Parser::sources`.
     sources: Vec<SourceInfo>,
 }
 
@@ -3802,6 +3803,4 @@ lda #Variable
             ".segment must be on the global scope",
         );
     }
-
-    // TODO: jmp/beq outside of allocated PRG ROM
 }

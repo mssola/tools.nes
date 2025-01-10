@@ -632,22 +632,11 @@ impl Parser {
         };
         let abs_file = current_source.directory.join(file_path);
 
-        // Validate that this is really a path that points to a file.
-        let path = std::path::Path::new(&abs_file);
-        if !path.is_file() {
-            return Err(Error {
-                line: node.value.line,
-                global: false,
-                source: current_source.clone(),
-                message: "expecting a file ({})".to_string(),
-            }
-            .into());
-        }
-
         // And open the file. This is the object to be passed as a reader for
         // the recursive `parse` call, but it also allows us to construct the
         // SourceInfo for the next session because we need to point to its
         // parent in the file system.
+        let path = std::path::Path::new(&abs_file);
         let file = match std::fs::File::open(path) {
             Ok(f) => f,
             Err(e) => {
@@ -655,7 +644,7 @@ impl Parser {
                     line: node.value.line,
                     global: false,
                     source: current_source.clone(),
-                    message: format!("could not open source file: {}", e),
+                    message: format!("could not open source file '{}': {}", file_path, e),
                 }
                 .into())
             }
@@ -665,7 +654,10 @@ impl Parser {
                 line: node.value.line,
                 global: false,
                 source: current_source.clone(),
-                message: "could not find out the parent directory for file".to_string(),
+                message: format!(
+                    "could not find out the parent directory for file '{}'",
+                    file_path
+                ),
             }
             .into());
         };
