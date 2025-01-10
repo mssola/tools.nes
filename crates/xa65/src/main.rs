@@ -14,7 +14,7 @@ struct Args {
     /// for the configurations already baked in into this application, or it can
     /// be a file path to a configuration of your choosing. See the
     /// documentation for more information on this format. Defaults to 'nrom'.
-    #[arg(short = 'c', long)]
+    #[arg(short = 'C', long = "config")]
     config: Option<String>,
 
     /// Used for compatibility with 'ca65'.
@@ -117,7 +117,7 @@ fn main() {
         .arg("-o")
         .arg(dir.join("cl65.nes"));
     if let Some(config) = &args.config {
-        cl65_command.arg("-c").arg(config);
+        cl65_command.arg("-C").arg(config);
     }
 
     // Here, and in contrast with the 'nasm' execution, we do care about the
