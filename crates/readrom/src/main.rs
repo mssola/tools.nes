@@ -1,15 +1,7 @@
-use clap::Parser as ClapParser;
+use clap::{Arg, Command};
 use header::{Header, Kind};
 use std::fs::File;
 use std::io::{ErrorKind, Read};
-
-/// Display information about NES/Famicom ROM files.
-#[derive(ClapParser, Debug)]
-#[command(version, about, long_about = None)]
-struct Args {
-    /// NES/Famicom ROM file from which to display information.
-    file: String,
-}
 
 fn print_header(header: &Header) {
     println!("Header:");
@@ -34,14 +26,26 @@ fn print_header(header: &Header) {
 
 // Print the given `message` and exit(1).
 fn die(message: String) {
-    println!("{}", message);
+    println!("error: {}", message);
     std::process::exit(1);
 }
 
 fn main() {
-    let args = Args::parse();
-    let Ok(mut input) = File::open(&args.file) else {
-        die(format!("failed to open the given file '{}'", &args.file));
+    let args = Command::new("readrom")
+        .version("0.1.0")
+        .about("Display information about NES/Famicom ROM files.")
+        .arg(Arg::new("FILE").required(true).help("ROM file to be read"))
+        .get_matches();
+    let file = match args.get_one::<String>("FILE") {
+        Some(file) => file,
+        None => {
+            die("you have to provide a file".to_string());
+            return;
+        }
+    };
+
+    let Ok(mut input) = File::open(file) else {
+        die(format!("failed to open the given file '{}'", &file));
         return;
     };
 
