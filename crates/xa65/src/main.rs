@@ -1,4 +1,3 @@
-use anyhow::{bail, Context, Result};
 use clap::Parser as ClapParser;
 use rand::distributions::{Alphanumeric, DistString};
 use std::path::PathBuf;
@@ -23,6 +22,12 @@ struct Args {
     out: String,
 }
 
+// Print the given `message` and exit(1).
+fn die(message: String) {
+    eprintln!("error: {}", message);
+    std::process::exit(1);
+}
+
 // Find the binary by `name` in "PATH". Implementation taken from:
 // https://stackoverflow.com/a/37499032.
 fn find_binary(name: &str) -> Option<PathBuf> {
@@ -41,40 +46,52 @@ fn find_binary(name: &str) -> Option<PathBuf> {
 }
 
 // Returns the path for the binaries for 'nasm' and 'cl65'.
-fn get_binaries() -> Result<(PathBuf, PathBuf)> {
+fn get_binaries() -> Result<(PathBuf, PathBuf), String> {
     let nasm = match find_binary("nasm") {
         Some(nasm) => nasm,
-        None => bail!("could not find 'nasm'".to_string()),
+        None => return Err("could not find 'nasm'".to_string()),
     };
     let cl65 = match find_binary("cl65") {
         Some(cl65) => cl65,
-        None => bail!("could not find 'cl65'".to_string()),
+        None => return Err("could not find 'cl65'".to_string()),
     };
 
     Ok((nasm, cl65))
 }
 
-fn main() -> Result<()> {
+fn main() {
     // Make sure that the binaries are there.
-    let (nasm, cl65) = get_binaries()?;
+    let (nasm, cl65) = match get_binaries() {
+        Ok((nasm, cl65)) => (nasm, cl65),
+        Err(e) => {
+            die(e);
+            return;
+        }
+    };
     let args = Args::parse();
 
     // Generate a temporary directory in which both binary files will be placed
     // as an intermediate step.
     let random_string = &Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
     let dir = std::env::temp_dir().join(random_string);
-    std::fs::create_dir(&dir)?;
+    if let Err(e) = std::fs::create_dir(&dir) {
+        die(e.to_string());
+        return;
+    }
 
     // Run 'nasm' with the given arguments. Note that we don't care whether
     // 'nasm' itself errors out.
-    let _ = Command::new(nasm)
+    if let Err(e) = Command::new(nasm)
         .arg(&args.file)
         .arg("-o")
         .arg(dir.join("nasm.nes"))
         .arg("-c")
         .arg(args.config.clone().unwrap_or("nrom65".to_string()))
         .status()
-        .with_context(|| "could not execute 'nasm'")?;
+    {
+        die(e.to_string());
+        return;
+    }
 
     // Run 'cl65' with the given arguments.
     let mut cl65_command = Command::new(cl65);
@@ -90,35 +107,45 @@ fn main() -> Result<()> {
 
     // Here, and in contrast with the 'nasm' execution, we do care about the
     // exit code of 'cl65'.
-    let out = cl65_command
-        .status()
-        .with_context(|| "could not execute 'cl65'")?;
-    if !out.success() {
-        std::process::exit(1);
+    match cl65_command.status() {
+        Ok(cmd) => {
+            if !cmd.success() {
+                std::process::exit(1);
+            }
+        }
+        Err(e) => {
+            die(e.to_string());
+            return;
+        }
     }
 
     // Everything went fine, we should have both binaries available to be
     // compared. For 'diff' actually capture the output so it does not pollute
     // the shell.
-    let diff = Command::new("diff")
+    match Command::new("diff")
         .arg(dir.join("nasm.nes"))
         .arg(dir.join("cl65.nes"))
         .output()
-        .with_context(|| "failed to run diff")?;
-
-    // If 'diff' failed, show it but don't error out.
-    if !diff.status.success() {
-        println!(
-            "xa65 (error): 'nasm' and 'ca65' have a mismatch. Check the results at {}",
-            dir.display()
-        );
+    {
+        Ok(diff) => {
+            // If 'diff' failed, show it but don't error out.
+            if !diff.status.success() {
+                println!(
+                    "xa65 (error): 'nasm' and 'ca65' have a mismatch. Check the results at {}",
+                    dir.display()
+                );
+            }
+        }
+        Err(e) => {
+            die(e.to_string());
+            return;
+        }
     }
 
     // And just copy one of the binaries to where it was originally requested.
     // Note that the binary is the one from 'cl65' just in case 'diff' failed
     // (we take 'cl65' as the source of truth).
-    std::fs::copy(dir.join("cl65.nes"), args.out)
-        .with_context(|| "could not copy the resulting binary")?;
-
-    Ok(())
+    if let Err(e) = std::fs::copy(dir.join("cl65.nes"), args.out) {
+        die(format!("could not copy the resulting binary: {}", e));
+    }
 }

@@ -1,4 +1,3 @@
-use anyhow::{bail, Result};
 use clap::Parser as ClapParser;
 use header::{Header, Kind};
 use std::fs::File;
@@ -33,23 +32,33 @@ fn print_header(header: &Header) {
     println!("  Mapper:\t{}", header.mapper);
 }
 
-fn main() -> Result<()> {
+// Print the given `message` and exit(1).
+fn die(message: String) {
+    println!("{}", message);
+    std::process::exit(1);
+}
+
+fn main() {
     let args = Args::parse();
-    let mut input = File::open(args.file)?;
+    let Ok(mut input) = File::open(&args.file) else {
+        die(format!("failed to open the given file '{}'", &args.file));
+        return;
+    };
 
     let mut buf = vec![0u8; 0x10];
     if let Err(e) = input.read_exact(&mut buf) {
         match e.kind() {
-            ErrorKind::UnexpectedEof => bail!("malformed ROM file."),
-            _ => return Err(e.into()),
+            ErrorKind::UnexpectedEof => die("malformed ROM file".to_string()),
+            _ => die(e.to_string()),
         }
     }
 
     let header = match Header::try_from(buf.as_slice()) {
         Ok(h) => h,
-        Err(e) => bail!("{}.", e),
+        Err(e) => {
+            die(e.to_string());
+            return;
+        }
     };
     print_header(&header);
-
-    Ok(())
 }

@@ -7,6 +7,5 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
-anyhow = "^1"
 clap = { version = "^4", features = ["derive"] }
 header.workspace = true
