@@ -77,6 +77,7 @@ pub mod object;
 pub mod opcodes;
 pub mod parser;
 
+mod cfg;
 /// Mapping defines structures for laying out how the code will be assembled
 /// both on memory and on the ROM file itself. Notice that we take a different
 /// approach than 'cc65' because that compiler has to take into account a

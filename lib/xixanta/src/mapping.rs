@@ -1,3 +1,4 @@
+use crate::cfg::parse_cfg_file;
 use crate::object::Bundle;
 use toml::{Table, Value};
 
@@ -28,8 +29,9 @@ pub struct Segment {
     /// Name of the segment.
     pub name: String,
 
+    /// Offset from the base address from where to push the next address for
+    /// this segment.
     pub offset: usize,
-    pub len: usize,
 
     /// Bundles that have been generated when assembling the nodes that have
     /// been parsed by a previous step.
@@ -41,7 +43,6 @@ impl From<&str> for Segment {
         Segment {
             name: name.to_string(),
             offset: 0,
-            len: 0,
             bundles: vec![],
         }
     }
@@ -102,7 +103,15 @@ pub struct Mapping {
 pub fn get_mapping_configuration(name: &str) -> Result<Vec<Mapping>, String> {
     let configuration = if std::fs::exists(name).unwrap_or(false) {
         match std::fs::read_to_string(name) {
-            Ok(contents) => load_configuration_for(contents.as_str())?,
+            Ok(contents) => {
+                // If this is a file, then it might not be a TOML one, but a
+                // .cfg as used by cc65.
+                if name.ends_with(".cfg") {
+                    parse_cfg_file(contents.as_str())?
+                } else {
+                    load_configuration_for(contents.as_str())?
+                }
+            }
             Err(_) => return Err(format!("could not read '{}'", name)),
         }
     } else {
