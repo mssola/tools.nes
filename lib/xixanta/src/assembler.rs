@@ -1958,12 +1958,7 @@ mod tests {
                 offset: 0,
                 fill: Some(0x00),
                 section_type: SectionType::Header,
-                segments: vec![Segment {
-                    name: String::from("HEADER"),
-                    len: 0,
-                    offset: 0,
-                    bundles: vec![],
-                }],
+                segments: vec![Segment::from("HEADER")],
             },
             Mapping {
                 name: String::from("ROM0"),
@@ -1972,20 +1967,7 @@ mod tests {
                 offset: 0,
                 fill: None,
                 section_type: SectionType::PrgRom,
-                segments: vec![
-                    Segment {
-                        name: String::from("ONE"),
-                        len: 0,
-                        offset: 0,
-                        bundles: vec![],
-                    },
-                    Segment {
-                        name: String::from("TWO"),
-                        len: 0,
-                        offset: 0,
-                        bundles: vec![],
-                    },
-                ],
+                segments: vec![Segment::from("ONE"), Segment::from("TWO")],
             },
         ]
     }
