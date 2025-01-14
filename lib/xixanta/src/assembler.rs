@@ -1244,7 +1244,7 @@ impl<'a> Assembler<'a> {
         }
     }
 
-    fn evaluate_control_statement(&mut self, node: &PNode) -> Result<(), Error> {
+    fn evaluate_control_statement(&mut self, node: &'a PNode) -> Result<(), Error> {
         // This might just be a statement that changes the context (e.g.
         // ".macro", ".proc", etc.). In this case change the context and leave
         // early.
@@ -1272,6 +1272,7 @@ impl<'a> Assembler<'a> {
                 self.push_evaluated_arguments(node, 2)
             }
             NodeType::Control(ControlType::ReserveMemory) => self.reserve_memory(node),
+            NodeType::Control(ControlType::Asciiz) => self.push_ascii_string(node),
             NodeType::Control(ControlType::Segment) => self.switch_to_segment(node),
             NodeType::Control(ControlType::IncBin) => {
                 self.incbin(node.args.as_ref().unwrap().first().unwrap())
@@ -1622,18 +1623,26 @@ impl<'a> Assembler<'a> {
         Ok(())
     }
 
-    fn switch_to_segment(&mut self, node: &PNode) -> Result<(), Error> {
-        // First of all, fetch the argument for the ".segment" statement and
-        // validate that it has some basic format. Note that the existence of
-        // exactly one argument is guaranteed by the parser and, thus,
-        // `unwrap()` calls are not dangerous in this context.
+    // Fetch the first argument from `node`, validate that it's a quoted string,
+    // and return its inner value. Note that before calling this function there
+    // must be the guarantee that there's at least one argument inside of the
+    // node.
+    fn fetch_quoted_first_argument(&mut self, node: &'a PNode) -> Result<&'a str, Error> {
         let arg = &node.args.as_ref().unwrap().first().unwrap();
         let val = &arg.value.value;
-        if val.len() < 3 || !val.starts_with('"') || !val.ends_with('"') {
+        if val.len() < 3 {
+            return Err(Error {
+                line: node.value.line,
+                message: "unpermitted empty argument".to_string(),
+                source: self.source_for(node),
+                global: false,
+            });
+        }
+        if !val.starts_with('"') || !val.ends_with('"') {
             return Err(Error {
                 line: node.value.line,
                 message: format!(
-                    "segment declaration has to be written inside of double quotes ('{}' given instead)",
+                    "declaration has to be written inside of double quotes ('{}' given instead)",
                     val,
                 ),
                 source: self.source_for(node),
@@ -1641,8 +1650,34 @@ impl<'a> Assembler<'a> {
             });
         }
 
-        // Validate the segment name.
-        let name = &val[1..val.len() - 1];
+        Ok(&val[1..val.len() - 1])
+    }
+
+    // Push fill bundles which correspond to the string referenced in `node`. An
+    // 0x00 bundle will also be pushed at the end.
+    fn push_ascii_string(&mut self, node: &'a PNode) -> Result<(), Error> {
+        let string = self.fetch_quoted_first_argument(node)?;
+
+        for ch in string.chars() {
+            if !ch.is_ascii() {
+                return Err(Error {
+                    line: node.value.line,
+                    message: "string can only contain ASCII characters".to_string(),
+                    source: self.source_for(node),
+                    global: false,
+                });
+            }
+
+            self.push_bundle(Bundle::fill(ch as u8), node)?;
+        }
+        self.push_bundle(Bundle::fill(0x00), node)?;
+
+        Ok(())
+    }
+
+    // Change the current segment to the one referenced in `node`.
+    fn switch_to_segment(&mut self, node: &'a PNode) -> Result<(), Error> {
+        let name = self.fetch_quoted_first_argument(node)?;
         if name
             .chars()
             .any(|ch| !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '-'))
@@ -3092,6 +3127,30 @@ jsr Movement::update
         assert_eq!(
             res.warnings[0].to_string(),
             "pointless .res statement, prefer using .byte (line 4)"
+        );
+    }
+
+    #[test]
+    fn asciiz() {
+        let res = just_bundles(".asciiz \"hello\"");
+
+        assert_eq!(res.len(), 6);
+        assert_eq!(res[0].value(), 0x68);
+        assert_eq!(res[1].value(), 0x65);
+        assert_eq!(res[2].value(), 0x6C);
+        assert_eq!(res[3].value(), 0x6C);
+        assert_eq!(res[4].value(), 0x6F);
+        assert_eq!(res[5].value(), 0x00);
+    }
+
+    #[test]
+    fn bad_asciiz() {
+        let res = just_assemble(".asciiz \"\"");
+
+        assert_eq!(res.errors.len(), 1);
+        assert_eq!(
+            res.errors[0].to_string(),
+            "unpermitted empty argument (line 4)"
         );
     }
 

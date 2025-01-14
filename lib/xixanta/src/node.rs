@@ -142,6 +142,7 @@ pub enum ControlType {
     EndRepeat,
     IncludeSource,
     ReserveMemory,
+    Asciiz,
 }
 
 impl fmt::Display for ControlType {
@@ -164,6 +165,7 @@ impl fmt::Display for ControlType {
             ControlType::EndRepeat => write!(f, ".endrepeat"),
             ControlType::IncludeSource => write!(f, ".include"),
             ControlType::ReserveMemory => write!(f, ".res"),
+            ControlType::Asciiz => write!(f, ".asciiz"),
         }
     }
 }
