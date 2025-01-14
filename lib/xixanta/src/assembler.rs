@@ -1271,6 +1271,7 @@ impl<'a> Assembler<'a> {
             NodeType::Control(ControlType::Addr) | NodeType::Control(ControlType::Word) => {
                 self.push_evaluated_arguments(node, 2)
             }
+            NodeType::Control(ControlType::ReserveMemory) => self.reserve_memory(node),
             NodeType::Control(ControlType::Segment) => self.switch_to_segment(node),
             NodeType::Control(ControlType::IncBin) => {
                 self.incbin(node.args.as_ref().unwrap().first().unwrap())
@@ -1554,6 +1555,68 @@ impl<'a> Assembler<'a> {
                     global: false,
                 })
             }
+        }
+
+        Ok(())
+    }
+
+    // Consume the given `node` by pushing as many fill bundles as it can be
+    // parsed assuming this is a `.res` control statement.
+    fn reserve_memory(&mut self, node: &PNode) -> Result<(), Error> {
+        let args = node.args.as_ref().unwrap();
+
+        // Fetch the number or bytes to consume.
+        let n = self.evaluate_node(&args[0])?;
+        if n.size > 2 {
+            return Err(Error {
+                global: false,
+                line: node.value.line,
+                source: self.source_for(node),
+                message: "you are trying to reserve too much memory".to_string(),
+            });
+        }
+        let iterations = u16::from_le_bytes([n.bytes[0], n.bytes[1]]);
+        if iterations == 0 {
+            return Err(Error {
+                global: false,
+                line: node.value.line,
+                source: self.source_for(node),
+                message: "empty .res statement".to_string(),
+            });
+        } else if iterations == 1 {
+            self.warnings.push(Error {
+                global: false,
+                line: node.value.line,
+                source: self.source_for(node),
+                message: "pointless .res statement, prefer using .byte".to_string(),
+            });
+        }
+
+        // Check whether the fill value was provided. If that's not the case,
+        // then fetch it from the current mapping.
+        let fill = match args.get(1) {
+            Some(fill) => {
+                let bundle = self.evaluate_node(fill)?;
+                if bundle.size > 1 {
+                    return Err(Error {
+                        global: false,
+                        line: node.value.line,
+                        source: self.source_for(node),
+                        message: "fill value must fit into a single byte".to_string(),
+                    });
+                }
+                bundle.bytes[0]
+            }
+            None => {
+                let mapping = &self.mappings[self.current_mapping];
+                mapping.fill.unwrap_or(0x00)
+            }
+        };
+
+        // And push as many fill bundles as requested with the evaluated fill
+        // value.
+        for _i in 0..iterations {
+            self.push_bundle(Bundle::fill(fill), node)?;
         }
 
         Ok(())
@@ -2996,6 +3059,40 @@ jsr Movement::update
         assert_eq!(res[2].bytes[0], 0x02);
         assert_eq!(res[2].bytes[1], 0x00);
         assert_eq!(res[2].size, 2);
+    }
+
+    #[test]
+    fn reserve_memory() {
+        let res = just_bundles(
+            r#".res 2
+.res 3, $02
+.res 2, $00"#,
+        );
+
+        assert_eq!(res.len(), 7);
+
+        assert_eq!(res[0].value(), 0);
+        assert_eq!(res[1].value(), 0);
+        assert_eq!(res[2].value(), 2);
+        assert_eq!(res[3].value(), 2);
+        assert_eq!(res[4].value(), 2);
+        assert_eq!(res[5].value(), 0);
+        assert_eq!(res[6].value(), 0);
+    }
+
+    #[test]
+    fn bad_reserve_memory() {
+        let mut res = just_assemble(".res 0, $00");
+
+        assert_eq!(res.errors.len(), 1);
+        assert_eq!(res.errors[0].to_string(), "empty .res statement (line 4)");
+
+        res = just_assemble(".res 1, $00");
+        assert_eq!(res.warnings.len(), 1);
+        assert_eq!(
+            res.warnings[0].to_string(),
+            "pointless .res statement, prefer using .byte (line 4)"
+        );
     }
 
     #[test]

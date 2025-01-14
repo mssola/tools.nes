@@ -749,6 +749,7 @@ lazy_static! {
         functions.insert(String::from(".repeat"), Control { control_type: ControlType::StartRepeat, has_identifier: Some(true), required_args: Some((1, 2)), touches_context: true });
         functions.insert(String::from(".endrepeat"), Control { control_type: ControlType::EndRepeat, has_identifier: None, required_args: None, touches_context: true });
         functions.insert(String::from(".include"), Control { control_type: ControlType::IncludeSource, has_identifier: None, required_args: Some((1, 1)), touches_context: false });
+        functions.insert(String::from(".res"), Control { control_type: ControlType::ReserveMemory, has_identifier: None, required_args: Some((1, 2)), touches_context: false });
 
         functions
     };
