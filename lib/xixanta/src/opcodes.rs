@@ -741,6 +741,7 @@ lazy_static! {
         functions.insert(String::from(".endmacro"), Control { control_type: ControlType::EndMacro, has_identifier: None, required_args: Some((0, 0)), touches_context: true });
         functions.insert(String::from(".segment"), Control { control_type: ControlType::Segment, has_identifier: None, required_args: Some((1, 1)), touches_context: false });
         functions.insert(String::from(".byte"), Control { control_type: ControlType::Byte, has_identifier: None, required_args: None, touches_context: false });
+        functions.insert(String::from(".byt"), Control { control_type: ControlType::Byte, has_identifier: None, required_args: None, touches_context: false });
         functions.insert(String::from(".db"), Control { control_type: ControlType::Byte, has_identifier: None, required_args: None, touches_context: false });
         functions.insert(String::from(".word"), Control { control_type: ControlType::Word, has_identifier: None, required_args: None, touches_context: false });
         functions.insert(String::from(".dw"), Control { control_type: ControlType::Word, has_identifier: None, required_args: None, touches_context: false });
