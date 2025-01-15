@@ -896,6 +896,36 @@ impl Parser {
             // And return what you can parse from the inner expression.
             self.offset = 0;
             return self.parse_expression(l);
+        } else if first == '"' {
+            let start = self.offset;
+            let start_column = self.column;
+            self.next();
+
+            let mut prev = '"';
+
+            for ch in line.get(self.offset..).unwrap_or("").chars() {
+                if ch == '"' && prev != '\\' {
+                    self.next();
+
+                    return Ok(PNode {
+                        node_type: NodeType::Literal,
+                        value: PString {
+                            value: line.get(start..self.offset).unwrap().to_string(),
+                            line: self.line,
+                            start: start_column,
+                            end: self.column,
+                        },
+                        left: None,
+                        right: None,
+                        args: None,
+                        source: self.current_source,
+                    });
+                }
+
+                self.next();
+                prev = ch;
+            }
+            return Err(self.parser_error("unclosed string"));
         } else if let Some(node_type) = self.get_unary_from_line(line) {
             // This is a unary operation. Just parse the right side and return
             // early.
@@ -1522,6 +1552,23 @@ mod tests {
 
             assert_eq!(err.first().unwrap().message, "bad literal syntax");
         }
+    }
+
+    #[test]
+    fn parse_string() {
+        let mut parser = Parser::default();
+        let line = ".asciiz \"a: b\"";
+
+        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+
+        let stmt = parser.nodes.last().unwrap().last().unwrap();
+        let inner = stmt.args.as_ref().unwrap().first().clone().unwrap();
+        assert_eq!(inner.node_type, NodeType::Literal);
+        assert_eq!(inner.value.value, "\"a: b\"");
+        assert_eq!(
+            line.get(inner.value.start..inner.value.end).unwrap(),
+            "\"a: b\""
+        );
     }
 
     // Regular instructions.
