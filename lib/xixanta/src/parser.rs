@@ -969,8 +969,6 @@ impl Parser {
         let first = line.chars().next().unwrap_or_default();
         if first == '(' {
             return self.extract_parenthesized_expression(line);
-        } else if first == '"' {
-            return self.parse_quoted_string(line);
         } else if let Some(node_type) = self.get_unary_from_line(line) {
             // Only treat this as a unary operator if the next character is not
             // another unary operator (e.g. disambiguate between '<<' and '<').
@@ -1200,7 +1198,12 @@ impl Parser {
         // by the control function has already been parsed and set in `left`).
         // Then, just parse the arguments and ensure that it matches the amount
         // required by the function.
-        let args = self.parse_arguments(line)?;
+        let args = if control.only_string {
+            self.skip_whitespace(line);
+            vec![self.parse_quoted_string(line)?]
+        } else {
+            self.parse_arguments(line)?
+        };
         if let Some(args_required) = control.required_args {
             if args.len() < args_required.0 || args.len() > args_required.1 {
                 return Err(self.parser_error(
@@ -1584,17 +1587,32 @@ mod tests {
     #[test]
     fn parse_string() {
         let mut parser = Parser::default();
-        let line = ".asciiz \"a: b\"";
+        let line = ".asciiz \"a: b, c\"";
 
         assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
         let stmt = parser.nodes.last().unwrap().last().unwrap();
         let inner = stmt.args.as_ref().unwrap().first().unwrap();
-        assert_eq!(inner.node_type, NodeType::Literal);
-        assert_eq!(inner.value.value, "\"a: b\"");
+        assert_eq!(inner.node_type, NodeType::Value);
+        assert_eq!(inner.value.value, "\"a: b, c\"");
         assert_eq!(
             line.get(inner.value.start..inner.value.end).unwrap(),
-            "\"a: b\""
+            "\"a: b, c\""
+        );
+    }
+
+    #[test]
+    fn error_on_non_ascii_string() {
+        let mut parser = Parser::default();
+        let line = ".asciiz \"à\"";
+
+        let err = parser
+            .parse(line.as_bytes(), SourceInfo::default())
+            .unwrap_err();
+
+        assert_eq!(
+            err.first().unwrap().message,
+            "using non-ASCII characters in a string"
         );
     }
 
