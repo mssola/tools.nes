@@ -127,12 +127,8 @@ impl Parser {
 
         // Let's pin point the last character we need to care for parsing. This
         // can be either the start position of an inline comment (i.e. ';'), or
-        // the real line end.
-        let end = if let Some(comment) = line.find(';') {
-            comment
-        } else {
-            line.len()
-        };
+        // the real line end. Either way, let `find_line_end` figure this out.
+        let end = self.find_line_end(line)?;
 
         // It's safe to trim the end of the resulting string. Moreover, doing so
         // can already show lines which are actually empty (e.g. a line which
@@ -181,6 +177,44 @@ impl Parser {
         }
 
         self.parse_statement(l, id)
+    }
+
+    // Returns the index to the absolute end of the semantic line (i.e.
+    // everything before the end of the string or an inline comment).
+    fn find_line_end(&mut self, line: &str) -> Result<usize, Error> {
+        // If there is no semicolon, then we just return the end of the line.
+        let Some(sc) = line.find(';') else {
+            return Ok(line.len());
+        };
+
+        // If there is no double quote, then the semicolon that we found is
+        // really an inline comment.
+        let Some(quote) = line.find('"') else {
+            return Ok(sc);
+        };
+
+        // If the quote character is after the semicolon, then it's inside of
+        // the comment.
+        if quote > sc {
+            return Ok(sc);
+        }
+
+        // Try to fetch the end of the string. If this is not possible, then
+        // it's unclosed.
+        let Some(mut end_quote) = line.get(quote + 1..).unwrap_or_default().find('"') else {
+            return Err(self.parser_error("unclosed string"));
+        };
+
+        // If it's there, then end_quote is in relation to 'quote'. Hence, for
+        // the absolute value, sum with 'quote' + 2 quote characters. With that,
+        // if it's passed the semicolon, then the semicolon is contained inside
+        // of a double-quoted string, otherwise stick with the semicolon.
+        end_quote += quote + 2;
+        if end_quote > sc {
+            Ok(end_quote)
+        } else {
+            Ok(sc)
+        }
     }
 
     // Given a `line` parses an identifier if possible. This identifier is not
@@ -1587,17 +1621,17 @@ mod tests {
     #[test]
     fn parse_string() {
         let mut parser = Parser::default();
-        let line = ".asciiz \"a: b, c\"";
+        let line = ".asciiz \"a: b, c; d\"  ; Comment";
 
         assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
         let stmt = parser.nodes.last().unwrap().last().unwrap();
         let inner = stmt.args.as_ref().unwrap().first().unwrap();
         assert_eq!(inner.node_type, NodeType::Value);
-        assert_eq!(inner.value.value, "\"a: b, c\"");
+        assert_eq!(inner.value.value, "\"a: b, c; d\"");
         assert_eq!(
             line.get(inner.value.start..inner.value.end).unwrap(),
-            "\"a: b, c\""
+            "\"a: b, c; d\""
         );
     }
 
