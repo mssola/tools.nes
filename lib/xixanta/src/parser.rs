@@ -388,7 +388,10 @@ impl Parser {
         match INSTRUCTIONS.get(&id.value) {
             Some(_) => Ok(self.parse_instruction(line, id)?),
             None => {
-                if line.contains('=') {
+                // Skip whitespaces and check if we have a '=' sign. If that's
+                // the case, then it's an assignment.
+                self.skip_whitespace(line);
+                if line.chars().nth(self.offset).unwrap_or_default() == '=' {
                     Ok(self.parse_assignment(line, id)?)
                 } else {
                     self.parse_other(line, id)
@@ -536,12 +539,6 @@ impl Parser {
         // so.
         if let Err(msg) = id.is_valid_identifier(false) {
             return Err(self.parser_error(&msg));
-        }
-
-        // Skip whitespaces and make sure that we have a '=' sign.
-        self.skip_whitespace(line);
-        if line.chars().nth(self.offset).unwrap_or_default() != '=' {
-            return Err(self.parser_error(format!("unknown instruction '{}'", id.value).as_str()));
         }
 
         // Skip the '=' sign and any possible whitespaces.
@@ -1621,17 +1618,17 @@ mod tests {
     #[test]
     fn parse_string() {
         let mut parser = Parser::default();
-        let line = ".asciiz \"a: b, c; d\"  ; Comment";
+        let line = ".asciiz \"=a: b, c; d\"  ; Comment";
 
         assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
         let stmt = parser.nodes.last().unwrap().last().unwrap();
         let inner = stmt.args.as_ref().unwrap().first().unwrap();
         assert_eq!(inner.node_type, NodeType::Value);
-        assert_eq!(inner.value.value, "\"a: b, c; d\"");
+        assert_eq!(inner.value.value, "\"=a: b, c; d\"");
         assert_eq!(
             line.get(inner.value.start..inner.value.end).unwrap(),
-            "\"a: b, c; d\""
+            "\"=a: b, c; d\""
         );
     }
 
