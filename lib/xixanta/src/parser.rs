@@ -972,7 +972,14 @@ impl Parser {
         } else if first == '"' {
             return self.parse_quoted_string(line);
         } else if let Some(node_type) = self.get_unary_from_line(line) {
-            return self.parse_unary_operation(node_type, line);
+            // Only treat this as a unary operator if the next character is not
+            // another unary operator (e.g. disambiguate between '<<' and '<').
+            if self
+                .get_unary_from_line(line.get(1..).unwrap_or(""))
+                .is_none()
+            {
+                return self.parse_unary_operation(node_type, line);
+            }
         }
 
         // Now that we have changed specific cases where detecting an
