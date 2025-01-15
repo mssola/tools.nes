@@ -873,6 +873,88 @@ impl Parser {
         Ok(idx)
     }
 
+    // Parses the given line by assuming it's an expression under parenthesis.
+    // This function then grabs whatever is inside of these parenthesis and
+    // parses the expression inside of them.
+    fn extract_parenthesized_expression(&mut self, line: &str) -> Result<PNode, Error> {
+        // Skip '(' character and whitespace characters in between.
+        self.next();
+        self.skip_whitespace(line);
+
+        // Extract what's inside of the enclosing parenthesis.
+        let paren = self.find_matching_paren(line, self.offset)?;
+        let l = line.get(self.offset..paren).unwrap_or_default();
+
+        // And return what you can parse from the inner expression.
+        self.offset = 0;
+        self.parse_expression(l)
+    }
+
+    // Consumes the given line by assuming is a string in double quotes.
+    fn parse_quoted_string(&mut self, line: &str) -> Result<PNode, Error> {
+        let start = self.offset;
+        let start_column = self.column;
+
+        // Skip opening quote.
+        self.next();
+
+        // Just iterate over the string until we find the matching quote
+        // character (unless it was escaped through '\').
+        let mut prev = '"';
+        for ch in line.get(self.offset..).unwrap_or("").chars() {
+            if ch == '"' && prev != '\\' {
+                self.next();
+
+                return Ok(PNode {
+                    node_type: NodeType::Value,
+                    value: PString {
+                        value: line.get(start..self.offset).unwrap().to_string(),
+                        line: self.line,
+                        start: start_column,
+                        end: self.column,
+                    },
+                    left: None,
+                    right: None,
+                    args: None,
+                    source: self.current_source,
+                });
+            }
+
+            self.next();
+            prev = ch;
+        }
+
+        Err(self.parser_error("unclosed string"))
+    }
+
+    // Returns a node for the given `node_type` unary operation, where the given
+    // `line` is the whole expression (including the unary operator).
+    fn parse_unary_operation(&mut self, node_type: NodeType, line: &str) -> Result<PNode, Error> {
+        // Skip operator and whitespaces.
+        let start = self.column;
+        self.next();
+        self.skip_whitespace(line);
+
+        // Fetch the right side of the operator.
+        let right_str = line.get(self.offset..).unwrap_or_default().trim_end();
+        self.offset = 0;
+        let right = self.parse_expression(right_str)?;
+
+        Ok(PNode {
+            node_type,
+            value: PString {
+                value: String::from(""),
+                line: self.line,
+                start,
+                end: right.value.end,
+            },
+            left: None,
+            right: Some(Box::new(right)),
+            args: None,
+            source: self.current_source,
+        })
+    }
+
     // Parse the expression under `line`. Indeces such as `self.column` and
     // `self.offset` are assumed to be correct at this point for the given
     // `line` (e.g. the line might not be a full line but rather a limited range
@@ -882,77 +964,11 @@ impl Parser {
         // Cases where fetching an "identifier" is really not needed.
         let first = line.chars().next().unwrap_or_default();
         if first == '(' {
-            // This is an expression under paranthesis. Get those out of the way
-            // and call `parse_expression` again but for the expression inside.
-
-            // Skip '(' character and whitespace characters in between.
-            self.next();
-            self.skip_whitespace(line);
-
-            // Extract what's inside of the enclosing parenthesis.
-            let paren = self.find_matching_paren(line, self.offset)?;
-            let l = line.get(self.offset..paren).unwrap_or_default();
-
-            // And return what you can parse from the inner expression.
-            self.offset = 0;
-            return self.parse_expression(l);
+            return self.extract_parenthesized_expression(line);
         } else if first == '"' {
-            let start = self.offset;
-            let start_column = self.column;
-            self.next();
-
-            let mut prev = '"';
-
-            for ch in line.get(self.offset..).unwrap_or("").chars() {
-                if ch == '"' && prev != '\\' {
-                    self.next();
-
-                    return Ok(PNode {
-                        node_type: NodeType::Literal,
-                        value: PString {
-                            value: line.get(start..self.offset).unwrap().to_string(),
-                            line: self.line,
-                            start: start_column,
-                            end: self.column,
-                        },
-                        left: None,
-                        right: None,
-                        args: None,
-                        source: self.current_source,
-                    });
-                }
-
-                self.next();
-                prev = ch;
-            }
-            return Err(self.parser_error("unclosed string"));
+            return self.parse_quoted_string(line);
         } else if let Some(node_type) = self.get_unary_from_line(line) {
-            // This is a unary operation. Just parse the right side and return
-            // early.
-
-            // Skip operator and whitespaces.
-            let start = self.column;
-            self.next();
-            self.skip_whitespace(line);
-
-            // Fetch the right side of the operator.
-            let right_str = line.get(self.offset..).unwrap_or_default().trim_end();
-            self.offset = 0;
-            let right = self.parse_expression(right_str)?;
-
-            return Ok(PNode {
-                node_type,
-                value: PString {
-                    value: String::from(""),
-                    line: self.line,
-                    start,
-                    end: right.value.end,
-                },
-                left: None,
-                right: Some(Box::new(right)),
-                args: None,
-                source: self.current_source,
-            });
+            return self.parse_unary_operation(node_type, line);
         }
 
         // Now that we have changed specific cases where detecting an
@@ -1562,7 +1578,7 @@ mod tests {
         assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
         let stmt = parser.nodes.last().unwrap().last().unwrap();
-        let inner = stmt.args.as_ref().unwrap().first().clone().unwrap();
+        let inner = stmt.args.as_ref().unwrap().first().unwrap();
         assert_eq!(inner.node_type, NodeType::Literal);
         assert_eq!(inner.value.value, "\"a: b\"");
         assert_eq!(
