@@ -1659,15 +1659,8 @@ impl<'a> Assembler<'a> {
         let string = self.fetch_quoted_first_argument(node)?;
 
         for ch in string.chars() {
-            if !ch.is_ascii() {
-                return Err(Error {
-                    line: node.value.line,
-                    message: "string can only contain ASCII characters".to_string(),
-                    source: self.source_for(node),
-                    global: false,
-                });
-            }
-
+            // NOTE: the parser guarantees that a string literal only contains
+            // ASCII characters.
             self.push_bundle(Bundle::fill(ch as u8), node)?;
         }
         self.push_bundle(Bundle::fill(0x00), node)?;

@@ -902,6 +902,10 @@ impl Parser {
         // character (unless it was escaped through '\').
         let mut prev = '"';
         for ch in line.get(self.offset..).unwrap_or("").chars() {
+            if !ch.is_ascii() {
+                return Err(self.parser_error("using non-ASCII characters in a string"));
+            }
+
             if ch == '"' && prev != '\\' {
                 self.next();
 
