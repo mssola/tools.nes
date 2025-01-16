@@ -147,6 +147,7 @@ pub enum ControlType {
     Elsif,
     Else,
     EndIf,
+    Defined,
 }
 
 impl fmt::Display for ControlType {
@@ -174,6 +175,7 @@ impl fmt::Display for ControlType {
             ControlType::Elsif => write!(f, ".elsif"),
             ControlType::Else => write!(f, ".else"),
             ControlType::EndIf => write!(f, ".endif"),
+            ControlType::Defined => write!(f, ".defined"),
         }
     }
 }

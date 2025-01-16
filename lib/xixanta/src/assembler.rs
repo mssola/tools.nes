@@ -1550,6 +1550,7 @@ impl<'a> Assembler<'a> {
         match node.node_type {
             NodeType::Control(ControlType::Hibyte) => self.evaluate_byte(node, true),
             NodeType::Control(ControlType::Lobyte) => self.evaluate_byte(node, false),
+            NodeType::Control(ControlType::Defined) => self.evaluate_defined(node),
             _ => Err(Error {
                 line: node.value.line,
                 message: format!(
@@ -1583,6 +1584,24 @@ impl<'a> Assembler<'a> {
         bundle.size = 1;
 
         Ok(bundle)
+    }
+
+    // Returns a bundle containing a boolean value on whether the symbol
+    // referenced in the given `node` is actually defined on this context or
+    // not.
+    fn evaluate_defined(&mut self, node: &PNode) -> Result<Bundle, Error> {
+        // Guaranteed by the parser to be only one argument.
+        let name = node.args.as_ref().unwrap().first().unwrap();
+
+        if self
+            .context
+            .get_variable(&name.value, &self.mappings)
+            .is_ok()
+        {
+            Ok(Bundle::fill(0x01))
+        } else {
+            Ok(Bundle::fill(0x00))
+        }
     }
 
     fn push_evaluated_arguments(&mut self, node: &PNode, nbytes: u8) -> Result<(), Error> {
@@ -3370,6 +3389,40 @@ jsr Movement::update
             res.errors[2].message,
             "unexpected 'control function (.endif)'"
         );
+    }
+
+    #[test]
+    fn defined() {
+        let res = just_bundles(
+            r#"Var = 0
+.if .defined(Var)
+  lda #1
+.else
+  lda #0
+.endif
+
+.if .defined(Var1)
+  lda #1
+.else
+  lda #0
+.endif
+
+.if !.defined(Var1)
+  lda #1
+.else
+  lda #0
+.endif
+"#,
+        );
+
+        assert_eq!(res.len(), 3);
+
+        let instrs: Vec<[u8; 2]> = vec![[0xA9, 0x01], [0xA9, 0x00], [0xA9, 0x01]];
+        for i in 0..instrs.len() {
+            assert_eq!(res[i].size, 2);
+            assert_eq!(res[i].bytes[0], instrs[i][0]);
+            assert_eq!(res[i].bytes[1], instrs[i][1]);
+        }
     }
 
     // Macros
