@@ -1134,7 +1134,7 @@ impl<'a> Assembler<'a> {
         let mut shift = 1;
 
         for c in string.chars().rev() {
-            if shift > 100 {
+            if shift > 10000 {
                 return Err(Error {
                     message: "decimal value is too big".to_string(),
                     line: node.value.line,
@@ -1181,7 +1181,7 @@ impl<'a> Assembler<'a> {
 
             shift *= 10;
         }
-        if value > 255 {
+        if value > u16::MAX.into() {
             return Err(Error {
                 message: "decimal value is too big".to_string(),
                 line: node.value.line,
@@ -1190,9 +1190,10 @@ impl<'a> Assembler<'a> {
             });
         }
 
+        let bytes = value.to_le_bytes();
         Ok(Bundle {
-            bytes: [value as u8, 0, 0],
-            size: 1,
+            bytes: [bytes[0], bytes[1], 0],
+            size: if value > 255 { 2 } else { 1 },
             address: 0,
             cycles: 0,
             affected_on_page: false,
@@ -2334,14 +2335,14 @@ mod tests {
 
     #[test]
     fn parse_decimal() {
-        assert_error("adc #256", 1, false, "decimal value is too big");
-        assert_error("adc #2000", 1, false, "decimal value is too big");
+        assert_error("adc #222256", 1, false, "decimal value is too big");
         assert_error(
                 "adc #2A",
                 1, false,
                 "'A' is not a decimal value and could not find variable '2A' in the global scope either",
             );
         assert_instruction("adc #1", &[0x69, 0x01]);
+        assert_instruction("adc #.hibyte(61953)", &[0x69, 0xF2]);
     }
 
     // Variables
@@ -2656,6 +2657,7 @@ cpx #(4 * var2)"#,
             false,
             "left arm of instruction is neither an address nor an immediate",
         );
+        assert_error("adc #10000", 1, false, "immediate is too big");
     }
 
     #[test]
@@ -3292,13 +3294,20 @@ jsr Movement::update
     lda #<Var
     lda #.hibyte(Var)
     lda #>Var
+    lda #.hibyte(61953)
     "#,
         );
 
-        assert_eq!(res.len(), 4);
-        let instrs: Vec<[u8; 2]> = vec![[0xA9, 0x02], [0xA9, 0x02], [0xA9, 0x20], [0xA9, 0x20]];
+        assert_eq!(res.len(), 5);
+        let instrs: Vec<[u8; 2]> = vec![
+            [0xA9, 0x02],
+            [0xA9, 0x02],
+            [0xA9, 0x20],
+            [0xA9, 0x20],
+            [0xA9, 0xF2],
+        ];
 
-        for i in 0..4 {
+        for i in 0..instrs.len() {
             assert_eq!(res[i].size, 2);
             assert_eq!(res[i].bytes[0], instrs[i][0]);
             assert_eq!(res[i].bytes[1], instrs[i][1]);
