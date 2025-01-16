@@ -143,6 +143,10 @@ pub enum ControlType {
     IncludeSource,
     ReserveMemory,
     Asciiz,
+    If,
+    Elsif,
+    Else,
+    EndIf,
 }
 
 impl fmt::Display for ControlType {
@@ -166,6 +170,10 @@ impl fmt::Display for ControlType {
             ControlType::IncludeSource => write!(f, ".include"),
             ControlType::ReserveMemory => write!(f, ".res"),
             ControlType::Asciiz => write!(f, ".asciiz"),
+            ControlType::If => write!(f, ".if"),
+            ControlType::Elsif => write!(f, ".elsif"),
+            ControlType::Else => write!(f, ".else"),
+            ControlType::EndIf => write!(f, ".endif"),
         }
     }
 }
@@ -324,6 +332,9 @@ impl NodeType {
             NodeType::Control(ControlType::StartRepeat) => {
                 Some(NodeType::Control(ControlType::EndRepeat))
             }
+            NodeType::Control(ControlType::If) => Some(NodeType::Control(ControlType::EndIf)),
+            NodeType::Control(ControlType::Elsif) => Some(NodeType::Control(ControlType::EndIf)),
+            NodeType::Control(ControlType::Else) => Some(NodeType::Control(ControlType::EndIf)),
             _ => None,
         }
     }
@@ -389,11 +400,15 @@ impl PNode {
             NodeType::Control(ControlType::StartMacro)
             | NodeType::Control(ControlType::StartProc)
             | NodeType::Control(ControlType::StartScope)
-            | NodeType::Control(ControlType::StartRepeat) => NodeBodyType::Starts,
+            | NodeType::Control(ControlType::StartRepeat)
+            | NodeType::Control(ControlType::If)
+            | NodeType::Control(ControlType::Elsif)
+            | NodeType::Control(ControlType::Else) => NodeBodyType::Starts,
             NodeType::Control(ControlType::EndMacro)
             | NodeType::Control(ControlType::EndProc)
             | NodeType::Control(ControlType::EndScope)
-            | NodeType::Control(ControlType::EndRepeat) => NodeBodyType::Ends,
+            | NodeType::Control(ControlType::EndRepeat)
+            | NodeType::Control(ControlType::EndIf) => NodeBodyType::Ends,
             _ => NodeBodyType::None,
         }
     }

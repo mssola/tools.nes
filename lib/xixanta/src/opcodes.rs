@@ -757,6 +757,10 @@ lazy_static! {
         functions.insert(String::from(".include"), Control { control_type: ControlType::IncludeSource, has_identifier: None, required_args: Some((1, 1)), touches_context: false, only_string: true });
         functions.insert(String::from(".res"), Control { control_type: ControlType::ReserveMemory, has_identifier: None, required_args: Some((1, 2)), touches_context: false, only_string: false });
         functions.insert(String::from(".asciiz"), Control { control_type: ControlType::Asciiz, has_identifier: None, required_args: Some((1, 1)), touches_context: false, only_string: true });
+        functions.insert(String::from(".if"), Control { control_type: ControlType::If, has_identifier: None, required_args: Some((1, 1)), touches_context: false, only_string: false });
+        functions.insert(String::from(".elsif"), Control { control_type: ControlType::Elsif, has_identifier: None, required_args: Some((1, 1)), touches_context: false, only_string: false });
+        functions.insert(String::from(".else"), Control { control_type: ControlType::Else, has_identifier: None, required_args: Some((0, 0)), touches_context: false, only_string: false });
+        functions.insert(String::from(".endif"), Control { control_type: ControlType::EndIf, has_identifier: None, required_args: Some((0, 0)), touches_context: false, only_string: false });
 
         functions
     };

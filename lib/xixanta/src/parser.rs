@@ -606,46 +606,120 @@ impl Parser {
         let node_type = node.node_type.clone();
         match node.body_type() {
             NodeBodyType::Starts => {
+                // .elsif/.else statements close the previous block by mocking
+                // an .endif, and then they start a new one.
+                if matches!(
+                    node_type,
+                    NodeType::Control(ControlType::Elsif) | NodeType::Control(ControlType::Else)
+                ) {
+                    self.close_body(&node_type, &NodeType::Control(ControlType::EndIf))?;
+                }
+
                 self.bodies.push(node_type.closing_type().unwrap());
                 self.nodes.last_mut().unwrap().push(node);
                 self.nodes.push(vec![]);
             }
             NodeBodyType::Ends => {
-                // Pop out which start statement was last seen and check that it
-                // makes sense to the end statement we are parsing now.
-                let expected_close = match self.bodies.pop() {
-                    Some(ec) => ec,
-                    None => {
-                        return Err(self
-                            .parser_error(format!("unexpected '{}'", node_type).as_str())
-                            .into())
-                    }
-                };
-                if node_type != expected_close {
-                    return Err(self
-                        .parser_error(
-                            format!("expecting '{}', found '{}'", expected_close, node_type)
-                                .as_str(),
-                        )
-                        .into());
-                }
+                self.close_body(&node_type, &node_type)?;
 
-                // Note that empty bodies are possible. This is left
-                // to the caller (e.g. assembler) to decide whether
-                // it makes sense or not.
-                let nodes = self.nodes.pop().unwrap();
-                self.nodes.last_mut().unwrap().last_mut().unwrap().right = Some(Box::new(PNode {
-                    node_type: NodeType::ControlBody,
-                    value: PString::default(),
-                    left: None,
-                    right: None,
-                    args: Some(nodes),
-                    source: self.current_source,
-                }));
+                // If this is an .endif statement, then we need to fold
+                // .if/.elsif/.else statements that have accumulated.
+                if matches!(node_type, NodeType::Control(ControlType::EndIf)) {
+                    self.fold_if_branches()?;
+                }
                 self.nodes.last_mut().unwrap().push(node);
             }
             NodeBodyType::None => self.nodes.last_mut().unwrap().push(node),
         }
+
+        Ok(())
+    }
+
+    // Fold .if/.elsif/.else statements so each branch of the block is on the
+    // `left` node of the previous one. The last layer of nodes will also be
+    // truncated accordingly.
+    fn fold_if_branches(&mut self) -> Result<(), Vec<Error>> {
+        let nodes = self.nodes.last_mut().unwrap();
+        let mut count = 0;
+
+        // Just iterate in reverse order from the last node until the .if
+        // statement that started the whole .if/.elsif/.else block.
+        for idx in (1..nodes.len()).rev() {
+            let node = &nodes[idx];
+            let next = &nodes[idx - 1];
+
+            // If this is an .if already, then we can quit, otherwise we must
+            // ensure that the next node is an .if/.elsif and continue the loop.
+            match node.node_type {
+                NodeType::Control(ControlType::If) => {
+                    nodes.truncate(nodes.len() - count);
+                    return Ok(());
+                }
+                NodeType::Control(ControlType::Elsif) => {
+                    if !matches!(
+                        next.node_type,
+                        NodeType::Control(ControlType::If) | NodeType::Control(ControlType::Elsif)
+                    ) {
+                        return Err(self.parser_error("expecting an .if statement").into());
+                    }
+                }
+                NodeType::Control(ControlType::Else) => {
+                    if !matches!(
+                        next.node_type,
+                        NodeType::Control(ControlType::If) | NodeType::Control(ControlType::Elsif)
+                    ) {
+                        return Err(self.parser_error("expecting an .if statement").into());
+                    }
+                }
+                _ => return Err(self.parser_error("expecting an .if statement").into()),
+            }
+
+            // After all the checks are done, folding simply means to assign the
+            // left node to the current one.
+            count += 1;
+            nodes[idx - 1].left = Some(Box::new(nodes[idx].clone()));
+        }
+
+        nodes.truncate(nodes.len() - count);
+        Ok(())
+    }
+
+    // Close the currently open block body with the given `node_type`. The given
+    // `node_type` is one that ideally closes the current block, but it might
+    // not be necessarily what it was really found, which should be passed as
+    // `real_type`. This is so statements such as '.elsif' can also close
+    // previous `.if/.elsif` blocks.
+    fn close_body(&mut self, real_type: &NodeType, node_type: &NodeType) -> Result<(), Vec<Error>> {
+        // Pop out which start statement was last seen and check that it
+        // makes sense to the end statement we are parsing now.
+        let expected_close = match self.bodies.pop() {
+            Some(ec) => ec,
+            None => {
+                return Err(self
+                    .parser_error(format!("unexpected '{}'", real_type).as_str())
+                    .into())
+            }
+        };
+        if *node_type != expected_close {
+            return Err(self
+                .parser_error(
+                    format!("expecting '{}', found '{}'", expected_close, node_type).as_str(),
+                )
+                .into());
+        }
+
+        // Note that empty bodies are possible. This is left
+        // to the caller (e.g. assembler) to decide whether
+        // it makes sense or not.
+        let nodes = self.nodes.pop().unwrap();
+        self.nodes.last_mut().unwrap().last_mut().unwrap().right = Some(Box::new(PNode {
+            node_type: NodeType::ControlBody,
+            value: PString::default(),
+            left: None,
+            right: None,
+            args: Some(nodes),
+            source: self.current_source,
+        }));
 
         Ok(())
     }

@@ -508,8 +508,8 @@ impl<'a> Assembler<'a> {
                     }
                 }
                 NodeType::Control(control_type) => {
-                    if let Err(e) = self.evaluate_control_statement(node) {
-                        errors.push(e);
+                    if let Err(mut e) = self.evaluate_control_statement(node) {
+                        errors.append(&mut e);
                     }
 
                     // On control statements which modify the context, there are
@@ -1277,7 +1277,7 @@ impl<'a> Assembler<'a> {
         }
     }
 
-    fn evaluate_control_statement(&mut self, node: &'a PNode) -> Result<(), Error> {
+    fn evaluate_control_statement(&mut self, node: &'a PNode) -> Result<(), Vec<Error>> {
         // This might just be a statement that changes the context (e.g.
         // ".macro", ".proc", etc.). In this case change the context and leave
         // early.
@@ -1293,23 +1293,26 @@ impl<'a> Assembler<'a> {
                     line: node.value.line,
                     source: self.source_for(node),
                     global: false,
-                });
+                }
+                .into());
             }
         }
 
         // Otherwise, check the function that could act as a statement that
         // produces bundles.
         match node.node_type {
-            NodeType::Control(ControlType::Byte) => self.push_evaluated_arguments(node, 1),
+            NodeType::Control(ControlType::Byte) => Ok(self.push_evaluated_arguments(node, 1)?),
             NodeType::Control(ControlType::Addr) | NodeType::Control(ControlType::Word) => {
-                self.push_evaluated_arguments(node, 2)
+                Ok(self.push_evaluated_arguments(node, 2)?)
             }
-            NodeType::Control(ControlType::ReserveMemory) => self.reserve_memory(node),
-            NodeType::Control(ControlType::Asciiz) => self.push_ascii_string(node),
-            NodeType::Control(ControlType::Segment) => self.switch_to_segment(node),
+            NodeType::Control(ControlType::ReserveMemory) => Ok(self.reserve_memory(node)?),
+            NodeType::Control(ControlType::Asciiz) => Ok(self.push_ascii_string(node)?),
+            NodeType::Control(ControlType::Segment) => Ok(self.switch_to_segment(node)?),
             NodeType::Control(ControlType::IncBin) => {
-                self.incbin(node.args.as_ref().unwrap().first().unwrap())
+                Ok(self.incbin(node.args.as_ref().unwrap().first().unwrap())?)
             }
+            NodeType::Control(ControlType::If) => self.evaluate_if_block(node),
+            NodeType::Control(ControlType::EndIf) => Ok(()),
             NodeType::Control(ControlType::IncludeSource) => Ok(()),
             _ => Err(Error {
                 line: node.value.line,
@@ -1319,7 +1322,8 @@ impl<'a> Assembler<'a> {
                 ),
                 source: self.source_for(node),
                 global: false,
-            }),
+            }
+            .into()),
         }
     }
 
@@ -1498,6 +1502,45 @@ impl<'a> Assembler<'a> {
 
             // And push all the bundles from the inner code.
             self.bundle(code)?;
+        }
+
+        Ok(())
+    }
+
+    // Evaluate the given `node` by assuming that it's an .if/.elsif/.else
+    // block.
+    fn evaluate_if_block(&mut self, node: &'a PNode) -> Result<(), Vec<Error>> {
+        // Evaluate the condition if possible. If that's not the case (i.e.
+        // '.else'), then we just assume it to be true.
+        let cond = match &node.args {
+            Some(args) => {
+                self.literal_mode = None;
+                let cond_node = self.evaluate_node(args.first().unwrap())?;
+                cond_node.value() == 1
+            }
+            None => true,
+        };
+
+        // If condition was false, try to go into the .elsif/.else statement. If
+        // that doesn't exist, then we are done.
+        if !cond {
+            match &node.left {
+                Some(else_node) => return self.evaluate_if_block(else_node),
+                None => return Ok(()),
+            }
+        }
+
+        // And evaluate the inner block if the condition was true.
+        let inner = &node.right.as_ref().unwrap().args.as_ref().unwrap();
+        if inner.is_empty() {
+            self.warnings.push(Error {
+                line: node.value.line,
+                message: "empty body".to_string(),
+                source: self.source_for(node),
+                global: false,
+            });
+        } else {
+            self.bundle(inner)?;
         }
 
         Ok(())
@@ -3248,6 +3291,85 @@ jsr Movement::update
             "trying to apply empty macro 'MACRO' (line 13)"
         );
         assert_eq!(warnings[3].to_string(), "segment 'CODE' is empty");
+    }
+
+    #[test]
+    fn if_block() {
+        let res = just_bundles(
+            r#"Var = 0
+.if Var == 0
+  lda #1
+.endif
+
+.if Var == 1
+  lda #1
+.elsif Var == 0
+  lda #2
+.elsif Var == 2
+  lda #3
+.endif
+
+.if Var == 1
+  lda #1
+.elsif Var == 2
+  lda #2
+.else
+  lda #3
+.endif
+"#,
+        );
+
+        assert_eq!(res.len(), 3);
+
+        let instrs: Vec<[u8; 2]> = vec![[0xA9, 0x01], [0xA9, 0x02], [0xA9, 0x03]];
+        for i in 0..3 {
+            assert_eq!(res[i].size, 2);
+            assert_eq!(res[i].bytes[0], instrs[i][0]);
+            assert_eq!(res[i].bytes[1], instrs[i][1]);
+        }
+    }
+
+    #[test]
+    fn bad_if() {
+        assert_error(
+            r#"Var = 1
+.if Var == 1
+  lda #1
+    "#,
+            5,
+            false,
+            "expecting a 'control function (.endif)' but there are no more statements",
+        );
+
+        let res = just_assemble(
+            r#"Var = 1
+;;;.if Var1 == 1
+  lda #1
+.elsif Var1 == 2
+  lda #2
+.else
+  lda #3
+.endif
+    "#,
+        );
+
+        assert_eq!(res.errors.len(), 3);
+
+        assert_eq!(res.errors[0].line, 6);
+        assert_eq!(
+            res.errors[0].message,
+            "unexpected 'control function (.elsif)'"
+        );
+        assert_eq!(res.errors[1].line, 8);
+        assert_eq!(
+            res.errors[1].message,
+            "unexpected 'control function (.else)'"
+        );
+        assert_eq!(res.errors[2].line, 10);
+        assert_eq!(
+            res.errors[2].message,
+            "unexpected 'control function (.endif)'"
+        );
     }
 
     // Macros
