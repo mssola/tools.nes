@@ -239,8 +239,18 @@ impl Parser {
             .chars()
             .peekable();
         while let Some(c) = chars.next() {
-            // Check for characters that end an identifier.
-            if c.is_whitespace() || c == ':' || c == '(' || c == ')' || c == '=' {
+            // Check for the end of the identifier. For this, it's easier to
+            // simply list what is allowed and negate it.
+            if !(c.is_ascii_alphanumeric()
+                || c == '.'
+                || c == '#'
+                || c == '$'
+                || c == '%'
+                || c == '@'
+                || c == '_'
+                || c == '\''
+                || c == '"')
+            {
                 // This next match looks scarier than what it actually is. To
                 // sum things up, the ':' character is quite troublesome, since
                 // it can mean three things depending on the context.
@@ -2160,7 +2170,7 @@ mod tests {
         assert!(node.right.is_none());
 
         let literal = &node.left.clone().unwrap();
-        assert_node(literal, NodeType::Literal, line, "#<NUM_SPRITES");
+        assert_node(literal, NodeType::Literal, line, "#");
 
         let op = &literal.left.clone().unwrap();
         assert_eq!(op.node_type, NodeType::Operation(OperationType::LoByte));

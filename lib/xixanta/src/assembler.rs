@@ -2385,15 +2385,24 @@ mod tests {
             r#"
     Variable = 4
     adc Variable
+    adc Variable + 1
+    adc Variable+1
     "#,
         );
 
-        assert_eq!(res.len(), 1);
+        assert_eq!(res.len(), 3);
 
-        let instr = res.first().unwrap();
-        assert_eq!(instr.size, 2);
-        assert_eq!(instr.bytes[0], 0x65);
-        assert_eq!(instr.bytes[1], 0x04);
+        assert_eq!(res[0].size, 2);
+        assert_eq!(res[0].bytes[0], 0x65);
+        assert_eq!(res[0].bytes[1], 0x04);
+
+        assert_eq!(res[1].size, 2);
+        assert_eq!(res[1].bytes[0], 0x65);
+        assert_eq!(res[1].bytes[1], 0x05);
+
+        assert_eq!(res[2].size, 2);
+        assert_eq!(res[2].bytes[0], 0x65);
+        assert_eq!(res[2].bytes[1], 0x05);
     }
 
     #[test]
