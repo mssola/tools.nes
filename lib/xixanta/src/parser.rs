@@ -651,14 +651,19 @@ impl Parser {
             // If this is an .if already, then we can quit, otherwise we must
             // ensure that the next node is an .if/.elsif and continue the loop.
             match node.node_type {
-                NodeType::Control(ControlType::If) => {
+                NodeType::Control(ControlType::If)
+                | NodeType::Control(ControlType::IfDef)
+                | NodeType::Control(ControlType::IfNDef) => {
                     nodes.truncate(nodes.len() - count);
                     return Ok(());
                 }
                 NodeType::Control(ControlType::Elsif) => {
                     if !matches!(
                         next.node_type,
-                        NodeType::Control(ControlType::If) | NodeType::Control(ControlType::Elsif)
+                        NodeType::Control(ControlType::If)
+                            | NodeType::Control(ControlType::IfDef)
+                            | NodeType::Control(ControlType::IfNDef)
+                            | NodeType::Control(ControlType::Elsif)
                     ) {
                         return Err(self.parser_error("expecting an .if statement").into());
                     }
@@ -666,7 +671,10 @@ impl Parser {
                 NodeType::Control(ControlType::Else) => {
                     if !matches!(
                         next.node_type,
-                        NodeType::Control(ControlType::If) | NodeType::Control(ControlType::Elsif)
+                        NodeType::Control(ControlType::If)
+                            | NodeType::Control(ControlType::IfDef)
+                            | NodeType::Control(ControlType::IfNDef)
+                            | NodeType::Control(ControlType::Elsif)
                     ) {
                         return Err(self.parser_error("expecting an .if statement").into());
                     }

@@ -144,6 +144,8 @@ pub enum ControlType {
     ReserveMemory,
     Asciiz,
     If,
+    IfDef,
+    IfNDef,
     Elsif,
     Else,
     EndIf,
@@ -172,6 +174,8 @@ impl fmt::Display for ControlType {
             ControlType::ReserveMemory => write!(f, ".res"),
             ControlType::Asciiz => write!(f, ".asciiz"),
             ControlType::If => write!(f, ".if"),
+            ControlType::IfDef => write!(f, ".ifdef"),
+            ControlType::IfNDef => write!(f, ".ifndef"),
             ControlType::Elsif => write!(f, ".elsif"),
             ControlType::Else => write!(f, ".else"),
             ControlType::EndIf => write!(f, ".endif"),
@@ -192,7 +196,14 @@ impl ControlType {
     pub fn has_body(&self) -> bool {
         matches!(
             self,
-            ControlType::StartMacro | Self::StartProc | Self::StartScope
+            ControlType::StartMacro
+                | Self::StartProc
+                | Self::StartScope
+                | Self::If
+                | Self::Elsif
+                | Self::Else
+                | Self::IfDef
+                | Self::IfNDef
         )
     }
 }
@@ -335,6 +346,8 @@ impl NodeType {
                 Some(NodeType::Control(ControlType::EndRepeat))
             }
             NodeType::Control(ControlType::If) => Some(NodeType::Control(ControlType::EndIf)),
+            NodeType::Control(ControlType::IfDef) => Some(NodeType::Control(ControlType::EndIf)),
+            NodeType::Control(ControlType::IfNDef) => Some(NodeType::Control(ControlType::EndIf)),
             NodeType::Control(ControlType::Elsif) => Some(NodeType::Control(ControlType::EndIf)),
             NodeType::Control(ControlType::Else) => Some(NodeType::Control(ControlType::EndIf)),
             _ => None,
@@ -404,6 +417,8 @@ impl PNode {
             | NodeType::Control(ControlType::StartScope)
             | NodeType::Control(ControlType::StartRepeat)
             | NodeType::Control(ControlType::If)
+            | NodeType::Control(ControlType::IfDef)
+            | NodeType::Control(ControlType::IfNDef)
             | NodeType::Control(ControlType::Elsif)
             | NodeType::Control(ControlType::Else) => NodeBodyType::Starts,
             NodeType::Control(ControlType::EndMacro)

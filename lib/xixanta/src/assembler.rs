@@ -1312,6 +1312,9 @@ impl<'a> Assembler<'a> {
                 Ok(self.incbin(node.args.as_ref().unwrap().first().unwrap())?)
             }
             NodeType::Control(ControlType::If) => self.evaluate_if_block(node),
+            NodeType::Control(ControlType::IfDef) | NodeType::Control(ControlType::IfNDef) => {
+                self.evaluate_ifdef_block(node)
+            }
             NodeType::Control(ControlType::EndIf) => Ok(()),
             NodeType::Control(ControlType::IncludeSource) => Ok(()),
             _ => Err(Error {
@@ -1521,6 +1524,24 @@ impl<'a> Assembler<'a> {
             None => true,
         };
 
+        self.evaluate_if_cond(node, cond)
+    }
+
+    // Evaluate the given `node` by assuming that it's an .ifdef/.ifndef block.
+    fn evaluate_ifdef_block(&mut self, node: &'a PNode) -> Result<(), Vec<Error>> {
+        let defined = self.evaluate_defined(node)?.value();
+        let cond = match &node.node_type {
+            NodeType::Control(ControlType::IfDef) => defined == 1,
+            NodeType::Control(ControlType::IfNDef) => defined == 0,
+            _ => panic!("unexpected .ifdef block"),
+        };
+
+        self.evaluate_if_cond(node, cond)
+    }
+
+    // Evaluate the `node`'s body if `cond` is true, otherwise try to evaluate
+    // the "else" branch for this .if-looking statement.
+    fn evaluate_if_cond(&mut self, node: &'a PNode, cond: bool) -> Result<(), Vec<Error>> {
         // If condition was false, try to go into the .elsif/.else statement. If
         // that doesn't exist, then we are done.
         if !cond {
@@ -3418,6 +3439,34 @@ jsr Movement::update
         assert_eq!(res.len(), 3);
 
         let instrs: Vec<[u8; 2]> = vec![[0xA9, 0x01], [0xA9, 0x00], [0xA9, 0x01]];
+        for i in 0..instrs.len() {
+            assert_eq!(res[i].size, 2);
+            assert_eq!(res[i].bytes[0], instrs[i][0]);
+            assert_eq!(res[i].bytes[1], instrs[i][1]);
+        }
+    }
+
+    #[test]
+    fn ifdef_block() {
+        let res = just_bundles(
+            r#"Var = 0
+.ifdef Var
+  lda #1
+.endif
+
+.ifndef Var
+  lda #1
+.elsif Var == 0
+  lda #2
+.elsif Var == 2
+  lda #3
+.endif
+"#,
+        );
+
+        assert_eq!(res.len(), 2);
+
+        let instrs: Vec<[u8; 2]> = vec![[0xA9, 0x01], [0xA9, 0x02]];
         for i in 0..instrs.len() {
             assert_eq!(res[i].size, 2);
             assert_eq!(res[i].bytes[0], instrs[i][0]);
