@@ -827,6 +827,7 @@ impl<'a> Assembler<'a> {
                 right.negative = true;
                 rval.neg()
             }
+            OperationType::LogicalNot => (rval == 0) as isize,
             OperationType::BitwiseNot => !rval,
             OperationType::LoByte => {
                 let r = (rval as u16).to_le_bytes();
@@ -866,9 +867,17 @@ impl<'a> Assembler<'a> {
                 let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
                 lval / rval
             }
+            OperationType::LogicalAnd => {
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
+                ((lval != 0) && (rval != 0)) as isize
+            }
             OperationType::And => {
                 let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
                 lval & rval
+            }
+            OperationType::LogicalOr => {
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
+                ((lval != 0) || (rval != 0)) as isize
             }
             OperationType::Or => {
                 let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
@@ -903,6 +912,30 @@ impl<'a> Assembler<'a> {
 
                 let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
                 lval >> rval
+            }
+            OperationType::Equal => {
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
+                (lval == rval) as isize
+            }
+            OperationType::NotEqual => {
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
+                (lval != rval) as isize
+            }
+            OperationType::Less => {
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
+                (lval < rval) as isize
+            }
+            OperationType::LessEqual => {
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
+                (lval <= rval) as isize
+            }
+            OperationType::Greater => {
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
+                (lval > rval) as isize
+            }
+            OperationType::GreaterEqual => {
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
+                (lval >= rval) as isize
             }
         };
 
@@ -2387,18 +2420,38 @@ mod tests {
     ldx #(Value / 2)
     ldx #(Value << 2)
     ldx #~Value
+    ldx #(2 && Value)
+    ldx #(2 || Value)
+    ldx #(!Value)
+    ldx #(2 == Value)
+    ldx #(2 != Value)
+    ldx #(2 <> Value)
+    ldx #(2 < Value)
+    ldx #(2 <= Value)
+    ldx #(2 > Value)
+    ldx #(2 >= Value)
     "#,
         );
 
-        assert_eq!(res.len(), 6);
+        assert_eq!(res.len(), 16);
 
         let expected = [
-            [0x06, 0x00],
-            [0xFE, 0xFF],
-            [0xF8, 0xFF],
-            [0x02, 0x00],
-            [0x10, 0x00],
-            [0xFB, 0xFF],
+            [0x06, 0x00], // Add
+            [0xFE, 0xFF], // Subtract
+            [0xF8, 0xFF], // Multiply
+            [0x02, 0x00], // Divide
+            [0x10, 0x00], // Left shift
+            [0xFB, 0xFF], // Bitwise not
+            [0x01, 0x00], // Logical and
+            [0x01, 0x00], // Logical or
+            [0x00, 0x00], // Logical not
+            [0x00, 0x00], // Equal
+            [0x01, 0x00], // Not equal
+            [0x01, 0x00], // Not equal (bis)
+            [0x01, 0x00], // Less
+            [0x01, 0x00], // Less or equal
+            [0x00, 0x00], // Greater
+            [0x00, 0x00], // Greater or equal
         ];
         for (idx, node) in res.iter().enumerate() {
             assert_eq!(node.size, 2);

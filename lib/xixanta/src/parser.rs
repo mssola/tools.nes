@@ -1032,6 +1032,7 @@ impl Parser {
             '~' => Some(NodeType::Operation(OperationType::BitwiseNot)),
             '<' => Some(NodeType::Operation(OperationType::LoByte)),
             '>' => Some(NodeType::Operation(OperationType::HiByte)),
+            '!' => Some(NodeType::Operation(OperationType::LogicalNot)),
             _ => None,
         }
     }
@@ -1050,15 +1051,32 @@ impl Parser {
             '*' => Ok((Some(NodeType::Operation(OperationType::Mul)), 1)),
             '/' => Ok((Some(NodeType::Operation(OperationType::Div)), 1)),
             '^' => Ok((Some(NodeType::Operation(OperationType::Xor)), 1)),
-            '|' => Ok((Some(NodeType::Operation(OperationType::Or)), 1)),
-            '&' => Ok((Some(NodeType::Operation(OperationType::And)), 1)),
+            '|' => match second {
+                '|' => Ok((Some(NodeType::Operation(OperationType::LogicalOr)), 2)),
+                _ => Ok((Some(NodeType::Operation(OperationType::Or)), 1)),
+            },
+            '&' => match second {
+                '&' => Ok((Some(NodeType::Operation(OperationType::LogicalAnd)), 2)),
+                _ => Ok((Some(NodeType::Operation(OperationType::And)), 1)),
+            },
             '<' => match second {
                 '<' => Ok((Some(NodeType::Operation(OperationType::Lshift)), 2)),
-                _ => Err(self.parser_error(format!("unknown operator '<{}'", second).as_str())),
+                '>' => Ok((Some(NodeType::Operation(OperationType::NotEqual)), 2)),
+                '=' => Ok((Some(NodeType::Operation(OperationType::LessEqual)), 2)),
+                _ => Ok((Some(NodeType::Operation(OperationType::Less)), 1)),
             },
             '>' => match second {
                 '>' => Ok((Some(NodeType::Operation(OperationType::Rshift)), 2)),
-                _ => Err(self.parser_error(format!("unknown operator '>{}'", second).as_str())),
+                '=' => Ok((Some(NodeType::Operation(OperationType::GreaterEqual)), 2)),
+                _ => Ok((Some(NodeType::Operation(OperationType::Greater)), 1)),
+            },
+            '=' => match second {
+                '=' => Ok((Some(NodeType::Operation(OperationType::Equal)), 2)),
+                _ => Err(self.parser_error(format!("unknown operator '={}'", second).as_str())),
+            },
+            '!' => match second {
+                '=' => Ok((Some(NodeType::Operation(OperationType::NotEqual)), 2)),
+                _ => Err(self.parser_error(format!("unknown operator '!{}'", second).as_str())),
             },
             _ => Ok((None, 0)),
         }
