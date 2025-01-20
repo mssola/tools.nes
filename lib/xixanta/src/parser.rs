@@ -474,7 +474,7 @@ impl Parser {
             None
         } else {
             self.offset = 0;
-            Some(Box::new(self.parse_expression(right_str)?))
+            Some(Box::new(self.parse_expression(right_str, 0)?))
         };
 
         // If we were in indirect addressing mode, then there's some juggling we
@@ -524,7 +524,7 @@ impl Parser {
                 self.skip_whitespace(right_str);
 
                 // And finally parse the right arm for the global instruction.
-                Some(Box::new(self.parse_expression(right_str)?))
+                Some(Box::new(self.parse_expression(right_str, 0)?))
             };
         }
 
@@ -561,7 +561,7 @@ impl Parser {
             return Err(self.parser_error("incomplete assignment"));
         };
         self.offset = 0;
-        let left = self.parse_expression(rest)?;
+        let left = self.parse_expression(rest, 0)?;
 
         // And push the node.
         self.nodes.last_mut().unwrap().push(PNode {
@@ -581,7 +581,7 @@ impl Parser {
     fn parse_other(&mut self, line: &str, id: PString) -> Result<(), Vec<Error>> {
         // The main job of this function is to parse the expression and
         // afterwards deal with corner cases. So, let's first just parse this.
-        let node = self.parse_expression_with_identifier(id, line)?;
+        let node = self.parse_expression_with_identifier(id, line, 0)?;
 
         // If this was an .include statement we have to handle it now as this is
         // not a regular statement but more like a preprocessor statement which
@@ -877,7 +877,7 @@ impl Parser {
             // Parse the argument, which is trimmed down from the line and hence
             // the offset needs to be reset.
             self.offset = 0;
-            args.push(self.parse_expression(arg)?);
+            args.push(self.parse_expression(arg, 0)?);
 
             // After the parsing is done for the current argument, move both
             // `self.offset` and `self.column` right after the end of the
@@ -918,7 +918,7 @@ impl Parser {
 
         // Parse the expression that we can get from the current offset to the
         // computed end.
-        let expr = self.parse_expression(str);
+        let expr = self.parse_expression(str, 0);
 
         // Set the `offset` and `column` to the end of the line that is shared
         // with the caller.
@@ -999,7 +999,11 @@ impl Parser {
     // Parses the given line by assuming it's an expression under parenthesis.
     // This function then grabs whatever is inside of these parenthesis and
     // parses the expression inside of them.
-    fn extract_parenthesized_expression(&mut self, line: &str) -> Result<PNode, Error> {
+    fn extract_parenthesized_expression(
+        &mut self,
+        line: &str,
+        level: usize,
+    ) -> Result<PNode, Error> {
         // Skip '(' character and whitespace characters in between.
         self.next();
         self.skip_whitespace(line);
@@ -1010,7 +1014,7 @@ impl Parser {
 
         // And return what you can parse from the inner expression.
         self.offset = 0;
-        self.parse_expression(l)
+        self.parse_expression(l, level + 1)
     }
 
     // Consumes the given line by assuming is a string in double quotes.
@@ -1056,7 +1060,12 @@ impl Parser {
 
     // Returns a node for the given `node_type` unary operation, where the given
     // `line` is the whole expression (including the unary operator).
-    fn parse_unary_operation(&mut self, node_type: NodeType, line: &str) -> Result<PNode, Error> {
+    fn parse_unary_operation(
+        &mut self,
+        node_type: NodeType,
+        line: &str,
+        level: usize,
+    ) -> Result<PNode, Error> {
         // Skip operator and whitespaces.
         let start = self.column;
         self.next();
@@ -1065,7 +1074,7 @@ impl Parser {
         // Fetch the right side of the operator.
         let right_str = line.get(self.offset..).unwrap_or_default().trim_end();
         self.offset = 0;
-        let right = self.parse_expression(right_str)?;
+        let right = self.parse_expression(right_str, level + 1)?;
 
         Ok(PNode {
             node_type,
@@ -1087,11 +1096,18 @@ impl Parser {
     // `line` (e.g. the line might not be a full line but rather a limited range
     // and the offset has been set accordingly). Returns a new node for the
     // expression at hand.
-    fn parse_expression(&mut self, line: &str) -> Result<PNode, Error> {
+    fn parse_expression(&mut self, line: &str, level: usize) -> Result<PNode, Error> {
+        // Avoid stack overflows from too many recursive calls for expressions
+        // that are too nested. This mainly requires fuzzy testing to get to
+        // this point, but let's be safe about this anyways.
+        if level >= 16 {
+            return Err(self.parser_error("there are too many nested expressions"));
+        }
+
         // Cases where fetching an "identifier" is really not needed.
         let first = line.chars().next().unwrap_or_default();
         if first == '(' {
-            return self.extract_parenthesized_expression(line);
+            return self.extract_parenthesized_expression(line, level);
         } else if let Some(node_type) = self.get_unary_from_line(line) {
             // Only treat this as a unary operator if the next character is not
             // another unary operator (e.g. disambiguate between '<<' and '<').
@@ -1099,7 +1115,7 @@ impl Parser {
                 .get_unary_from_line(line.get(1..).unwrap_or(""))
                 .is_none()
             {
-                return self.parse_unary_operation(node_type, line);
+                return self.parse_unary_operation(node_type, line, level);
             }
         }
 
@@ -1111,7 +1127,7 @@ impl Parser {
         if nt == NodeType::Label {
             Err(self.parser_error("not expecting a label defined here"))
         } else {
-            self.parse_expression_with_identifier(id, line)
+            self.parse_expression_with_identifier(id, line, level)
         }
     }
 
@@ -1182,6 +1198,7 @@ impl Parser {
         &mut self,
         id: PString,
         line: &str,
+        level: usize,
     ) -> Result<PNode, Error> {
         // Reaching this condition is usually a bad sign, but there is so many
         // ways in which it could go wrong, that an `assert!` wouldn't be fair
@@ -1211,7 +1228,7 @@ impl Parser {
                 }
             }
 
-            self.parse_literal(id, line)
+            self.parse_literal(id, line, level)
         } else if start == '\'' {
             self.parse_char(id)
         } else {
@@ -1245,7 +1262,7 @@ impl Parser {
                 // The right node of the operation will be the parsed expression
                 // of the string we just got right of the operator.
                 self.offset = 0;
-                let right = self.parse_expression(right_str)?;
+                let right = self.parse_expression(right_str, level)?;
 
                 return Ok(PNode {
                     node_type,
@@ -1365,7 +1382,7 @@ impl Parser {
 
     // Returns a NodeType::Literal node with whatever could be parsed
     // considering the given `id` and rest of the `line`.
-    fn parse_literal(&mut self, id: PString, line: &str) -> Result<PNode, Error> {
+    fn parse_literal(&mut self, id: PString, line: &str, level: usize) -> Result<PNode, Error> {
         // Force the column to point to the literal character just in case
         // of expressions like '#.hibyte'. Then skip whitespaces for super
         // ugly statements such as '# 20'. This is ugly but we should permit
@@ -1392,7 +1409,7 @@ impl Parser {
 
         // Just fetch the inner expression and return the literal node.
         self.offset = 0;
-        let left = self.parse_expression(inner)?;
+        let left = self.parse_expression(inner, level + 1)?;
 
         Ok(PNode {
             node_type: NodeType::Literal,
