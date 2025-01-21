@@ -334,10 +334,7 @@ impl Parser {
                                                 line: self.line,
                                                 global: false,
                                                 source: self.sources[self.current_source].clone(),
-                                                message: format!(
-                                                "{} relative label can only have '{}' characters",
-                                                msg, next
-                                            ),
+                                                message: format!("{} relative label can only have '{}' characters", msg, next),
                                             });
                                         }
                                         self.next();
@@ -359,7 +356,7 @@ impl Parser {
                 // The value of the identifier is whatever we have picked up
                 // along the parsing.
                 let value = String::from(line.get(base_offset..self.offset).unwrap_or("").trim());
-                if value == "." {
+                if value == "." || value == "@" || value == "_" {
                     return Err(self.parser_error("empty identifier"));
                 }
 
@@ -392,7 +389,7 @@ impl Parser {
         // The line is merely the identifier (e.g. instruction with implied
         // addressing).
         let id = String::from(line.get(base_offset..).unwrap_or_default().trim());
-        if id == "." {
+        if id == "." || id == "@" || id == "_" {
             return Err(self.parser_error("empty identifier"));
         }
         Ok((
