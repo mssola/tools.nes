@@ -46,6 +46,21 @@ pub struct Parser {
     /// The index of the source that explicitely belongs to this session (and
     /// not subsequent calls done afterwards). Initialized on `parse`.
     current_source: usize,
+
+    /// A stack of "look ahead" levels. That is, a stack of saved
+    /// `look_ahead_index` values that functions that deal with having to look
+    /// ahead (e.g. 'parse_literal') have to push/pop so 'parse_expression' can
+    /// know when to return early.
+    look_ahead_levels: Vec<usize>,
+
+    /// The current level of "looking ahead". That is, some expressions like
+    /// '#$1 >> 2' have to evaluate to '(#$1) >> 2' instead of '#$(1 >> 2)'.
+    /// This can't be known at first glance because literals, for example, don't
+    /// have a termination character (i.e. the parser cannot determine where any
+    /// given literal expression ends). Hence, in this case, the parser has to
+    /// look ahead to know where the literal ends before dealing with further
+    /// operators.
+    look_ahead_index: usize,
 }
 
 impl Parser {
@@ -241,16 +256,7 @@ impl Parser {
         while let Some(c) = chars.next() {
             // Check for the end of the identifier. For this, it's easier to
             // simply list what is allowed and negate it.
-            if !(c.is_ascii_alphanumeric()
-                || c == '.'
-                || c == '#'
-                || c == '$'
-                || c == '%'
-                || c == '@'
-                || c == '_'
-                || c == '\''
-                || c == '"')
-            {
+            if !(c.is_ascii_alphanumeric() || c == '@' || c == '_' || c == '.') {
                 // This next match looks scarier than what it actually is. To
                 // sum things up, the ':' character is quite troublesome, since
                 // it can mean three things depending on the context.
@@ -577,11 +583,22 @@ impl Parser {
     }
 
     // Parse statements which are neither an instruction nor an assignment. This
-    // includes stuff like control statements.
+    // includes stuff like control statements or macro calls.
     fn parse_other(&mut self, line: &str, id: PString) -> Result<(), Vec<Error>> {
-        // The main job of this function is to parse the expression and
-        // afterwards deal with corner cases. So, let's first just parse this.
-        let node = self.parse_expression_with_identifier(id, line, 0)?;
+        // This is either a control statement (i.e. starts with '.') or a macro call.
+        let node = if id.value.starts_with('.') {
+            self.parse_control(id, line, 0)?
+        } else {
+            let args = self.parse_arguments(line, 0)?;
+            PNode {
+                node_type: NodeType::Call,
+                value: id,
+                left: None,
+                right: None,
+                args: if args.is_empty() { None } else { Some(args) },
+                source: self.current_source,
+            }
+        };
 
         // If this was an .include statement we have to handle it now as this is
         // not a regular statement but more like a preprocessor statement which
@@ -833,7 +850,7 @@ impl Parser {
     // Parse any possible arguments for the given `line`. The offset is supposed
     // to be at a point where arguments might appear, either between parens or
     // not.
-    fn parse_arguments(&mut self, line: &str) -> Result<Vec<PNode>, Error> {
+    fn parse_arguments(&mut self, line: &str, level: usize) -> Result<Vec<PNode>, Error> {
         // Skip any possible whitespace before the optional opening paren.
         self.skip_whitespace(line);
 
@@ -877,7 +894,7 @@ impl Parser {
             // Parse the argument, which is trimmed down from the line and hence
             // the offset needs to be reset.
             self.offset = 0;
-            args.push(self.parse_expression(arg, 0)?);
+            args.push(self.parse_expression(arg, level + 1)?);
 
             // After the parsing is done for the current argument, move both
             // `self.offset` and `self.column` right after the end of the
@@ -999,22 +1016,38 @@ impl Parser {
     // Parses the given line by assuming it's an expression under parenthesis.
     // This function then grabs whatever is inside of these parenthesis and
     // parses the expression inside of them.
-    fn extract_parenthesized_expression(
-        &mut self,
-        line: &str,
-        level: usize,
-    ) -> Result<PNode, Error> {
+    fn extract_paren_expression(&mut self, line: &str, level: usize) -> Result<PNode, Error> {
         // Skip '(' character and whitespace characters in between.
         self.next();
         self.skip_whitespace(line);
 
-        // Extract what's inside of the enclosing parenthesis.
+        // Extract the string inside of the enclosing parenthesis.
         let paren = self.find_matching_paren(line, self.offset)?;
         let l = line.get(self.offset..paren).unwrap_or_default();
 
-        // And return what you can parse from the inner expression.
+        // The offset will be reset since we are trimming the string to be
+        // parsed. That being said, keep the previous value so it can be added
+        // afterwards.
+        let prev = self.offset;
         self.offset = 0;
-        self.parse_expression(l, level + 1)
+
+        // Parenthesis reset the index of looking ahead, since ambiguities are
+        // removed by using parenthesis. Hence, store the current index and
+        // reset it.
+        let prev_idx = self.look_ahead_index;
+        self.look_ahead_index = 0;
+
+        // Parse the inner expression and restore the 'look_ahead_index'. As for
+        // the 'offset', the inner expression has moved it, so add the previous
+        // value to it so the value matches the line originally given to this
+        // function.
+        let node = self.parse_expression(l, level + 1)?;
+        self.look_ahead_index = prev_idx;
+        self.offset += prev;
+
+        // Skip ')' character and return the parsed expression.
+        self.next();
+        Ok(node)
     }
 
     // Consumes the given line by assuming is a string in double quotes.
@@ -1066,6 +1099,10 @@ impl Parser {
         line: &str,
         level: usize,
     ) -> Result<PNode, Error> {
+        // Save the symbol before discarding it, since it's going to be used for
+        // the PString's value.
+        let symbol = line.chars().nth(0).unwrap();
+
         // Skip operator and whitespaces.
         let start = self.column;
         self.next();
@@ -1079,7 +1116,7 @@ impl Parser {
         Ok(PNode {
             node_type,
             value: PString {
-                value: String::from(""),
+                value: String::from(symbol) + &right.value.value,
                 line: self.line,
                 start,
                 end: right.value.end,
@@ -1094,20 +1131,105 @@ impl Parser {
     // Parse the expression under `line`. Indeces such as `self.column` and
     // `self.offset` are assumed to be correct at this point for the given
     // `line` (e.g. the line might not be a full line but rather a limited range
-    // and the offset has been set accordingly). Returns a new node for the
-    // expression at hand.
+    // and the offset has been set accordingly). Moreover, this function is
+    // expected to be called rather often in a recursive manner. In order to
+    // avoid stack problems, a `level` of recursivity is passed so we can
+    // prevent too many nested expressions before exhausting the call stack.
+    // Returns a new node for the expression at hand.
     fn parse_expression(&mut self, line: &str, level: usize) -> Result<PNode, Error> {
         // Avoid stack overflows from too many recursive calls for expressions
-        // that are too nested. This mainly requires fuzzy testing to get to
-        // this point, but let's be safe about this anyways.
+        // that are too nested. I have only seen this recursion level on wild
+        // inputs while fuzzy testing, so no real human code should reach this
+        // point. Eitherway, let's be safe.
         if level >= 16 {
             return Err(self.parser_error("there are too many nested expressions"));
         }
 
-        // Cases where fetching an "identifier" is really not needed.
+        // Parse the expression that we have here and now.
+        let expr = self.parse_expression_at_point(line, level)?;
+
+        // Were we looking ahead? If so simply return so the caller can react to
+        // it.
+        let starting_level = *self.look_ahead_levels.last().unwrap_or(&0);
+        if self.look_ahead_index > starting_level {
+            return Ok(expr);
+        }
+
+        // We were not looking ahead at this point. Let's grab the rest of the
+        // string and check if there is a binary operation at hand.
+        self.skip_whitespace(line);
+        let l = line.get(self.offset..).unwrap_or_default().trim_end();
+
+        let (op, op_size) = self.get_operation_from_line(l)?;
+        if let Some(node_type) = op {
+            // The left node of the operator is simply the "identifier" that
+            // came to us.
+            let left = Some(Box::new(expr));
+
+            // Fetch a trimmed version of the string that comes after the
+            // operator.
+            self.offset += op_size;
+            self.column += op_size;
+            self.skip_whitespace(line);
+            let right_str = line.get(self.offset..).unwrap_or_default().trim_end();
+
+            // The right node of the operation will be the parsed expression
+            // of the string we just got right of the operator.
+            let prev = self.offset;
+            self.offset = 0;
+            let right = self.parse_expression(right_str, level + 1)?;
+            self.offset += prev;
+
+            return Ok(PNode {
+                node_type,
+                value: PString {
+                    value: String::from(""),
+                    line: left.as_ref().unwrap().value.line,
+                    start: left.as_ref().unwrap().value.start,
+                    end: right.value.end,
+                },
+                left,
+                right: Some(Box::new(right)),
+                args: None,
+                source: self.current_source,
+            });
+        }
+
+        // There is no binary operation. Hence, just return the expression as
+        // expected.
+        Ok(expr)
+    }
+
+    // Parse the expression from the very start of the given `line` and by
+    // assuming that there are no further expressions to be parsed after the
+    // given one (this is the task for the caller). The `level` of recursivity
+    // is also passed since it might internally call `parse_expression` again.
+    fn parse_expression_at_point(&mut self, line: &str, level: usize) -> Result<PNode, Error> {
         let first = line.chars().next().unwrap_or_default();
+
         if first == '(' {
-            return self.extract_parenthesized_expression(line, level);
+            self.extract_paren_expression(line, level)
+        } else if first == '.' {
+            let (id, _) = self.parse_identifier(line)?;
+            self.parse_control(id, line, level)
+        } else if first == '\'' {
+            self.parse_char(line)
+        } else if first == '$' || first == '#' || first == '%' {
+            // Literal symbols come with a single character, or with two only on
+            // '#$' or '#%'. Other variations are illegal and should be avoided
+            // to prevent crashes.
+            if let Some(next) = line.chars().nth(1) {
+                if next == '#' || (first != '#' && (next == '$' || next == '%')) {
+                    return Err(Error {
+                        line: self.line,
+                        global: false,
+                        source: self.sources[self.current_source].clone(),
+                        message: "bad literal syntax".to_string(),
+                    });
+                }
+            }
+
+            self.parse_literal(line, first, level)
         } else if let Some(node_type) = self.get_unary_from_line(line) {
             // Only treat this as a unary operator if the next character is not
             // another unary operator (e.g. disambiguate between '<<' and '<').
@@ -1115,19 +1237,33 @@ impl Parser {
                 .get_unary_from_line(line.get(1..).unwrap_or(""))
                 .is_none()
             {
-                return self.parse_unary_operation(node_type, line, level);
+                self.parse_unary_operation(node_type, line, level)
+            } else {
+                self.parse_value(line)
             }
+        } else {
+            self.parse_value(line)
         }
+    }
 
-        // Now that we have changed specific cases where detecting an
-        // "identifier" is not really relevant, let's fetch the "identifier" and
-        // parse the expression with that into consideration.
+    // Like `parse_identifier` but it returns an error if a label was found.
+    fn parse_value(&mut self, line: &str) -> Result<PNode, Error> {
         let (id, nt) = self.parse_identifier(line)?;
+        if id.is_empty() {
+            return Err(self.parser_error("invalid identifier"));
+        }
 
         if nt == NodeType::Label {
             Err(self.parser_error("not expecting a label defined here"))
         } else {
-            self.parse_expression_with_identifier(id, line, level)
+            Ok(PNode {
+                node_type: NodeType::Value,
+                value: id,
+                left: None,
+                right: None,
+                args: None,
+                source: self.current_source,
+            })
         }
     }
 
@@ -1190,124 +1326,6 @@ impl Parser {
         }
     }
 
-    // Parse the expression under `line` by taking into consideration that a
-    // part of it has already been parsed and evaluated as the given `id`.
-    // Indeces such as `self.column` and `self.offset` are assumed to be correct
-    // at this point. Returns a new node for the expression at hand.
-    fn parse_expression_with_identifier(
-        &mut self,
-        id: PString,
-        line: &str,
-        level: usize,
-    ) -> Result<PNode, Error> {
-        // Reaching this condition is usually a bad sign, but there is so many
-        // ways in which it could go wrong, that an `assert!` wouldn't be fair
-        // either. Hence, just error out.
-        if id.is_empty() {
-            return Err(self.parser_error("invalid identifier"));
-        }
-
-        // Cache the first character on the next part as it's used in lots of
-        // places.
-        let start = line.chars().nth(0).unwrap_or(' ');
-
-        if id.value.starts_with(".") {
-            self.parse_control(id, line)
-        } else if start == '$' || start == '#' || start == '%' {
-            // Literal symbols come with a single character, or with two only on
-            // '#$' or '#%'. Other variations are illegal and should be avoided
-            // to prevent crashes.
-            if let Some(next) = line.chars().nth(1) {
-                if next == '#' || (start != '#' && (next == '$' || next == '%')) {
-                    return Err(Error {
-                        line: id.line,
-                        global: false,
-                        source: self.sources[self.current_source].clone(),
-                        message: "bad literal syntax".to_string(),
-                    });
-                }
-            }
-
-            self.parse_literal(id, line, level)
-        } else if start == '\'' {
-            self.parse_char(id)
-        } else {
-            // Skip any whitespace after our identifier.
-            self.skip_whitespace(line);
-            let l = line.get(self.offset..).unwrap_or_default().trim_end();
-
-            // The line might start with a binary operator. This would mean that
-            // the "id" is actually just the left node of a binary operation and
-            // that we just need to parse the right arm.
-            let (op, op_size) = self.get_operation_from_line(l)?;
-            if let Some(node_type) = op {
-                // The left node of the operator is simply the "identifier" that
-                // came to us.
-                let left = Some(Box::new(PNode {
-                    node_type: NodeType::Value,
-                    value: id.clone(),
-                    left: None,
-                    right: None,
-                    args: None,
-                    source: self.current_source,
-                }));
-
-                // Fetch a trimmed version of the string that comes after the
-                // operator.
-                self.offset += op_size;
-                self.column += op_size;
-                self.skip_whitespace(line);
-                let right_str = line.get(self.offset..).unwrap_or_default().trim_end();
-
-                // The right node of the operation will be the parsed expression
-                // of the string we just got right of the operator.
-                self.offset = 0;
-                let right = self.parse_expression(right_str, level)?;
-
-                return Ok(PNode {
-                    node_type,
-                    value: PString {
-                        value: String::from(""),
-                        line: id.line,
-                        start: id.start,
-                        end: right.value.end,
-                    },
-                    left,
-                    right: Some(Box::new(right)),
-                    args: None,
-                    source: self.current_source,
-                });
-            }
-
-            // Ok, so the line did not indicate any sort of operation. That
-            // being said, if the rest of the line still contains stuff, it
-            // might as well be a macro call. Try to process it as such.
-            if !l.is_empty() {
-                let args = self.parse_arguments(line)?;
-                return Ok(PNode {
-                    node_type: NodeType::Call,
-                    value: id,
-                    left: None,
-                    right: None,
-                    args: if args.is_empty() { None } else { Some(args) },
-                    source: self.current_source,
-                });
-            }
-
-            // Blindly return the identifier as a PNode. This might be either a
-            // value as-is, or a macro call which we can't make sense at the
-            // moment. Eitherway, let the assembler decide.
-            Ok(PNode {
-                node_type: NodeType::Value,
-                value: id,
-                left: None,
-                right: None,
-                args: None,
-                source: self.current_source,
-            })
-        }
-    }
-
     // Generate a unique identifier with the given prefix.
     fn unique_identifier(&self, prefix: String) -> String {
         prefix + &String::from("-") + &Alphanumeric.sample_string(&mut rand::thread_rng(), 16)
@@ -1315,7 +1333,7 @@ impl Parser {
 
     // Returns a NodeType::Control node with whatever could be parsed
     // considering the given `id` and rest of the `line`.
-    fn parse_control(&mut self, id: PString, line: &str) -> Result<PNode, Error> {
+    fn parse_control(&mut self, id: PString, line: &str, level: usize) -> Result<PNode, Error> {
         let mut left = None;
 
         // Ensure that this is a function that we know of. In the past this was
@@ -1360,7 +1378,7 @@ impl Parser {
             self.skip_whitespace(line);
             vec![self.parse_quoted_string(line)?]
         } else {
-            self.parse_arguments(line)?
+            self.parse_arguments(line, level)?
         };
         if let Some(args_required) = control.required_args {
             if args.len() < args_required.0 || args.len() > args_required.1 {
@@ -1381,25 +1399,19 @@ impl Parser {
     }
 
     // Returns a NodeType::Literal node with whatever could be parsed
-    // considering the given `id` and rest of the `line`.
-    fn parse_literal(&mut self, id: PString, line: &str, level: usize) -> Result<PNode, Error> {
-        // Force the column to point to the literal character just in case
-        // of expressions like '#.hibyte'. Then skip whitespaces for super
-        // ugly statements such as '# 20'. This is ugly but we should permit
-        // it. A later linter can yell at a programmer for this.
-        self.column = id.start;
-        self.offset = 0;
-        self.next();
-
+    // considering the given `line` which starts with the given `symbol`. The
+    // recursivity `level` is also provided as it will call again
+    // `parse_expression`.
+    fn parse_literal(&mut self, line: &str, symbol: char, level: usize) -> Result<PNode, Error> {
         // Enforce that literal symbols and their values are not separated by
         // random white space characters. Other assemblers (e.g. ca65) also take
         // this stance, and through fuzzy testing I realized that not doing this
         // could result in general bad behavior.
-        let inner = line.get(self.offset..).unwrap_or("");
+        let inner = line.get(1..).unwrap_or("");
         if let Some(c) = inner.chars().nth(0) {
             if c.is_whitespace() {
                 return Err(Error {
-                    line: id.line,
+                    line: self.line,
                     global: false,
                     source: self.sources[self.current_source].clone(),
                     message: "numeric literals cannot have white spaces".to_string(),
@@ -1407,13 +1419,33 @@ impl Parser {
             }
         }
 
-        // Just fetch the inner expression and return the literal node.
+        // Preserve the initial column value and advance it to skip the 'symbol'
+        // character. Then we need to reset the offset as usual since the parsed
+        // expression has been trimmed.
+        let start = self.column;
+        self.column += 1;
         self.offset = 0;
+
+        // Parse the inner expression while also pushing/popping the look ahead
+        // status. This is needed as there are no closing characters for a given
+        // literal, so to disambiguate we must look ahead.
+        self.look_ahead_levels.push(self.look_ahead_index);
+        self.look_ahead_index += 1;
         let left = self.parse_expression(inner, level + 1)?;
+        self.look_ahead_index -= 1;
+        self.look_ahead_levels.pop();
+
+        // Add the 'symbol' to the final offset.
+        self.offset += 1;
 
         Ok(PNode {
             node_type: NodeType::Literal,
-            value: id,
+            value: PString {
+                value: String::from(symbol) + &left.value.value,
+                line: self.line,
+                start,
+                end: left.value.end,
+            },
             left: Some(Box::new(left)),
             right: None,
             args: None,
@@ -1424,15 +1456,17 @@ impl Parser {
     // Returns a NodeType::Literal node with the given `id` parsed as a
     // character literal. This literal will have on the left node a value which
     // is the character transformed into a decimal value.
-    fn parse_char(&mut self, id: PString) -> Result<PNode, Error> {
-        if id.value.len() != 3 {
+    fn parse_char(&mut self, line: &str) -> Result<PNode, Error> {
+        if line.len() != 3 {
             return Err(self.parser_error("bad character literal"));
         }
 
-        let mut chars = id.value.chars();
+        // Grab the actual character and the delimiter.
+        let mut chars = line.chars();
         let del = chars.next().unwrap();
         let ch = chars.next().unwrap();
 
+        // Sanity checks.
         if !ch.is_ascii_alphanumeric() {
             return Err(self.parser_error(
                 "only alphanumeric ASCII characters are allowed on character literals",
@@ -1442,16 +1476,25 @@ impl Parser {
             return Err(self.parser_error("bad character literal"));
         }
 
+        // Advance the column passed ahead of this literal (note the the PNode
+        // below will have to take this into account with the start/end values).
+        self.column += 3;
+
         Ok(PNode {
             node_type: NodeType::Literal,
-            value: id.clone(),
+            value: PString {
+                value: format!("'{}'", ch),
+                line: self.line,
+                start: self.column - 3,
+                end: self.column,
+            },
             left: Some(Box::new(PNode {
                 node_type: NodeType::Value,
                 value: PString {
                     value: (ch as u8).to_string(),
-                    line: id.line,
-                    start: id.start + 1,
-                    end: id.end - 1,
+                    line: self.line,
+                    start: self.column - 2,
+                    end: self.column - 1,
                 },
                 left: None,
                 right: None,
@@ -1622,11 +1665,20 @@ mod tests {
 
     #[test]
     fn parse_pound_literal() {
-        for line in vec!["#20", " #20 ", "  #20   ; Comment", "  label:   #20"].into_iter() {
+        for line in vec![
+            "lda #20",
+            " lda  #20 ",
+            "  lda   #20   ; Comment",
+            "  label:   lda #20",
+        ]
+        .into_iter()
+        {
             let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
-            let node = parser.nodes.last().unwrap().last().unwrap();
+            let nodes = parser.nodes();
+
+            let node = nodes.last().unwrap().left.as_ref().unwrap();
             assert_eq!(node.node_type, NodeType::Literal);
             assert!(node.right.is_none());
             assert!(node.args.is_none());
@@ -1640,11 +1692,13 @@ mod tests {
 
     #[test]
     fn parse_compound_literal() {
-        let line = "#$20";
+        let line = "lda #$20";
         let mut parser = Parser::default();
         assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
-        let node = parser.nodes.last().unwrap().last().unwrap();
+        let nodes = parser.nodes();
+
+        let node = nodes.last().unwrap().left.as_ref().unwrap();
         assert_eq!(node.node_type, NodeType::Literal);
         assert!(node.right.is_none());
         assert!(node.args.is_none());
@@ -1666,11 +1720,13 @@ mod tests {
 
     #[test]
     fn parse_variable_in_literal() {
-        let line = "#Variable";
+        let line = "lda #Variable";
         let mut parser = Parser::default();
         assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
-        let node = parser.nodes.last().unwrap().last().unwrap();
+        let nodes = parser.nodes();
+
+        let node = nodes.last().unwrap().left.as_ref().unwrap();
         assert_eq!(node.node_type, NodeType::Literal);
         assert!(node.right.is_none());
         assert!(node.args.is_none());
@@ -1711,7 +1767,7 @@ mod tests {
 
     #[test]
     fn parse_bad_literals() {
-        for line in vec!["#", "#%", "$"].into_iter() {
+        for line in vec!["lda #", "lda #%", "lda $"].into_iter() {
             let mut parser = Parser::default();
             let err = parser
                 .parse(line.as_bytes(), SourceInfo::default())
@@ -1720,7 +1776,7 @@ mod tests {
             assert_eq!(err.first().unwrap().message, "invalid identifier");
         }
 
-        for line in vec!["$ 2", "#% 2", "# 2"].into_iter() {
+        for line in vec!["lda $ 2", "lda #% 2", "lda # 2"].into_iter() {
             let mut parser = Parser::default();
             let err = parser
                 .parse(line.as_bytes(), SourceInfo::default())
@@ -1732,7 +1788,16 @@ mod tests {
             );
         }
 
-        for line in vec!["##2", "#$$2", "$$2", "#$#$2", "#$#2", "###"].into_iter() {
+        for line in vec![
+            "lda ##2",
+            "lda #$$2",
+            "lda $$2",
+            "lda #$#$2",
+            "lda #$#2",
+            "lda ###",
+        ]
+        .into_iter()
+        {
             let mut parser = Parser::default();
             let err = parser
                 .parse(line.as_bytes(), SourceInfo::default())
@@ -2162,7 +2227,7 @@ mod tests {
         assert!(node.right.is_none());
 
         let literal = &node.left.clone().unwrap();
-        assert_node(literal, NodeType::Literal, line, "#");
+        assert_eq!(literal.node_type, NodeType::Literal);
 
         let op = &literal.left.clone().unwrap();
         assert_eq!(op.node_type, NodeType::Operation(OperationType::Mul));
@@ -2173,6 +2238,44 @@ mod tests {
             line,
             "NUM_SPRITES",
         );
+    }
+
+    #[test]
+    fn nested_expression_test() {
+        let line = "lda #$80 >> ((BCD_BITS - 1) & 3)";
+        let mut parser = Parser::default();
+        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+
+        let instr = parser.nodes.last().unwrap().last().unwrap();
+        assert_node(instr, NodeType::Instruction, line, "lda");
+        assert!(instr.args.is_none());
+        assert!(instr.right.is_none());
+
+        // Shift object
+        let left = instr.left.as_ref().unwrap();
+        assert_eq!(left.node_type, NodeType::Operation(OperationType::Rshift));
+
+        // Left arm of the shift.
+        assert_node(left.left.as_ref().unwrap(), NodeType::Literal, line, "#$80");
+
+        // Right arm of the shift: bitwise and.
+        let right = left.right.as_ref().unwrap();
+        assert_eq!(right.node_type, NodeType::Operation(OperationType::And));
+
+        // Left arm of the bitwise and.
+        let left_and = right.left.as_ref().unwrap();
+        assert_eq!(left_and.node_type, NodeType::Operation(OperationType::Sub));
+        assert_node(
+            left_and.left.as_ref().unwrap(),
+            NodeType::Value,
+            line,
+            "BCD_BITS",
+        );
+        assert_node(left_and.right.as_ref().unwrap(), NodeType::Value, line, "1");
+
+        // Right arm of the bitwise and.
+        let right_and = right.right.as_ref().unwrap();
+        assert_node(right_and, NodeType::Value, line, "3");
     }
 
     #[test]
@@ -2187,7 +2290,7 @@ mod tests {
         assert!(node.right.is_none());
 
         let literal = &node.left.clone().unwrap();
-        assert_node(literal, NodeType::Literal, line, "#");
+        assert_node(literal, NodeType::Literal, line, "#<NUM_SPRITES");
 
         let op = &literal.left.clone().unwrap();
         assert_eq!(op.node_type, NodeType::Operation(OperationType::LoByte));
@@ -2450,9 +2553,9 @@ mod tests {
     #[test]
     fn parse_control_wrong_close() {
         let code = r#".scope Scope
-.macro Macro
-.endscope
-.endmacro"#;
+    .macro Macro
+    .endscope
+    .endmacro"#;
         let mut parser = Parser::default();
         let err = parser
             .parse(code.as_bytes(), SourceInfo::default())
@@ -2784,7 +2887,7 @@ inc $20
             assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
-            assert_node(node, NodeType::Value, line, "MACRO_CALL");
+            assert_node(node, NodeType::Call, line, "MACRO_CALL");
             assert!(node.left.is_none());
             assert!(node.right.is_none());
             assert!(node.args.is_none());

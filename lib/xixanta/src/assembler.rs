@@ -3943,7 +3943,7 @@ lda #Variable
     .segment "THREE"
 
     .segment "TWO"
-    nop'
+    nop
     "#,
             2,
             false,
