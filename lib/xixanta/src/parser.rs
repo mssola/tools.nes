@@ -159,7 +159,7 @@ impl Parser {
         // followed by more code. Hence, push it first, then fetch the next
         // identifier and finally fall through.
         self.offset = 0;
-        let (mut id, mut nt) = self.parse_identifier(l)?;
+        let (mut id, mut nt) = self.parse_identifier(l, true)?;
         if nt == NodeType::Label {
             self.nodes.last_mut().unwrap().push(PNode {
                 node_type: nt,
@@ -181,7 +181,7 @@ impl Parser {
             // The label is followed by a statement. Let's parse the identifier
             // for it and fall through.
             self.offset = 0;
-            (id, nt) = self.parse_identifier(l)?;
+            (id, nt) = self.parse_identifier(l, true)?;
             if nt == NodeType::Label {
                 return Err(self
                     .parser_error("cannot have multiple labels at the same location")
@@ -232,15 +232,16 @@ impl Parser {
         }
     }
 
-    // Given a `line` parses an identifier if possible. This identifier is not
-    // necessary an "identifier" per se, but rather a first identifier-like
-    // string which can be used to determine which kind of expression we are
-    // dealing with. Returns a PString representing this identifier on success,
+    // Given a `line` parses an identifier if possible. This identifier can
+    // optionally allow a '.' character at the first position if `dot` is set to
+    // true. This is usually a good idea if we can have a label or a control
+    // statement. Returns a PString representing this identifier on success,
     // plus a hint on whether the identifier belongs to a label or not.
-    fn parse_identifier(&mut self, line: &str) -> Result<(PString, NodeType), Error> {
+    fn parse_identifier(&mut self, line: &str, dot: bool) -> Result<(PString, NodeType), Error> {
         let start = self.column;
         let base_offset = self.offset;
         let mut nt = NodeType::Value;
+        let mut first_seen = false;
 
         // For the general case we just need to iterate until a whitespace
         // character or an inline comment is found. Then our PString object is
@@ -254,6 +255,12 @@ impl Parser {
             .chars()
             .peekable();
         while let Some(c) = chars.next() {
+            // Error out if '.' is not allowed from now on.
+            if c == '.' && (!dot || first_seen) {
+                return Err(self.parser_error("cannot have a '.' in this context"));
+            }
+            first_seen = true;
+
             // Check for the end of the identifier. For this, it's easier to
             // simply list what is allowed and negate it.
             if !(c.is_ascii_alphanumeric() || c == '@' || c == '_' || c == '.') {
@@ -352,6 +359,9 @@ impl Parser {
                 // The value of the identifier is whatever we have picked up
                 // along the parsing.
                 let value = String::from(line.get(base_offset..self.offset).unwrap_or("").trim());
+                if value == "." {
+                    return Err(self.parser_error("empty identifier"));
+                }
 
                 // The end of the identifier range has to be shortened for
                 // regular labels because we want to ignore to extra ':'
@@ -382,6 +392,9 @@ impl Parser {
         // The line is merely the identifier (e.g. instruction with implied
         // addressing).
         let id = String::from(line.get(base_offset..).unwrap_or_default().trim());
+        if id == "." {
+            return Err(self.parser_error("empty identifier"));
+        }
         Ok((
             PString {
                 value: id,
@@ -550,11 +563,12 @@ impl Parser {
     // Parse the given `line` as an assignment statement which declares a
     // variable at `id`.
     fn parse_assignment(&mut self, line: &str, id: PString) -> Result<(), Error> {
-        // Notice that `parse_identifier` pretty much swallows any kind of
-        // identifier without doing any sanity checks. Now it's the time to do
-        // so.
+        // Ensure that the parsed identifier is a valid one on assignments.
         if let Err(msg) = id.is_valid_identifier(false) {
             return Err(self.parser_error(&msg));
+        }
+        if id.value.contains('.') {
+            return Err(self.parser_error("'.' characters are not allowed for variables"));
         }
 
         // Skip the '=' sign and any possible whitespaces.
@@ -1210,7 +1224,7 @@ impl Parser {
         if first == '(' {
             self.extract_paren_expression(line, level)
         } else if first == '.' {
-            let (id, _) = self.parse_identifier(line)?;
+            let (id, _) = self.parse_identifier(line, true)?;
             self.parse_control(id, line, level)
         } else if first == '\'' {
             self.parse_char(line)
@@ -1248,7 +1262,7 @@ impl Parser {
 
     // Like `parse_identifier` but it returns an error if a label was found.
     fn parse_value(&mut self, line: &str) -> Result<PNode, Error> {
-        let (id, nt) = self.parse_identifier(line)?;
+        let (id, nt) = self.parse_identifier(line, true)?;
         if id.is_empty() {
             return Err(self.parser_error("invalid identifier"));
         }
@@ -1342,7 +1356,14 @@ impl Parser {
         let control = match CONTROL_FUNCTIONS.get(&id.value.to_lowercase()) {
             Some(control) => control,
             None => {
-                return Err(self.parser_error(format!("unknown function '{}'", id.value).as_str()))
+                return Ok(PNode {
+                    node_type: NodeType::Value,
+                    value: id,
+                    left: None,
+                    right: None,
+                    args: None,
+                    source: self.current_source,
+                });
             }
         };
 
@@ -1361,7 +1382,7 @@ impl Parser {
                         end: id.end,
                     }
                 } else {
-                    self.parse_identifier(line)?.0
+                    self.parse_identifier(line, false)?.0
                 },
                 left: None,
                 right: None,
@@ -1656,6 +1677,25 @@ mod tests {
         assert_eq!(nodes.first().unwrap().value.value, "label");
         assert_eq!(nodes.first().unwrap().value.start, 0);
         assert_eq!(nodes.first().unwrap().value.end, 5);
+
+        // Instruction
+        assert_node(nodes.last().unwrap(), NodeType::Instruction, line, "dex")
+    }
+
+    #[test]
+    fn dot_label() {
+        let line = ".L1: dex";
+
+        let mut parser = Parser::default();
+        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+
+        let nodes = parser.nodes();
+        assert_eq!(nodes.len(), 2);
+
+        // Label.
+        assert_eq!(nodes.first().unwrap().value.value, ".L1");
+        assert_eq!(nodes.first().unwrap().value.start, 0);
+        assert_eq!(nodes.first().unwrap().value.end, 3);
 
         // Instruction
         assert_node(nodes.last().unwrap(), NodeType::Instruction, line, "dex")
@@ -2192,6 +2232,15 @@ mod tests {
         assert_eq!(
             err.first().unwrap().message,
             "cannot use names which are valid hexadecimal values such as 'abc'"
+        );
+
+        parser = Parser::default();
+        err = parser
+            .parse(".var = 1".as_bytes(), SourceInfo::default())
+            .unwrap_err();
+        assert_eq!(
+            err.first().unwrap().message,
+            "'.' characters are not allowed for variables"
         );
 
         parser = Parser::default();
@@ -2860,16 +2909,15 @@ inc $20
     #[test]
     fn parse_unknown_control() {
         let mut parser = Parser::default();
-        let mut err = parser
+        let err = parser
             .parse(".".as_bytes(), SourceInfo::default())
             .unwrap_err();
-        assert_eq!(err.first().unwrap().message, "unknown function '.'");
+        assert_eq!(err.first().unwrap().message, "empty identifier");
 
         parser = Parser::default();
-        err = parser
+        assert!(parser
             .parse(".whatever".as_bytes(), SourceInfo::default())
-            .unwrap_err();
-        assert_eq!(err.first().unwrap().message, "unknown function '.whatever'");
+            .is_ok());
     }
 
     // Macro calls.
