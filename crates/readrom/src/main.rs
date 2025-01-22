@@ -1,7 +1,64 @@
-use clap::{arg, Arg, Command};
 use header::{Header, Kind};
 use std::fs::File;
 use std::io::{ErrorKind, Read};
+
+/// Version for this program.
+const VERSION: &str = "0.1.0";
+
+#[derive(Default)]
+struct Args {
+    file: String,
+    header: bool,
+}
+
+fn print_help() {
+    println!("Display information about NES/Famicom ROM files.\n");
+    println!("usage: readrom [OPTIONS] <FILE>\n");
+    println!("Options:");
+    println!("  -H, --header\tJust print the ROM header and quit.");
+    std::process::exit(0);
+}
+
+// Parse the arguments given to the program and returns an Args object with the
+// given information.
+fn parse_arguments() -> Args {
+    let mut args = std::env::args();
+    let mut res = Args::default();
+
+    // Skip command name.
+    args.next();
+
+    for arg in args {
+        match arg.as_str() {
+            "-h" | "--help" => print_help(),
+            "-H" | "--header" => {
+                if res.header {
+                    die("do not specify the '-H/--header' flag twice".to_string());
+                }
+                res.header = true;
+            }
+            "-v" | "--version" => {
+                println!("readrom {}", VERSION);
+                std::process::exit(0);
+            }
+            _ => {
+                if arg.starts_with('-') {
+                    die(format!("don't know how to handle the '{}' flag", arg));
+                }
+                if !res.file.is_empty() {
+                    die("cannot have multiple source files".to_string());
+                }
+                res.file = arg;
+            }
+        }
+    }
+
+    if res.file.is_empty() {
+        die("you need to specify the file to be read".to_string());
+    }
+
+    res
+}
 
 fn print_header(header: &Header) {
     println!("Header:");
@@ -47,22 +104,10 @@ fn die(message: String) {
 }
 
 fn main() {
-    let args = Command::new("readrom")
-        .version("0.1.0")
-        .about("Display information about NES/Famicom ROM files.")
-        .arg(Arg::new("FILE").required(true).help("ROM file to be read"))
-        .arg(arg!(-H --header "Just print the ROM header and quit"))
-        .get_matches();
-    let file = match args.get_one::<String>("FILE") {
-        Some(file) => file,
-        None => {
-            die("you have to provide a file".to_string());
-            return;
-        }
-    };
+    let args = parse_arguments();
 
-    let Ok(mut input) = File::open(file) else {
-        die(format!("failed to open the given file '{}'", &file));
+    let Ok(mut input) = File::open(&args.file) else {
+        die(format!("failed to open the given file '{}'", &args.file));
         return;
     };
 
@@ -85,7 +130,7 @@ fn main() {
     };
     print_header(&header);
 
-    if *args.get_one::<bool>("header").unwrap() {
+    if args.header {
         std::process::exit(0);
     }
 

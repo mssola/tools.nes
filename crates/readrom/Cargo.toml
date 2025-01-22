@@ -7,5 +7,4 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
-clap = "^4"
 header.workspace = true

@@ -1,37 +1,104 @@
-use clap::Parser as ClapParser;
 use std::fs::File;
 use std::io::{self, Write};
 use std::path::Path;
 use xixanta::assembler::assemble;
 use xixanta::SourceInfo;
 
-/// Assembler for the 6502 microprocessor that targets the NES/Famicom.
-#[derive(ClapParser, Debug)]
-#[command(version, about, long_about = None)]
+/// Version for this program.
+const VERSION: &str = "0.1.0";
+
+#[derive(Default)]
 struct Args {
-    /// Assemble the instructions given on this file.
     file: String,
-
-    /// Linker configuration to be used. This configuration can be an identifier
-    /// for the configurations already baked in into this application, or it can
-    /// be a file path to a configuration of your choosing. See the
-    /// documentation for more information on this format. Defaults to 'nrom'.
-    #[arg(short = 'c', long)]
     config: Option<String>,
-
-    /// Place the output into the given <OUT> file. Ignored if the `stdout` flag
-    /// is provided. Defaults to `out.nes`.
-    #[arg(short = 'o', long)]
     out: Option<String>,
-
-    /// Treat warnings as errors.
-    #[arg(short = 'W', value_name = "Error")]
-    w: Option<String>,
-
-    /// Spit the output into the standard output instead. This ignores any given
-    /// `out` flag. Disabled by default.
-    #[arg(long, default_value_t = false)]
+    werror: bool,
     stdout: bool,
+}
+
+// Print the help message and quit.
+fn print_help() {
+    println!("Assembler for the 6502 microprocessor that targets the NES/Famicom.\n");
+    println!("usage: nasm [OPTIONS] <FILE>\n");
+    println!("Options:");
+    println!("  -c, --config <FILE>\tLinker configuration to be used, whether an identifier or a file path.");
+    println!("  -o, --out <FILE>\tFile path where the output should be located after execution.");
+    println!("  --stdout\t\tPrint the output binary to the standard output.");
+    println!("  -Werror\t\tWarnings should be treated as errors.");
+    std::process::exit(0);
+}
+
+// Parse the arguments given to the program and returns an Args object with the
+// given information.
+fn parse_arguments() -> Args {
+    let mut args = std::env::args();
+    let mut res = Args::default();
+
+    // Skip command name.
+    args.next();
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "-c" | "--config" => match res.config {
+                Some(_) => die("only specify the '-C/--config' flag once".to_string()),
+                None => match args.next() {
+                    Some(v) => res.config = Some(v),
+                    None => {
+                        die("you need to provide a value for the '-C/--config' flag".to_string())
+                    }
+                },
+            },
+            "-h" | "--help" => print_help(),
+            "-o" | "--out" => match res.out {
+                Some(_) => die("only specify the '-o/--out' flag once".to_string()),
+                None => {
+                    if res.stdout {
+                        die("you cannot mix '-o/--out' and '--stdout'".to_string());
+                    }
+                    match args.next() {
+                        Some(v) => res.out = Some(v),
+                        None => {
+                            die("you need to provide a value for the '-o/--out' flag".to_string())
+                        }
+                    }
+                }
+            },
+            "--stdout" => match res.out {
+                Some(_) => die("you cannot mix '-o/--out' and '--stdout'".to_string()),
+                None => {
+                    if res.stdout {
+                        die("only specify the '--stdout' flag once".to_string());
+                    }
+                    res.stdout = true;
+                }
+            },
+            "-v" | "--version" => {
+                println!("nasm {}", VERSION);
+                std::process::exit(0);
+            }
+            "-Werror" => {
+                if res.werror {
+                    die("only specify the '-Werror' flag once".to_string());
+                }
+                res.werror = true;
+            }
+            _ => {
+                if arg.starts_with('-') {
+                    die(format!("don't know how to handle the '{}' flag", arg));
+                }
+                if !res.file.is_empty() {
+                    die("cannot have multiple source files".to_string());
+                }
+                res.file = arg;
+            }
+        }
+    }
+
+    if res.file.is_empty() {
+        die("you need to specify a source file".to_string());
+    }
+
+    res
 }
 
 // Print the given `message` and exit(1).
@@ -41,7 +108,7 @@ fn die(message: String) {
 }
 
 fn main() {
-    let args = Args::parse();
+    let args = parse_arguments();
 
     // Select the input stream and build the source object.
     let path = Path::new(&args.file);
@@ -74,19 +141,6 @@ fn main() {
         }
     };
 
-    // Check if warnings have to be treated as errors.
-    let warn_as_errors = match args.w {
-        Some(value) => {
-            if value.to_lowercase() != "error" {
-                die("the '-W' flag can only be used as '-Werror'".to_string());
-                return;
-            } else {
-                true
-            }
-        }
-        None => false,
-    };
-
     // And assemble.
     let mut error_count = 0;
     let res = assemble(
@@ -98,7 +152,7 @@ fn main() {
     // Print warnings and errors first, while also computing the amount of them
     // that exists.
     for warning in res.warnings {
-        if warn_as_errors {
+        if args.werror {
             eprintln!("error: {}", warning);
             error_count += 1;
         } else {

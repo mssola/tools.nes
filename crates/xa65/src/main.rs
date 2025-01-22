@@ -1,28 +1,99 @@
-use clap::Parser as ClapParser;
 use std::path::PathBuf;
 use std::process::Command;
 
-/// Bridge between 'nasm' and 'ca65'.
-#[derive(ClapParser, Debug)]
-#[command(version, about, long_about = None)]
+/// Version for this program.
+const VERSION: &str = "0.1.0";
+
+// Arguments for this application. See `parse_arguments` on how it's filled.
+#[derive(Default)]
 struct Args {
-    /// Assemble the instructions given on this file.
     file: String,
-
-    /// Linker configuration to be used. This configuration can be an identifier
-    /// for the configurations already baked in into this application, or it can
-    /// be a file path to a configuration of your choosing. See the
-    /// documentation for more information on this format. Defaults to 'nrom'.
-    #[arg(short = 'C', long = "config")]
     config: Option<String>,
-
-    /// Used for compatibility with 'ca65'.
-    #[arg(long)]
     target: Option<String>,
-
-    /// Place the output into the given <OUT> file.
-    #[arg(short = 'o', long)]
     out: String,
+}
+
+// Print the help message and quit.
+fn print_help() {
+    println!("Bridge between 'nasm' and 'ca65'.\n");
+    println!("usage: xa65 [OPTIONS] <FILE>\n");
+    println!("Options:");
+    println!("  -C, --config <FILE>\tLinker configuration to be used, whether an identifier or a file path.");
+    println!("  -o, --out <FILE>\tFile path where the output should be located after execution.");
+    println!("  --target nes\t\tUsed for compatibility with 'ca65'.");
+    std::process::exit(0);
+}
+
+// Parse the arguments given to the program and returns an Args object with the
+// given information.
+fn parse_arguments() -> Args {
+    let mut args = std::env::args();
+    let mut res = Args::default();
+
+    // Skip command name.
+    args.next();
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "-C" | "--config" => match res.config {
+                Some(_) => die("only specify the '-C/--config' flag once".to_string()),
+                None => match args.next() {
+                    Some(v) => res.config = Some(v),
+                    None => {
+                        die("you need to provide a value for the '-C/--config' flag".to_string())
+                    }
+                },
+            },
+            "-h" | "--help" => print_help(),
+            "-o" | "--out" => {
+                if res.out.is_empty() {
+                    match args.next() {
+                        Some(v) => res.out = v,
+                        None => {
+                            die("you need to provide a value for the '-o/--out' flag".to_string())
+                        }
+                    }
+                } else {
+                    die("only specify the '-o/--out' flag once".to_string());
+                }
+            }
+            "--target" => match res.target {
+                Some(_) => die("only specify the '--target' flag once".to_string()),
+                None => match args.next() {
+                    Some(v) => {
+                        let real = v.to_lowercase();
+                        if real != "nes" {
+                            die("the '--target' flag only accepts 'nes' as a value".to_string());
+                        }
+                        res.target = Some(real)
+                    }
+                    None => die("you need to provide a value for the '--target' flag".to_string()),
+                },
+            },
+            "-v" | "--version" => {
+                println!("xa65 {}", VERSION);
+                std::process::exit(0);
+            }
+            _ => {
+                if arg.starts_with('-') {
+                    die(format!("don't know how to handle the '{}' flag", arg));
+                }
+                if !res.file.is_empty() {
+                    die("cannot have multiple source files".to_string());
+                }
+                res.file = arg;
+            }
+        }
+    }
+
+    if res.file.is_empty() {
+        die("you need to specify a source file".to_string());
+    }
+    if res.out.is_empty() {
+        die("you need to specify an output file with '-o/--output'".to_string());
+    }
+
+    res
 }
 
 // Print the given `message` and exit(1).
@@ -80,18 +151,9 @@ fn main() {
             return;
         }
     };
-    let args = Args::parse();
 
-    // Sanity check on the target flag from 'ca65'.
-    if let Some(target) = args.target {
-        if target != "nes" {
-            die(format!(
-                "the target has to be 'nes', but '{}' was provided instead",
-                target
-            ));
-            return;
-        }
-    }
+    // Parse arguments.
+    let args = parse_arguments();
 
     // Generate a temporary directory in which both binary files will be placed
     // as an intermediate step.

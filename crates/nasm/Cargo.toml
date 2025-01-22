@@ -5,5 +5,4 @@ edition = "2021"
 authors = ["Miquel Sabaté Solà <mikisabate@gmail.com>"]
 
 [dependencies]
-clap = { version = "^4", features = ["derive"] }
 xixanta.workspace = true
