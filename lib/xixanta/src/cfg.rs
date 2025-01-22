@@ -18,6 +18,7 @@ struct RawMapping {
     fill: Option<String>,
     ignore: bool,
     line_num: usize,
+    segments: String,
 }
 
 // Fetch a line of values in the format of "Name: key1=value1, key2=value2,
@@ -87,6 +88,7 @@ fn fetch_memory_definition(line: &str, line_num: usize) -> Result<RawMapping, St
         fill: None,
         ignore: false,
         line_num,
+        segments: String::from(""),
     };
 
     for value in values.split(',') {
@@ -106,6 +108,7 @@ fn fetch_memory_definition(line: &str, line_num: usize) -> Result<RawMapping, St
                     "fillval" => res.fill = Some(val.to_string()),
                     "start" => res.start = val.to_string(),
                     "size" => res.size = val.to_string(),
+                    "segments" => res.segments = val.to_string(),
                     _ => {}
                 }
             }
@@ -150,8 +153,8 @@ fn find_value(key: &str, values: &str, line_num: usize) -> Result<String, String
     ))
 }
 
-// Parse the given blob of `text` as a .cfg file as it's expected by ld65:
-// https://www.cc65.org/doc/ld65-5.html.
+/// Parse the given blob of `text` as a .cfg file as it's expected by ld65:
+/// https://www.cc65.org/doc/ld65-5.html.
 pub fn parse_cfg_file(text: &str) -> Result<Vec<Mapping>, String> {
     let mut values = vec![];
     let mut raw_segments = vec![];
@@ -265,7 +268,7 @@ pub fn parse_cfg_file(text: &str) -> Result<Vec<Mapping>, String> {
         //      realized it's CHR ROM.
         if header {
             header = false;
-        } else if start == 0x00 {
+        } else if start == 0x0000 {
             section_type = SectionType::ChrRom;
         } else if section_type != SectionType::ChrRom {
             section_type = SectionType::PrgRom;
@@ -292,6 +295,83 @@ pub fn parse_cfg_file(text: &str) -> Result<Vec<Mapping>, String> {
     }
 
     Ok(res)
+}
+
+fn get_segments_from(value: &str, line: usize) -> Result<Vec<Segment>, String> {
+    if !value.starts_with('[') || !value.ends_with(']') {
+        return Err(format!("should be enclosed inside of [] (line {})", line));
+    }
+
+    let mut res = vec![];
+    for name in value[1..value.len() - 1].split(' ') {
+        let trimmed_name = name.trim();
+        res.push(Segment::from(trimmed_name));
+    }
+
+    Ok(res)
+}
+
+/// Parse the given blob of `text` as a simplified .cfg file.
+pub fn parse_nasm_cfg_file(text: &str) -> Result<Vec<Mapping>, String> {
+    let mut mappings = vec![];
+    let symbols = HashMap::new();
+    let mut header = true;
+    let mut section_type = SectionType::Header;
+
+    for (idx, line) in text.lines().enumerate() {
+        // Skip empty lines and comments.
+        let l = line.trim();
+        if l.is_empty() || l.starts_with('#') {
+            continue;
+        }
+
+        let real_line = match l.find(';') {
+            Some(idx) => &l[0..idx],
+            None => {
+                return Err(format!(
+                    "line does not end with a semicolon (line {})",
+                    idx + 1
+                ))
+            }
+        };
+
+        // Parse the mapping definition.
+        let mapping = fetch_memory_definition(real_line, idx + 1)?;
+
+        // Parse hexadecimal values from start, size and fill.
+        let start = get_hex_from(&mapping.start, mapping.line_num, &symbols)? as u16;
+        let size = get_hex_from(&mapping.size, mapping.line_num, &symbols)?;
+        let fill = match &mapping.fill {
+            Some(f) => Some(get_hex_from(f, mapping.line_num, &symbols)? as u8),
+            None => None,
+        };
+
+        // As with 'parse_cfg_file', the section type:
+        //   1. If it's the first mapping we see, then it's the header.
+        //   2. If after the header it claims to start at 0x00, then from now on
+        //      it's CHR ROM.
+        //   3. Otherwise it's PRG ROM unless in a previous iteration we
+        //      realized it's CHR ROM.
+        if header {
+            header = false;
+        } else if start == 0x0000 {
+            section_type = SectionType::ChrRom;
+        } else if section_type != SectionType::ChrRom {
+            section_type = SectionType::PrgRom;
+        };
+
+        mappings.push(Mapping {
+            name: mapping.name,
+            offset: 0,
+            start,
+            size,
+            fill,
+            section_type: section_type.clone(),
+            segments: get_segments_from(&mapping.segments, idx + 1)?,
+        });
+    }
+
+    Ok(mappings)
 }
 
 #[cfg(test)]

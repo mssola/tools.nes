@@ -1,11 +1,10 @@
-use crate::cfg::parse_cfg_file;
+use crate::cfg::{parse_cfg_file, parse_nasm_cfg_file};
 use crate::object::Bundle;
-use toml::{Table, Value};
 
-const EMPTY_CONFIG: &str = include_str!("mappings/empty.toml");
-const NROM_CONFIG: &str = include_str!("mappings/nrom.toml");
-const NROM65_CONFIG: &str = include_str!("mappings/nrom65.toml");
-const UXROM_CONFIG: &str = include_str!("mappings/unrom.toml");
+const EMPTY_CONFIG: &str = include_str!("mappings/empty.cfg");
+const NROM_CONFIG: &str = include_str!("mappings/nrom.cfg");
+const NROM65_CONFIG: &str = include_str!("mappings/nrom65.cfg");
+const UXROM_CONFIG: &str = include_str!("mappings/unrom.cfg");
 
 /// The type of section that a Mapping represents.
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
@@ -104,12 +103,11 @@ pub fn get_mapping_configuration(name: &str) -> Result<Vec<Mapping>, String> {
     let configuration = if std::fs::exists(name).unwrap_or(false) {
         match std::fs::read_to_string(name) {
             Ok(contents) => {
-                // If this is a file, then it might not be a TOML one, but a
-                // .cfg as used by cc65.
-                if name.ends_with(".cfg") {
-                    parse_cfg_file(contents.as_str())?
+                // Call the right parse function.
+                if contents.starts_with("#!nasmcfg") {
+                    parse_nasm_cfg_file(contents.as_str())?
                 } else {
-                    load_configuration_for(contents.as_str())?
+                    parse_cfg_file(contents.as_str())?
                 }
             }
             Err(_) => return Err(format!("could not read '{}'", name)),
@@ -122,137 +120,12 @@ pub fn get_mapping_configuration(name: &str) -> Result<Vec<Mapping>, String> {
             "uxrom" | "unrom" => UXROM_CONFIG,
             _ => return Err("mapper configuration is not known".to_string()),
         };
-        load_configuration_for(text)?
+        parse_nasm_cfg_file(text)?
     };
 
     validate_configuration(&configuration)?;
 
     Ok(configuration)
-}
-
-// Returns the integer value for the mandatory integer contained in `value` that
-// is named `prop_name` under the `section_name` section. This integer has to be
-// lesser or equal to the `max` value.
-fn get_integer(
-    section_name: &String,
-    prop_name: &str,
-    value: Option<&Value>,
-    max: usize,
-) -> Result<usize, String> {
-    if value.is_none() {
-        return Err(format!(
-            "you have to define a value for '{}' in '{}'",
-            section_name, prop_name
-        ));
-    }
-    if !value.unwrap().is_integer() {
-        return Err(format!(
-            "value for '{}' in '{}' has to be an integer value",
-            section_name, prop_name
-        ));
-    }
-
-    let val = value.unwrap().as_integer().unwrap() as usize;
-    if val > max {
-        return Err(format!(
-            "value for '{}' in '{}' is too big",
-            prop_name, section_name
-        ));
-    }
-    Ok(val)
-}
-
-// Get a `SectionType` out of the given mandatory `value` which is under the
-// `section_name`.
-fn parse_section_type(section_name: &String, value: Option<&Value>) -> Result<SectionType, String> {
-    match value {
-        Some(v) => {
-            if !v.is_str() {
-                return Err(format!(
-                    "'section_type' in '{}' has to be a string",
-                    section_name
-                ));
-            }
-            match v.as_str().unwrap().to_lowercase().as_str() {
-                "header" => Ok(SectionType::Header),
-                "prgrom" => Ok(SectionType::PrgRom),
-                "chrrom" => Ok(SectionType::ChrRom),
-                _ => Err(format!(
-                    "bad value for 'section_type' in '{}'",
-                    section_name
-                )),
-            }
-        }
-        None => Err(format!(
-            "you have to define 'section_type' in '{}'",
-            section_name
-        )),
-    }
-}
-
-// Returns a vector of segments which are contained inside of the mandatory
-// `value`.
-fn get_segments(section_name: &String, value: Option<&Value>) -> Result<Vec<Segment>, String> {
-    if value.is_none() {
-        return Err(format!(
-            "you have to define a value for 'segments' in '{}'",
-            section_name
-        ));
-    }
-    if !value.unwrap().is_array() {
-        return Err(format!(
-            "value for 'segments' in '{}' has to be an array value",
-            section_name
-        ));
-    }
-
-    let mut res = vec![];
-    for item in value.unwrap().as_array().unwrap() {
-        if !item.is_str() {
-            return Err(format!(
-                "every item in 'segments' has to be a string ({})",
-                section_name
-            ));
-        }
-        res.push(Segment::from(item.as_str().unwrap()));
-    }
-
-    Ok(res)
-}
-
-// Returns a vector of mappings that is retrieved by parsing the given text.
-fn load_configuration_for(text: &str) -> Result<Vec<Mapping>, String> {
-    // Obtain the raw data by parsing the given text as a toml::Table.
-    let table = match text.parse::<Table>() {
-        Ok(t) => t,
-        Err(e) => return Err(format!("could not parse configuration file: {}", e)),
-    };
-
-    // Each section of the configuration file is a mapping, where the title is
-    // simply the name of it.
-    let mut mappings = vec![];
-    for (name, value) in table {
-        let start = get_integer(&name, "start", value.get("start"), u16::MAX as usize)? as u16;
-        let size = get_integer(&name, "size", value.get("size"), u16::MAX as usize)?;
-        let fill = match value.get("fill") {
-            Some(_) => Some(get_integer(&name, "fill", value.get("fill"), u8::MAX as usize)? as u8),
-            None => None,
-        };
-        let section_type = parse_section_type(&name, value.get("section_type"))?;
-        let segments = get_segments(&name, value.get("segments"))?;
-
-        mappings.push(Mapping {
-            name,
-            start,
-            size,
-            offset: 0,
-            fill,
-            section_type,
-            segments,
-        });
-    }
-
-    Ok(mappings)
 }
 
 // Ensure that the given mappings conform to a minimum standard.
