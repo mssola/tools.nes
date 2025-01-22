@@ -121,6 +121,13 @@ impl PString {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum EchoKind {
+    Info,
+    Warning,
+    Error,
+}
+
 /// The type of control function being used. Use this enum in order to detect
 /// which control function was detected instead of the node value.
 #[derive(Debug, Clone, PartialEq)]
@@ -150,6 +157,7 @@ pub enum ControlType {
     Else,
     EndIf,
     Defined,
+    Echo(EchoKind),
 }
 
 impl fmt::Display for ControlType {
@@ -180,6 +188,11 @@ impl fmt::Display for ControlType {
             ControlType::Else => write!(f, ".else"),
             ControlType::EndIf => write!(f, ".endif"),
             ControlType::Defined => write!(f, ".defined"),
+            ControlType::Echo(t) => match t {
+                EchoKind::Info => write!(f, ".info"),
+                EchoKind::Warning => write!(f, ".warning"),
+                EchoKind::Error => write!(f, ".error"),
+            },
         }
     }
 }

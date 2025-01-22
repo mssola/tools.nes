@@ -1,5 +1,5 @@
 use crate::mapping::{get_mapping_configuration, Mapping};
-use crate::node::{ControlType, NodeType, OperationType, PNode, PString};
+use crate::node::{ControlType, EchoKind, NodeType, OperationType, PNode, PString};
 use crate::object::{Bundle, Context, Object, ObjectType};
 use crate::opcodes::{AddressingMode, INSTRUCTIONS};
 use crate::parser::Parser;
@@ -569,6 +569,7 @@ impl<'a> Assembler<'a> {
                     // On control statements which modify the context, there are
                     // some further evaluating to do.
                     match control_type {
+                        ControlType::Echo(t) => self.evaluate_echo(node, t)?,
                         ControlType::StartRepeat => {
                             self.evaluate_repeat_statement(node)?;
                         }
@@ -706,6 +707,33 @@ impl<'a> Assembler<'a> {
         } else {
             Err(errors)
         }
+    }
+
+    // Consume an .info/.warning/.error call.
+    fn evaluate_echo(&mut self, node: &PNode, t: &EchoKind) -> Result<(), Vec<Error>> {
+        let arg = node.args.as_ref().unwrap().first().unwrap();
+        let val = &arg.value.value[1..arg.value.value.len() - 1];
+
+        match t {
+            EchoKind::Info => println!("info: {}", val),
+            EchoKind::Warning => self.warnings.push(Error {
+                global: false,
+                line: node.value.line,
+                source: self.source_for(node),
+                message: val.to_string(),
+            }),
+            EchoKind::Error => {
+                return Err(Error {
+                    global: false,
+                    line: node.value.line,
+                    source: self.source_for(node),
+                    message: val.to_string(),
+                }
+                .into());
+            }
+        }
+
+        Ok(())
     }
 
     // Consume a node which contains a macro call by pushing its bundles now.
@@ -1372,6 +1400,7 @@ impl<'a> Assembler<'a> {
             }
             NodeType::Control(ControlType::EndIf) => Ok(()),
             NodeType::Control(ControlType::IncludeSource) => Ok(()),
+            NodeType::Control(ControlType::Echo(_)) => Ok(()),
             _ => Err(Error {
                 line: node.value.line,
                 message: format!(

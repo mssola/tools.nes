@@ -1,4 +1,4 @@
-use crate::node::ControlType;
+use crate::node::{ControlType, EchoKind};
 use std::collections::HashMap;
 use std::fmt;
 
@@ -765,6 +765,10 @@ lazy_static! {
         functions.insert(String::from(".endif"), Control { control_type: ControlType::EndIf, has_identifier: None, required_args: Some((0, 0)), touches_context: false, only_string: false });
         functions.insert(String::from(".def"), Control { control_type: ControlType::Defined, has_identifier: None, required_args: Some((1, 1)), touches_context: false, only_string: false });
         functions.insert(String::from(".defined"), Control { control_type: ControlType::Defined, has_identifier: None, required_args: Some((1, 1)), touches_context: false, only_string: false });
+        functions.insert(String::from(".info"), Control { control_type: ControlType::Echo(EchoKind::Info), has_identifier: None, required_args: Some((1, 1)), touches_context: false, only_string: true });
+        functions.insert(String::from(".out"), Control { control_type: ControlType::Echo(EchoKind::Info), has_identifier: None, required_args: Some((1, 1)), touches_context: false, only_string: true });
+        functions.insert(String::from(".warning"), Control { control_type: ControlType::Echo(EchoKind::Warning), has_identifier: None, required_args: Some((1, 1)), touches_context: false, only_string: true });
+        functions.insert(String::from(".error"), Control { control_type: ControlType::Echo(EchoKind::Error), has_identifier: None, required_args: Some((1, 1)), touches_context: false, only_string: true });
 
         functions
     };
