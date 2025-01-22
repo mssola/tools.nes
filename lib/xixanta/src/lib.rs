@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate lazy_static;
-
 /// Information for a file that has been parsed/assembled.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SourceInfo {

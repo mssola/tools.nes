@@ -7,6 +7,3 @@ authors.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-
-[dependencies]
-lazy_static = "1.5.0"
