@@ -1,7 +1,6 @@
 use crate::node::{ControlType, NodeBodyType, NodeType, OperationType, PNode, PString};
 use crate::opcodes::{CONTROL_FUNCTIONS, INSTRUCTIONS};
 use crate::{Error, SourceInfo};
-use rand::distributions::{Alphanumeric, DistString};
 use std::cmp::Ordering;
 use std::io::{self, BufRead, Read};
 use std::path;
@@ -61,6 +60,12 @@ pub struct Parser {
     /// look ahead to know where the literal ends before dealing with further
     /// operators.
     look_ahead_index: usize,
+
+    /// Number that keeps track of random identifiers being generated so far.
+    /// This is because certain anonymous identifiers are not to be exposed to
+    /// the human eye, and we just care about them being unique. Hence this
+    /// counter.
+    generated_identifiers: usize,
 }
 
 impl Parser {
@@ -1338,8 +1343,10 @@ impl Parser {
     }
 
     // Generate a unique identifier with the given prefix.
-    fn unique_identifier(&self, prefix: String) -> String {
-        prefix + &String::from("-") + &Alphanumeric.sample_string(&mut rand::thread_rng(), 16)
+    fn unique_identifier(&mut self, prefix: String) -> String {
+        let res = prefix + &String::from("-") + &self.generated_identifiers.to_string();
+        self.generated_identifiers += 1;
+        res
     }
 
     // Returns a NodeType::Control node with whatever could be parsed

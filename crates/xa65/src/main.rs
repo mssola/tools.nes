@@ -1,5 +1,4 @@
 use clap::Parser as ClapParser;
-use rand::distributions::{Alphanumeric, DistString};
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -63,6 +62,15 @@ fn get_binaries() -> Result<(PathBuf, PathBuf), String> {
     Ok((nasm, cl65))
 }
 
+// Returns the path to the temporary directory that can be used for the run.
+fn temporary_dir() -> PathBuf {
+    let tmp = &std::env::temp_dir();
+    let paths = std::fs::read_dir(tmp).unwrap();
+    let name = format!("xa65-{}", paths.count());
+
+    tmp.join(name)
+}
+
 fn main() {
     // Make sure that the binaries are there.
     let (nasm, cl65) = match get_binaries() {
@@ -87,8 +95,7 @@ fn main() {
 
     // Generate a temporary directory in which both binary files will be placed
     // as an intermediate step.
-    let random_string = &Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
-    let dir = std::env::temp_dir().join(random_string);
+    let dir = temporary_dir();
     if let Err(e) = std::fs::create_dir(&dir) {
         die(e.to_string());
         return;
