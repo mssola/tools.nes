@@ -14,6 +14,7 @@ struct Args {
     out: Option<String>,
     werror: bool,
     stdout: bool,
+    defines: Vec<(String, u8)>,
 }
 
 // Print the help message and quit.
@@ -22,10 +23,44 @@ fn print_help() {
     println!("usage: nasm [OPTIONS] <FILE>\n");
     println!("Options:");
     println!("  -c, --config <FILE>\tLinker configuration to be used, whether an identifier or a file path.");
+    println!("  -D <NAME>(=VALUE)\tDefine an 8-bit variable on the global scope (default: 1)");
     println!("  -o, --out <FILE>\tFile path where the output should be located after execution.");
     println!("  --stdout\t\tPrint the output binary to the standard output.");
     println!("  -Werror\t\tWarnings should be treated as errors.");
     std::process::exit(0);
+}
+
+// Parse a value from the '-D' flag which is expected to be 'NAME(=VALUE)'.
+fn parse_define(arg: &str) -> (String, u8) {
+    let mut key_value = arg.split('=');
+
+    let Some(name) = key_value.next() else {
+        die(format!("bad format for define '{}'", arg));
+        return (String::default(), 0);
+    };
+
+    if name
+        .chars()
+        .any(|c| !c.is_ascii_alphanumeric() && c != '_' && c != '@' && c != '.')
+    {
+        die(format!(
+            "trying to define '{}' which has invalid characters",
+            arg
+        ));
+    }
+
+    let value = match key_value.next().unwrap_or("1").parse::<u8>() {
+        Ok(integer) => integer,
+        Err(_) => {
+            die(format!(
+                "value for define '{}' must be a valid 8-bit integer",
+                arg
+            ));
+            return (String::default(), 0);
+        }
+    };
+
+    (name.to_string(), value)
 }
 
 // Parse the arguments given to the program and returns an Args object with the
@@ -47,6 +82,10 @@ fn parse_arguments() -> Args {
                         die("you need to provide a value for the '-C/--config' flag".to_string())
                     }
                 },
+            },
+            "-D" => match args.next() {
+                Some(a) => res.defines.push(parse_define(&a)),
+                None => die("you need to provide a value for the '-D' flag".to_string()),
             },
             "-h" | "--help" => print_help(),
             "-o" | "--out" => match res.out {
@@ -146,6 +185,7 @@ fn main() {
     let res = assemble(
         input,
         args.config.unwrap_or("nrom".to_string()).as_str(),
+        &args.defines,
         source,
     );
 

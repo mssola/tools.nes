@@ -1,5 +1,5 @@
 use crate::mapping::{get_mapping_configuration, Mapping};
-use crate::node::{ControlType, NodeType, OperationType, PNode};
+use crate::node::{ControlType, NodeType, OperationType, PNode, PString};
 use crate::object::{Bundle, Context, Object, ObjectType};
 use crate::opcodes::{AddressingMode, INSTRUCTIONS};
 use crate::parser::Parser;
@@ -96,7 +96,12 @@ pub struct AssemblerResult {
 /// statements like ".import" or ".incbin" wouldn't know how to resolve relative
 /// paths. You can specify the mapper to be used as an identifier in `mapping`,
 /// which will be handled via `get_mapping_configuration`.
-pub fn assemble(reader: impl Read, mapping: &str, source: SourceInfo) -> AssemblerResult {
+pub fn assemble(
+    reader: impl Read,
+    mapping: &str,
+    defines: &[(String, u8)],
+    source: SourceInfo,
+) -> AssemblerResult {
     let config = match get_mapping_configuration(mapping) {
         Ok(config) => config,
         Err(e) => {
@@ -113,7 +118,7 @@ pub fn assemble(reader: impl Read, mapping: &str, source: SourceInfo) -> Assembl
         }
     };
 
-    assemble_with_mapping(reader, config, source)
+    assemble_with_mapping(reader, config, defines, source)
 }
 
 /// Read the contents from the `reader` as a source file and produce a list of
@@ -125,6 +130,7 @@ pub fn assemble(reader: impl Read, mapping: &str, source: SourceInfo) -> Assembl
 pub fn assemble_with_mapping(
     reader: impl Read,
     mapping: Vec<Mapping>,
+    defines: &[(String, u8)],
     source: SourceInfo,
 ) -> AssemblerResult {
     let mut asm = Assembler::new(mapping);
@@ -142,6 +148,18 @@ pub fn assemble_with_mapping(
 
     let nodes = parser.nodes();
     asm.sources = parser.sources;
+
+    // Before building a context, add variables if they were defined by the
+    // caller.
+    for (name, value) in defines {
+        if let Err(e) = asm.define_variable_value(name, *value) {
+            return AssemblerResult {
+                bundles: vec![],
+                errors: e.into(),
+                warnings: vec![],
+            };
+        }
+    }
 
     // Build the context by iterating over the parsed nodes and checking
     // where scopes start/end, evaluating values for variables, labels, etc.
@@ -207,6 +225,42 @@ impl<'a> Assembler<'a> {
             repeats_seen: 0,
             warnings: vec![],
             sources: vec![],
+        }
+    }
+
+    /// Define a new variable by using the given `name` and `value`.
+    pub fn define_variable_value(&mut self, name: &String, value: u8) -> Result<(), Error> {
+        if name.is_empty() {
+            return Err(Error {
+                global: true,
+                line: 0,
+                source: self.sources.first().unwrap().clone(),
+                message: "empty variable name".to_string(),
+            });
+        }
+
+        let var_name = PString {
+            value: name.to_string(),
+            line: 0,
+            start: 0,
+            end: name.len(),
+        };
+        let var_value = Object {
+            bundle: Bundle::fill(value),
+            mapping: self.current_mapping,
+            segment: self.current_segment,
+            object_type: ObjectType::Value,
+        };
+
+        if let Err(err) = self.context.set_variable(&var_name, &var_value, false) {
+            Err(Error {
+                global: true,
+                line: 0,
+                source: self.sources.first().unwrap().clone(),
+                message: err,
+            })
+        } else {
+            Ok(())
         }
     }
 
@@ -2201,7 +2255,7 @@ mod tests {
         // the assembler will freak out.
         let real_line = minimal_header().to_string() + line;
 
-        assemble_with_mapping(real_line.as_bytes(), empty(), SourceInfo::default())
+        assemble_with_mapping(real_line.as_bytes(), empty(), &[], SourceInfo::default())
     }
 
     // Like `just_assemble` but it only returns bundles passed the header.
@@ -3965,6 +4019,7 @@ lda #Variable
     "#
             .as_bytes(),
             one_two().to_vec(),
+            &[],
             SourceInfo::default(),
         );
 
@@ -4006,6 +4061,7 @@ lda #Variable
     "#
             .as_bytes(),
             one_two().to_vec(),
+            &[],
             SourceInfo::default(),
         );
 
@@ -4079,6 +4135,7 @@ lda #Variable
     "#
             .as_bytes(),
             one_two().to_vec(),
+            &[],
             SourceInfo::default(),
         );
 
@@ -4126,6 +4183,7 @@ lda #Variable
     "#
             .as_bytes(),
             one_two().to_vec(),
+            &[],
             SourceInfo::default(),
         );
 
@@ -4180,6 +4238,7 @@ lda #Variable
     "#
             .as_bytes(),
             one_two().to_vec(),
+            &[],
             SourceInfo::default(),
         );
 
@@ -4206,6 +4265,7 @@ lda #Variable
         "#
             .as_bytes(),
             one_two().to_vec(),
+            &[],
             SourceInfo::default(),
         );
 

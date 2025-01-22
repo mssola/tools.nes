@@ -15,6 +15,17 @@ popd
 
 cargo build
 
+# Custom
+
+./target/debug/nasm -c empty -Werror -o tests/out/defines-undefined.nes tests/defines.s
+diff tests/out/defines-undefined.nes tests/expected/defines-undefined.nes
+
+./target/debug/nasm -D LALA -c empty -Werror -o tests/out/defines-one.nes tests/defines.s
+diff tests/out/defines-one.nes tests/expected/defines-one.nes
+
+./target/debug/nasm -D LALA=2 -c empty -Werror -o tests/out/defines-two.nes tests/defines.s
+diff tests/out/defines-two.nes tests/expected/defines-two.nes
+
 # code.nes
 
 ./target/debug/nasm -c nrom -Werror -o tests/out/sprite.nes tests/code.nes/basics/sprite.s
