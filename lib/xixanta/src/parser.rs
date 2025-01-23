@@ -1332,7 +1332,10 @@ impl Parser {
             },
             '=' => match second {
                 '=' => Ok((Some(NodeType::Operation(OperationType::Equal)), 2)),
-                _ => Err(self.parser_error(format!("unknown operator '={}'", second).as_str())),
+                // 'ca65' allows a single '=' for comparison as well. This is in
+                // my humble opinion bad, but existing code uses this, so let's
+                // add support for it.
+                _ => Ok((Some(NodeType::Operation(OperationType::Equal)), 1)),
             },
             '!' => match second {
                 '=' => Ok((Some(NodeType::Operation(OperationType::NotEqual)), 2)),
