@@ -2,6 +2,7 @@ use crate::cfg::{parse_cfg_file, parse_nasm_cfg_file};
 use crate::object::Bundle;
 
 const EMPTY_CONFIG: &str = include_str!("mappings/empty.cfg");
+const MMC1_CONFIG: &str = include_str!("mappings/mmc1.cfg");
 const NROM_CONFIG: &str = include_str!("mappings/nrom.cfg");
 const NROM65_CONFIG: &str = include_str!("mappings/nrom65.cfg");
 const UXROM_CONFIG: &str = include_str!("mappings/unrom.cfg");
@@ -115,6 +116,7 @@ pub fn get_mapping_configuration(name: &str) -> Result<Vec<Mapping>, String> {
     } else {
         let text = match name.to_lowercase().as_str() {
             "empty" => EMPTY_CONFIG,
+            "mmc1" => MMC1_CONFIG,
             "nrom" => NROM_CONFIG,
             "nrom65" => NROM65_CONFIG,
             "uxrom" | "unrom" => UXROM_CONFIG,
