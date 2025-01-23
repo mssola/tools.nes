@@ -1,3 +1,5 @@
+use std::fs::File;
+use std::io::prelude::*;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -142,6 +144,50 @@ fn temporary_dir() -> PathBuf {
     tmp.join(name)
 }
 
+// Attemps to generate an 'hexdump' with the given `bin` and taking the given
+// `src` as an argument for 'hexdump'. The resulting dump will be saved in
+// `dst`.
+fn hexdump(bin: &PathBuf, src: &PathBuf, dst: &PathBuf) -> bool {
+    let Ok(nasm) = Command::new(bin).arg("-C").arg(src).output() else {
+        println!(
+            "xa65 (warning): could not produce an hexdump of '{}'",
+            src.display()
+        );
+        return false;
+    };
+    let Ok(mut nasm_file) = File::create(dst) else {
+        println!(
+            "xa65 (warning): could not produce an hexdump of '{}'",
+            src.display()
+        );
+        return false;
+    };
+    if let Err(_) = nasm_file.write_all(nasm.stdout.as_slice()) {
+        println!(
+            "xa65 (warning): could not produce an hexdump of '{}'",
+            src.display()
+        );
+        return false;
+    }
+    true
+}
+
+// Attempt to generate 'hexdump' files for both binaries. If this is not
+// possible, then it will print a warning and return early.
+fn attempt_hexdump(dir: &PathBuf) {
+    let Some(bin) = find_binary("hexdump") else {
+        println!(
+            "xa65 (warning): could not find 'hexdump' in your PATH. \
+                  A human-readable dump will not be generated"
+        );
+        return;
+    };
+
+    if hexdump(&bin, &dir.join("nasm.nes"), &dir.join("nasm.txt")) {
+        hexdump(&bin, &dir.join("cl65.nes"), &dir.join("cl65.txt"));
+    }
+}
+
 fn main() {
     // Make sure that the binaries are there.
     let (nasm, cl65) = match get_binaries() {
@@ -214,6 +260,9 @@ fn main() {
         Ok(diff) => {
             // If 'diff' failed, show it but don't error out.
             if !diff.status.success() {
+                // Try to generate a human-readable diff.
+                attempt_hexdump(&dir);
+
                 println!(
                     "xa65 (error): 'nasm' and 'ca65' have a mismatch. Check the results at {}",
                     dir.display()
