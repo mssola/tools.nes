@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::io::prelude::*;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Version for this program.
@@ -162,7 +162,7 @@ fn hexdump(bin: &PathBuf, src: &PathBuf, dst: &PathBuf) -> bool {
         );
         return false;
     };
-    if let Err(_) = nasm_file.write_all(nasm.stdout.as_slice()) {
+    if nasm_file.write_all(nasm.stdout.as_slice()).is_err() {
         println!(
             "xa65 (warning): could not produce an hexdump of '{}'",
             src.display()
@@ -174,7 +174,7 @@ fn hexdump(bin: &PathBuf, src: &PathBuf, dst: &PathBuf) -> bool {
 
 // Attempt to generate 'hexdump' files for both binaries. If this is not
 // possible, then it will print a warning and return early.
-fn attempt_hexdump(dir: &PathBuf) {
+fn attempt_hexdump(dir: &Path) {
     let Some(bin) = find_binary("hexdump") else {
         println!(
             "xa65 (warning): could not find 'hexdump' in your PATH. \
