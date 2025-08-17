@@ -879,9 +879,36 @@ impl Parser {
             self.next();
             self.skip_whitespace(line);
 
-            // The end is actually the matching paren for the current opening
-            // one.
-            self.find_matching_paren(line, self.offset)?
+            // If there is a parenthesis it might be either that the command
+            // enclosed its arguments into parenthesis, or that the first
+            // argument is using parenthesis to disambiguate with an
+            // arithmetic/logical operation.
+            let e = self.find_matching_paren(line, self.offset)?;
+            match line.get(e + 1..line.len()) {
+                Some(rest) => {
+                    let trimmed = rest.trim_start();
+                    if trimmed.is_empty() {
+                        // The rest of the line was just empty: return the
+                        // matching closing paren as there was no need to
+                        // disambiguate.
+                        e
+                    } else if self.get_operation_from_line(trimmed).is_ok() {
+                        // There is an arithmetic/logical operation in sight! In
+                        // that case we assume it was a disambiguation scenario
+                        // and so we rollback from the previous `next()` call
+                        // and return the end of the line.
+                        self.prev();
+                        line.len()
+                    } else {
+                        // No operation in sight, let's pick the matching paren
+                        // as the end of the line.
+                        e
+                    }
+                }
+                // No arithmetic/logical operation in sight, let's return the
+                // matching closing paren as the end.
+                None => e,
+            }
         } else {
             line.len()
         };
@@ -1571,6 +1598,12 @@ impl Parser {
     fn next(&mut self) {
         self.column += 1;
         self.offset += 1;
+    }
+
+    // Decrement `self.column` and `self.offset` by one.
+    fn prev(&mut self) {
+        self.column -= 1;
+        self.offset -= 1;
     }
 }
 
@@ -2332,6 +2365,69 @@ mod tests {
         // Right arm of the bitwise and.
         let right_and = right.right.as_ref().unwrap();
         assert_node(right_and, NodeType::Value, line, "3");
+    }
+
+    #[test]
+    fn parens_to_desambiguate() {
+        let line = ".byte ($01 << 4) | ($01 << 2) | ($01 << 1)";
+        let mut parser = Parser::default();
+        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+
+        let node = parser.nodes.last().unwrap().last().unwrap();
+        assert_node(node, NodeType::Control(ControlType::Byte), line, ".byte");
+        assert!(node.left.is_none());
+        assert!(node.right.is_none());
+
+        let args = node.args.clone().unwrap();
+        assert_eq!(args.len(), 1);
+
+        let arg = args.first().unwrap();
+        assert_eq!(arg.node_type, NodeType::Operation(OperationType::Or));
+
+        let first = arg.left.clone().unwrap();
+        assert_eq!(first.node_type, NodeType::Operation(OperationType::Lshift));
+        assert_node(&first.left.clone().unwrap(), NodeType::Literal, line, "$01");
+        assert_node(&first.right.clone().unwrap(), NodeType::Value, line, "4");
+
+        let other = arg.right.clone().unwrap();
+
+        let second = other.left.clone().unwrap();
+        assert_eq!(second.node_type, NodeType::Operation(OperationType::Lshift));
+        assert_node(
+            &second.left.clone().unwrap(),
+            NodeType::Literal,
+            line,
+            "$01",
+        );
+        assert_node(&second.right.clone().unwrap(), NodeType::Value, line, "2");
+
+        let third = other.right.clone().unwrap();
+        assert_eq!(third.node_type, NodeType::Operation(OperationType::Lshift));
+        assert_node(&third.left.clone().unwrap(), NodeType::Literal, line, "$01");
+        assert_node(&third.right.clone().unwrap(), NodeType::Value, line, "1");
+    }
+
+    #[test]
+    fn parens_to_desambiguate2() {
+        let line = ".byte ($01 << 4) | ($01 << 2) | ($01 << 1), $02";
+        let mut parser = Parser::default();
+        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+
+        let node = parser.nodes.last().unwrap().last().unwrap();
+        assert_node(node, NodeType::Control(ControlType::Byte), line, ".byte");
+        assert!(node.left.is_none());
+        assert!(node.right.is_none());
+
+        let args = node.args.clone().unwrap();
+        assert_eq!(args.len(), 2);
+
+        let arg = args.first().unwrap();
+        assert_eq!(arg.node_type, NodeType::Operation(OperationType::Or));
+        // NOTE: no further assertions needed as this is covered in
+        // `parens_to_disambiguate`.
+
+        let second = args.last().unwrap();
+        assert_node(second, NodeType::Literal, line, "$02");
     }
 
     #[test]
