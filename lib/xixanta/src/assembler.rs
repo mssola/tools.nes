@@ -970,7 +970,7 @@ impl<'a> Assembler<'a> {
                 lval ^ rval
             }
             OperationType::Lshift => {
-                if rval > 16 {
+                if rval as usize > 16 {
                     return Err(Error {
                         line: node.value.line,
                         global: false,
@@ -983,7 +983,7 @@ impl<'a> Assembler<'a> {
                 lval << rval
             }
             OperationType::Rshift => {
-                if rval > 16 {
+                if rval as usize > 16 {
                     return Err(Error {
                         line: node.value.line,
                         global: false,
