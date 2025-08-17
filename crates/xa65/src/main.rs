@@ -10,6 +10,7 @@ const VERSION: &str = "0.1.0";
 #[derive(Default)]
 struct Args {
     file: String,
+    bin: Option<String>,
     config: Option<String>,
     target: Option<String>,
     out: String,
@@ -20,6 +21,7 @@ fn print_help() {
     println!("Bridge between 'nasm' and 'ca65'.\n");
     println!("usage: xa65 [OPTIONS] <FILE>\n");
     println!("Options:");
+    println!("  -b, --bin <PROGRAM>\tAlternative to the binary for 'nasm'.");
     println!("  -C, --config <FILE>\tLinker configuration to be used, whether an identifier or a file path.");
     println!("  -o, --out <FILE>\tFile path where the output should be located after execution.");
     println!("  --target nes\t\tUsed for compatibility with 'ca65'.");
@@ -37,6 +39,13 @@ fn parse_arguments() -> Args {
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "-b" | "--bin" => match res.bin {
+                Some(_) => die("only specify the '-b/--bin' flag once".to_string()),
+                None => match args.next() {
+                    Some(v) => res.bin = Some(v),
+                    None => die("you need to provide a value for the '-b/--bin' flag".to_string()),
+                },
+            },
             "-C" | "--config" => match res.config {
                 Some(_) => die("only specify the '-C/--config' flag once".to_string()),
                 None => match args.next() {
@@ -122,10 +131,18 @@ fn find_binary(name: &str) -> Option<PathBuf> {
 }
 
 // Returns the path for the binaries for 'nasm' and 'cl65'.
-fn get_binaries() -> Result<(PathBuf, PathBuf), String> {
-    let nasm = match find_binary("nasm") {
+fn get_binaries(nasm_name: String) -> Result<(PathBuf, PathBuf), String> {
+    let nasm = match find_binary(&nasm_name) {
         Some(nasm) => nasm,
-        None => return Err("could not find 'nasm'".to_string()),
+        None => {
+            let path = Path::new(&nasm_name);
+
+            if path.exists() {
+                path.to_path_buf()
+            } else {
+                return Err("could not find 'nasm'".to_string());
+            }
+        }
     };
     let cl65 = match find_binary("cl65") {
         Some(cl65) => cl65,
@@ -189,17 +206,17 @@ fn attempt_hexdump(dir: &Path) {
 }
 
 fn main() {
+    // Parse arguments.
+    let args = parse_arguments();
+
     // Make sure that the binaries are there.
-    let (nasm, cl65) = match get_binaries() {
+    let (nasm, cl65) = match get_binaries(args.bin.unwrap_or("nasm".to_string())) {
         Ok((nasm, cl65)) => (nasm, cl65),
         Err(e) => {
             die(e);
             return;
         }
     };
-
-    // Parse arguments.
-    let args = parse_arguments();
 
     // Generate a temporary directory in which both binary files will be placed
     // as an intermediate step.
