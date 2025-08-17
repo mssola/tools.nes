@@ -339,7 +339,7 @@ impl Parser {
                                                 line: self.line,
                                                 global: false,
                                                 source: self.sources[self.current_source].clone(),
-                                                message: format!("{} relative label can only have '{}' characters", msg, next),
+                                                message: format!("{msg} relative label can only have '{next}' characters"),
                                             });
                                         }
                                         self.next();
@@ -747,14 +747,14 @@ impl Parser {
             Some(ec) => ec,
             None => {
                 return Err(self
-                    .parser_error(format!("unexpected '{}'", real_type).as_str())
+                    .parser_error(format!("unexpected '{real_type}'").as_str())
                     .into())
             }
         };
         if *node_type != expected_close {
             return Err(self
                 .parser_error(
-                    format!("expecting '{}', found '{}'", expected_close, node_type).as_str(),
+                    format!("expecting '{expected_close}', found '{node_type}'").as_str(),
                 )
                 .into());
         }
@@ -800,7 +800,7 @@ impl Parser {
                     line: node.value.line,
                     global: false,
                     source: current_source.clone(),
-                    message: format!("could not open source file '{}': {}", file_path, e),
+                    message: format!("could not open source file '{file_path}': {e}"),
                 }
                 .into())
             }
@@ -811,8 +811,7 @@ impl Parser {
                 global: false,
                 source: current_source.clone(),
                 message: format!(
-                    "could not find out the parent directory for file '{}'",
-                    file_path
+                    "could not find out the parent directory for file '{file_path}'"
                 ),
             }
             .into());
@@ -854,8 +853,7 @@ impl Parser {
                 global: false,
                 source: self.sources[self.current_source].clone(),
                 message: format!(
-                    "path has to be written inside of double quotes ('{}' given instead)",
-                    value,
+                    "path has to be written inside of double quotes ('{value}' given instead)",
                 ),
             });
         }
@@ -1366,7 +1364,7 @@ impl Parser {
             },
             '!' => match second {
                 '=' => Ok((Some(NodeType::Operation(OperationType::NotEqual)), 2)),
-                _ => Err(self.parser_error(format!("unknown operator '!{}'", second).as_str())),
+                _ => Err(self.parser_error(format!("unknown operator '!{second}'").as_str())),
             },
             _ => Ok((None, 0)),
         }
@@ -1538,7 +1536,7 @@ impl Parser {
         Ok(PNode {
             node_type: NodeType::Literal,
             value: PString {
-                value: format!("'{}'", ch),
+                value: format!("'{ch}'"),
                 line: self.line,
                 start: self.column - 3,
                 end: self.column,
@@ -2154,7 +2152,7 @@ mod tests {
     #[test]
     fn scoped_variable_literal_in_instruction() {
         for var in vec!["Scope::Variable", "Scope::Inner::Variable"].into_iter() {
-            let line = format!("lda #{}", var);
+            let line = format!("lda #{var}");
             let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 
@@ -2167,7 +2165,7 @@ mod tests {
                 &node.left.clone().unwrap(),
                 NodeType::Literal,
                 line.as_str(),
-                format!("#{}", var).as_str(),
+                format!("#{var}").as_str(),
             );
         }
     }
@@ -2201,7 +2199,7 @@ mod tests {
     #[test]
     fn relative_labels() {
         for label in vec![":+", ":++", ":+++ ", ":++++", ":-", ":--", ":---", ":----"].into_iter() {
-            let line = format!("jmp {}", label);
+            let line = format!("jmp {label}");
             let mut parser = Parser::default();
             assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
 

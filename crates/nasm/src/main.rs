@@ -35,7 +35,7 @@ fn parse_define(arg: &str) -> (String, u8) {
     let mut key_value = arg.split('=');
 
     let Some(name) = key_value.next() else {
-        die(format!("bad format for define '{}'", arg));
+        die(format!("bad format for define '{arg}'"));
         return (String::default(), 0);
     };
 
@@ -44,8 +44,7 @@ fn parse_define(arg: &str) -> (String, u8) {
         .any(|c| !c.is_ascii_alphanumeric() && c != '_' && c != '@' && c != '.')
     {
         die(format!(
-            "trying to define '{}' which has invalid characters",
-            arg
+            "trying to define '{arg}' which has invalid characters"
         ));
     }
 
@@ -53,8 +52,7 @@ fn parse_define(arg: &str) -> (String, u8) {
         Ok(integer) => integer,
         Err(_) => {
             die(format!(
-                "value for define '{}' must be a valid 8-bit integer",
-                arg
+                "value for define '{arg}' must be a valid 8-bit integer"
             ));
             return (String::default(), 0);
         }
@@ -112,7 +110,7 @@ fn parse_arguments() -> Args {
                 }
             },
             "-v" | "--version" => {
-                println!("nasm {}", VERSION);
+                println!("nasm {VERSION}");
                 std::process::exit(0);
             }
             "-Werror" => {
@@ -123,7 +121,7 @@ fn parse_arguments() -> Args {
             }
             _ => {
                 if arg.starts_with('-') {
-                    die(format!("don't know how to handle the '{}' flag", arg));
+                    die(format!("don't know how to handle the '{arg}' flag"));
                 }
                 if !res.file.is_empty() {
                     die("cannot have multiple source files".to_string());
@@ -142,7 +140,7 @@ fn parse_arguments() -> Args {
 
 // Print the given `message` and exit(1).
 fn die(message: String) {
-    eprintln!("error: {}", message);
+    eprintln!("error: {message}");
     std::process::exit(1);
 }
 
@@ -174,7 +172,7 @@ fn main() {
         match File::create(&name) {
             Ok(f) => (Box::new(f), args.file.as_str()),
             Err(_) => {
-                die(format!("could not create file '{}'", name));
+                die(format!("could not create file '{name}'"));
                 return;
             }
         }
@@ -193,14 +191,14 @@ fn main() {
     // that exists.
     for warning in res.warnings {
         if args.werror {
-            eprintln!("error: {}", warning);
+            eprintln!("error: {warning}");
             error_count += 1;
         } else {
-            eprintln!("warning: {}", warning);
+            eprintln!("warning: {warning}");
         }
     }
     for error in res.errors {
-        eprintln!("error: {}", error);
+        eprintln!("error: {error}");
         error_count += 1;
     }
 
@@ -209,7 +207,7 @@ fn main() {
         for b in res.bundles {
             for i in 0..b.size {
                 if let Err(e) = output.write_all(&[b.bytes[i as usize]]) {
-                    eprintln!("error: could not write result in '{}': {}", output_name, e);
+                    eprintln!("error: could not write result in '{output_name}': {e}");
                     std::process::exit(1);
                 }
             }

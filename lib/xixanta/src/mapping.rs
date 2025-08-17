@@ -111,7 +111,7 @@ pub fn get_mapping_configuration(name: &str) -> Result<Vec<Mapping>, String> {
                     parse_cfg_file(contents.as_str())?
                 }
             }
-            Err(_) => return Err(format!("could not read '{}'", name)),
+            Err(_) => return Err(format!("could not read '{name}'")),
         }
     } else {
         let text = match name.to_lowercase().as_str() {
@@ -190,14 +190,12 @@ pub fn validate(mappings: &[Mapping]) -> Result<(), String> {
 
     if header_prg_rom_size < prg_rom_len {
         return Err(format!(
-            "PRG ROM size is expected to by {} bytes long, but a total of {} bytes were evaluated",
-            header_prg_rom_size, prg_rom_len
+            "PRG ROM size is expected to by {header_prg_rom_size} bytes long, but a total of {prg_rom_len} bytes were evaluated"
         ));
     }
     if header_chr_rom_size < chr_rom_len {
         return Err(format!(
-            "CHR ROM size is expected to by {} bytes long, but a total of {} bytes were evaluated",
-            header_chr_rom_size, chr_rom_len
+            "CHR ROM size is expected to by {header_chr_rom_size} bytes long, but a total of {chr_rom_len} bytes were evaluated"
         ));
     }
 

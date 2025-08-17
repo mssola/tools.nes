@@ -308,7 +308,7 @@ impl fmt::Display for NodeType {
             NodeType::Instruction => write!(f, "instruction"),
             NodeType::Indirection => write!(f, "indirection"),
             NodeType::Assignment => write!(f, "assignment"),
-            NodeType::Control(control_type) => write!(f, "control function ({})", control_type),
+            NodeType::Control(control_type) => write!(f, "control function ({control_type})"),
             NodeType::ControlBody => write!(f, "control function body"),
             NodeType::Literal => write!(f, "literal"),
             NodeType::Label => write!(f, "label"),

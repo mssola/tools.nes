@@ -30,20 +30,17 @@ fn fetch_line_values(line: &str, line_num: usize) -> Result<(String, String), St
     let mut name_values = line.split(':');
     let Some(name) = name_values.next() else {
         return Err(format!(
-            "line does not follow 'key: values' format (line {})",
-            line_num
+            "line does not follow 'key: values' format (line {line_num})"
         ));
     };
     let Some(values_line) = name_values.next() else {
         return Err(format!(
-            "line does not follow 'key: values' format (line {})",
-            line_num
+            "line does not follow 'key: values' format (line {line_num})"
         ));
     };
     if name_values.next().is_some() {
         return Err(format!(
-            "line does not follow 'key: values' format (line {})",
-            line_num
+            "line does not follow 'key: values' format (line {line_num})"
         ));
     }
 
@@ -65,13 +62,13 @@ fn get_hex_from(
     if !string.starts_with('$') {
         match symbols.get(string) {
             Some(value) => return Ok(*value),
-            None => return Err(format!("malformed hex value (line {})", line_num)),
+            None => return Err(format!("malformed hex value (line {line_num})")),
         }
     }
 
     let val = &string[1..string.len()];
     if val.is_empty() || val.len() > 4 {
-        return Err(format!("malformed hex value (line {})", line_num));
+        return Err(format!("malformed hex value (line {line_num})"));
     }
 
     Ok(usize::from_str_radix(val, 16).unwrap())
@@ -112,7 +109,7 @@ fn fetch_memory_definition(line: &str, line_num: usize) -> Result<RawMapping, St
                     _ => {}
                 }
             }
-            None => return Err(format!("malformed key-value (line {})", line_num)),
+            None => return Err(format!("malformed key-value (line {line_num})")),
         }
     }
 
@@ -143,13 +140,12 @@ fn find_value(key: &str, values: &str, line_num: usize) -> Result<String, String
                     return Ok(val.to_string());
                 }
             }
-            None => return Err(format!("malformed key-value (line {})", line_num)),
+            None => return Err(format!("malformed key-value (line {line_num})")),
         }
     }
 
     Err(format!(
-        "could not find '{}' definition (line {})",
-        key, line_num
+        "could not find '{key}' definition (line {line_num})"
     ))
 }
 
@@ -299,7 +295,7 @@ pub fn parse_cfg_file(text: &str) -> Result<Vec<Mapping>, String> {
 
 fn get_segments_from(value: &str, line: usize) -> Result<Vec<Segment>, String> {
     if !value.starts_with('[') || !value.ends_with(']') {
-        return Err(format!("should be enclosed inside of [] (line {})", line));
+        return Err(format!("should be enclosed inside of [] (line {line})"));
     }
 
     let mut res = vec![];
@@ -592,9 +588,7 @@ SEGMENTS {
             &["HEADER"]
         );
 
-        for i in 1..=7 {
-            let prg = &res[i];
-
+        for (i, prg) in res.iter().enumerate().take(7 + 1).skip(1) {
             assert_eq!(prg.name, format!("PRG{}", i - 1));
             assert_eq!(prg.start, 0x8000);
             assert_eq!(prg.size, 0x4000);

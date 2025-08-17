@@ -38,12 +38,12 @@ fn parse_arguments() -> Args {
                 res.header = true;
             }
             "-v" | "--version" => {
-                println!("readrom {}", VERSION);
+                println!("readrom {VERSION}");
                 std::process::exit(0);
             }
             _ => {
                 if arg.starts_with('-') {
-                    die(format!("don't know how to handle the '{}' flag", arg));
+                    die(format!("don't know how to handle the '{arg}' flag"));
                 }
                 if !res.file.is_empty() {
                     die("cannot have multiple source files".to_string());
@@ -99,7 +99,7 @@ fn print_vectors(addrs: &[u8]) {
 
 // Print the given `message` and exit(1).
 fn die(message: String) {
-    println!("error: {}", message);
+    println!("error: {message}");
     std::process::exit(1);
 }
 

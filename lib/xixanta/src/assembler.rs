@@ -358,7 +358,7 @@ impl<'a> Assembler<'a> {
                 NodeType::Control(control_type) => {
                     if !self.context.is_global() && control_type.must_be_global() {
                         errors.push(Error {
-                            message: format!("{} must be on the global scope", control_type),
+                            message: format!("{control_type} must be on the global scope"),
                             line: node.value.line,
                             global: false,
                             source: self.source_for(node),
@@ -715,7 +715,7 @@ impl<'a> Assembler<'a> {
         let val = &arg.value.value[1..arg.value.value.len() - 1];
 
         match t {
-            EchoKind::Info => println!("info: {}", val),
+            EchoKind::Info => println!("info: {val}"),
             EchoKind::Warning => self.warnings.push(Error {
                 global: false,
                 line: node.value.line,
@@ -1173,8 +1173,7 @@ impl<'a> Assembler<'a> {
                 if self.evaluate_variable(node).is_ok() {
                     return Err(Error {
                         message: format!(
-                            "you cannot use variables like '{}' in binary literals",
-                            string
+                            "you cannot use variables like '{string}' in binary literals"
                         ),
                         line: node.value.line,
                         source: self.source_for(node),
@@ -1182,7 +1181,7 @@ impl<'a> Assembler<'a> {
                     });
                 }
                 return Err(Error {
-                    message: format!("bad binary format for '{}'", string),
+                    message: format!("bad binary format for '{string}'"),
                     line: node.value.line,
                     global: false,
                     source: self.source_for(node),
@@ -1234,9 +1233,8 @@ impl<'a> Assembler<'a> {
                             return Err(Error {
                                 message: format!(
                                     "variables must come from a constant expression, \
-                                                  you cannot use other variables such as '{}' \
-                                                  in variable definitions",
-                                    string
+                                                  you cannot use other variables such as '{string}' \
+                                                  in variable definitions"
                                 ),
                                 source: self.source_for(node),
                                 line: node.value.line,
@@ -1425,8 +1423,7 @@ impl<'a> Assembler<'a> {
             return Err(Error {
                 line: node.value.line,
                 message: format!(
-                    "path has to be written inside of double quotes ('{}' given instead)",
-                    value,
+                    "path has to be written inside of double quotes ('{value}' given instead)",
                 ),
                 source: self.source_for(node),
                 global: false,
@@ -1441,7 +1438,7 @@ impl<'a> Assembler<'a> {
                 if let Err(e) = std::env::set_current_dir(&source.directory) {
                     return Err(Error {
                         line: node.value.line,
-                        message: format!("could not move to the directory of '{}': {}", value, e),
+                        message: format!("could not move to the directory of '{value}': {e}"),
                         source: self.source_for(node),
                         global: false,
                     });
@@ -1459,7 +1456,7 @@ impl<'a> Assembler<'a> {
                     global: false,
                     line: node.value.line,
                     source: self.source_for(node),
-                    message: format!("could not include binary data: {}", e),
+                    message: format!("could not include binary data: {e}"),
                 })
             }
         };
@@ -1478,14 +1475,14 @@ impl<'a> Assembler<'a> {
                         global: false,
                         line: node.value.line,
                         source: self.source_for(node),
-                        message: format!("file '{}' is too big", path),
+                        message: format!("file '{path}' is too big"),
                     });
                 } else if metadata.len() == 0 {
                     return Err(Error {
                         global: false,
                         line: node.value.line,
                         source: self.source_for(node),
-                        message: format!("trying to include an empty file ('{}')", path),
+                        message: format!("trying to include an empty file ('{path}')"),
                     });
                 }
             }
@@ -1494,7 +1491,7 @@ impl<'a> Assembler<'a> {
                     global: false,
                     line: node.value.line,
                     source: self.source_for(node),
-                    message: format!("could not include binary data: {}", e),
+                    message: format!("could not include binary data: {e}"),
                 })
             }
         }
@@ -1540,10 +1537,7 @@ impl<'a> Assembler<'a> {
                 return Err(Error {
                     global: false,
                     line: node.value.line,
-                    message: format!(
-                        "first argument must be an integer, '{}' found instead",
-                        first
-                    ),
+                    message: format!("first argument must be an integer, '{first}' found instead"),
                     source: self.source_for(node),
                 }
                 .into())
@@ -1842,8 +1836,7 @@ impl<'a> Assembler<'a> {
             return Err(Error {
                 line: node.value.line,
                 message: format!(
-                    "declaration has to be written inside of double quotes ('{}' given instead)",
-                    val,
+                    "declaration has to be written inside of double quotes ('{val}' given instead)",
                 ),
                 source: self.source_for(node),
                 global: false,
@@ -1899,7 +1892,7 @@ impl<'a> Assembler<'a> {
         if !found {
             return Err(Error {
                 line: node.value.line,
-                message: format!("unknown segment '{}'", name),
+                message: format!("unknown segment '{name}'"),
                 source: self.source_for(node),
                 global: false,
             });
@@ -1941,8 +1934,7 @@ impl<'a> Assembler<'a> {
                 None => {
                     return Err(Error {
                         message: format!(
-                            "cannot use {} addressing mode for the instruction '{}'",
-                            mode, mnemonic
+                            "cannot use {mode} addressing mode for the instruction '{mnemonic}'"
                         ),
                         source: self.source_for(node),
                         line: node.value.line,
@@ -1952,7 +1944,7 @@ impl<'a> Assembler<'a> {
             },
             None => {
                 return Err(Error {
-                    message: format!("unknown instruction {}", mnemonic),
+                    message: format!("unknown instruction {mnemonic}"),
                     line: node.value.line,
                     source: self.source_for(node),
                     global: false,

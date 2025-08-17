@@ -232,7 +232,7 @@ impl Context {
                     }
                 }
             },
-            None => Err(format!("could not find scope '{}'", scope_name)),
+            None => Err(format!("could not find scope '{scope_name}'")),
         }
     }
 
@@ -253,7 +253,7 @@ impl Context {
 
         // Avoid weird out of bound references for addresses.
         if addr > u16::MAX as usize {
-            return Err(format!("address {:x} is out of bounds", addr));
+            return Err(format!("address {addr:x} is out of bounds"));
         }
 
         let addr_bytes = (addr as u16).to_le_bytes();
@@ -472,7 +472,7 @@ impl Context {
     // Returns a human-readable string representing the current context.
     fn to_human(&self) -> String {
         match self.stack.last() {
-            Some(n) => format!("'{}'", n),
+            Some(n) => format!("'{n}'"),
             None => "the global scope".to_string(),
         }
     }
@@ -487,7 +487,7 @@ impl Context {
             // case.
             "the current scope".to_string()
         } else {
-            format!("'{}'", name)
+            format!("'{name}'")
         }
     }
 }

@@ -73,12 +73,12 @@ fn parse_arguments() -> Args {
                 },
             },
             "-v" | "--version" => {
-                println!("xa65 {}", VERSION);
+                println!("xa65 {VERSION}");
                 std::process::exit(0);
             }
             _ => {
                 if arg.starts_with('-') {
-                    die(format!("don't know how to handle the '{}' flag", arg));
+                    die(format!("don't know how to handle the '{arg}' flag"));
                 }
                 if !res.file.is_empty() {
                     die("cannot have multiple source files".to_string());
@@ -100,7 +100,7 @@ fn parse_arguments() -> Args {
 
 // Print the given `message` and exit(1).
 fn die(message: String) {
-    eprintln!("error: {}", message);
+    eprintln!("error: {message}");
     std::process::exit(1);
 }
 
@@ -279,6 +279,6 @@ fn main() {
     // Note that the binary is the one from 'cl65' just in case 'diff' failed
     // (we take 'cl65' as the source of truth).
     if let Err(e) = std::fs::copy(dir.join("cl65.nes"), args.out) {
-        die(format!("could not copy the resulting binary: {}", e));
+        die(format!("could not copy the resulting binary: {e}"));
     }
 }
