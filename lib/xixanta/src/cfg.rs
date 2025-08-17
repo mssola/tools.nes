@@ -62,13 +62,20 @@ fn get_hex_from(
     if !string.starts_with('$') {
         match symbols.get(string) {
             Some(value) => return Ok(*value),
-            None => return Err(format!("malformed hex value (line {line_num})")),
+            None => return Err(format!("malformed hex value '{string}' (line {line_num})")),
         }
     }
 
+    // NOTE: usually on this library we go with 16-bit hexadecimal values, but
+    // in configuration files, depending on how many banks exist and the size of
+    // each bank this can go over a 16-bit number. This is already noted on the
+    // `Mapping` struct (see `size` being `usize` and not `u16`). Hence, we
+    // allow for a lenght of maximum 5 digits on this hexadecimal
+    // value. Something over that and this has never been seen on NES/Famicom
+    // development as far as I know.
     let val = &string[1..string.len()];
-    if val.is_empty() || val.len() > 4 {
-        return Err(format!("malformed hex value (line {line_num})"));
+    if val.is_empty() || val.len() > 5 {
+        return Err(format!("malformed hex value '{string}' (line {line_num})"));
     }
 
     Ok(usize::from_str_radix(val, 16).unwrap())
