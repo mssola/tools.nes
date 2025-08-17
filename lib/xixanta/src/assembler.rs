@@ -8,7 +8,7 @@ use crate::SourceInfo;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::Read;
+use std::io::{BufReader, Read};
 use std::ops::Neg;
 
 /// The mode in which a literal is expressed.
@@ -1497,7 +1497,8 @@ impl<'a> Assembler<'a> {
         }
 
         // And finally just push each byte from the given file as a fill bundle.
-        for byte in file.bytes() {
+        let reader = BufReader::new(file);
+        for byte in reader.bytes() {
             match byte {
                 Ok(b) => self.push_bundle(Bundle::fill(b), node)?,
                 Err(_) => break,
