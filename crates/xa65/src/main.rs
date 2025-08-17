@@ -14,6 +14,7 @@ struct Args {
     config: Option<String>,
     target: Option<String>,
     out: String,
+    error: bool,
 }
 
 // Print the help message and quit.
@@ -23,6 +24,7 @@ fn print_help() {
     println!("Options:");
     println!("  -b, --bin <PROGRAM>\tAlternative to the binary for 'nasm'.");
     println!("  -C, --config <FILE>\tLinker configuration to be used, whether an identifier or a file path.");
+    println!("  -e, --error\tDon't dismiss errors from 'nasm' and use the same exit code.");
     println!("  -o, --out <FILE>\tFile path where the output should be located after execution.");
     println!("  --target nes\t\tUsed for compatibility with 'ca65'.");
     std::process::exit(0);
@@ -55,6 +57,7 @@ fn parse_arguments() -> Args {
                     }
                 },
             },
+            "-e" | "--error" => res.error = true,
             "-h" | "--help" => print_help(),
             "-o" | "--out" => {
                 if res.out.is_empty() {
@@ -226,9 +229,11 @@ fn main() {
         return;
     }
 
-    // Run 'nasm' with the given arguments. Note that we don't care whether
-    // 'nasm' itself errors out.
-    if let Err(e) = Command::new(nasm)
+    // Run 'nasm' with the given arguments. We only care about the exit code of
+    // 'nasm' if the '-e/--error' flag was provided, otherwise we just go on as
+    // if nothing had happened (i.e. the user just wants a binary, even if it
+    // comes from cl65).
+    match Command::new(nasm)
         .arg(&args.file)
         .arg("-o")
         .arg(dir.join("nasm.nes"))
@@ -236,8 +241,15 @@ fn main() {
         .arg(args.config.clone().unwrap_or("nrom65".to_string()))
         .status()
     {
-        die(e.to_string());
-        return;
+        Ok(cmd) => {
+            if !cmd.success() && args.error {
+                std::process::exit(cmd.code().unwrap_or(1));
+            }
+        }
+        Err(e) => {
+            die(e.to_string());
+            return;
+        }
     }
 
     // Run 'cl65' with the given arguments.
