@@ -48,6 +48,16 @@ impl Bundle {
         }
     }
 
+    /// Returns true of this bundle has a zero value on its `bytes` attribute
+    /// while also taking into account the size of the bundle.
+    pub fn is_zero(&self) -> bool {
+        match self.size {
+            1 => self.bytes[0] == 0,
+            2 => self.bytes[0] == 0 && self.bytes[1] == 0,
+            _ => self.bytes[0] == 0 && self.bytes[1] == 0 && self.bytes[2] == 0,
+        }
+    }
+
     /// Create a bundle tailored for filling purposes.
     pub fn fill(value: u8) -> Self {
         Self {
@@ -105,6 +115,11 @@ pub struct Object {
     /// Bundle representing the actual value.
     pub bundle: Bundle,
 
+    /// Node which marks the source of the computed `bundle` attribute. This is
+    /// only provided in cases like macro calls where at the crunching stage we
+    /// might need to fetch previous context for the current `bundle` value.
+    pub node: Option<PNode>,
+
     /// The mapping index where the object was found. Note that this index
     /// doesn't mean much on the table, but it has to mean something by the
     /// caller.
@@ -124,6 +139,7 @@ impl Object {
     pub fn new(mapping: usize, segment: usize, object_type: ObjectType) -> Self {
         Self {
             bundle: Bundle::default(),
+            node: None,
             mapping,
             segment,
             object_type,

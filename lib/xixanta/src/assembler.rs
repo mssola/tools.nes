@@ -247,6 +247,7 @@ impl<'a> Assembler<'a> {
         };
         let var_value = Object {
             bundle: Bundle::fill(value),
+            node: None,
             mapping: self.current_mapping,
             segment: self.current_segment,
             object_type: ObjectType::Value,
@@ -338,6 +339,7 @@ impl<'a> Assembler<'a> {
                                 &node.value,
                                 &Object {
                                     bundle: value,
+                                    node: None,
                                     mapping: self.current_mapping,
                                     segment: self.current_segment,
                                     object_type: ObjectType::Value,
@@ -481,6 +483,7 @@ impl<'a> Assembler<'a> {
                 resolved: false,
                 negative: false,
             },
+            node: None,
             mapping: self.current_mapping,
             segment: self.current_segment,
             object_type: ObjectType::Address,
@@ -774,6 +777,7 @@ impl<'a> Assembler<'a> {
                 self.literal_mode = None;
                 let obj = Object {
                     bundle: self.evaluate_node(arg)?,
+                    node: Some(arg.clone()),
                     mapping: self.current_mapping,
                     segment: self.current_segment,
                     object_type: ObjectType::Value,
@@ -1571,6 +1575,7 @@ impl<'a> Assembler<'a> {
                     &args.last().unwrap().value,
                     &Object {
                         bundle: Bundle::fill(i as u8),
+                        node: None,
                         mapping: self.current_mapping,
                         segment: self.current_segment,
                         object_type: ObjectType::Value,
@@ -1908,7 +1913,31 @@ impl<'a> Assembler<'a> {
 
     fn evaluate_variable(&mut self, node: &PNode) -> Result<Bundle, Error> {
         match self.context.get_variable(&node.value, &self.mappings) {
-            Ok(value) => Ok(value.bundle),
+            Ok(mut value) => {
+                // If the given variable has a zero value AND we are resolving
+                // pending nodes AND the variable has a node object in it, then
+                // chances are that this is a macro call with an argument to be
+                // resolved. Hence, the value is not this empty variable but the
+                // node to be resolved which is contained on this "variable".
+                if self.stage == Stage::Crunching && value.bundle.is_zero() && value.node.is_some()
+                {
+                    // Evaluate the node, which has the proper (resolved at this
+                    // stage) value.
+                    let bundle = self.evaluate_node(&value.node.clone().unwrap())?;
+
+                    // Overwrite the variable with this new value. This way the
+                    // next time this is found we don't have to evaluate it
+                    // again.  If the variable could not be set, then it's not
+                    // that big of a deal at this stage.
+                    value.bundle = bundle.clone();
+                    let _ = self.context.set_variable(&node.value, &value, true);
+
+                    // And return the computed bundle.
+                    Ok(bundle)
+                } else {
+                    Ok(value.bundle)
+                }
+            }
             Err(e) => Err(Error {
                 message: e,
                 line: node.value.line,
@@ -3282,6 +3311,35 @@ jsr Movement::update
         assert_eq!(res[4].bytes[0], 0x20);
         assert_eq!(res[4].bytes[1], 0x01);
         assert_eq!(res[4].bytes[2], 0x80);
+    }
+
+    #[test]
+    fn jmp_by_using_address_in_macro() {
+        let res = just_bundles(
+            r#"
+.macro JAL ADDR
+  jmp ADDR
+.endmacro
+
+JAL procedure
+
+.proc procedure
+  rts
+.endproc
+    "#,
+        );
+
+        assert_eq!(res.len(), 2);
+
+        // JAL procedure
+        assert_eq!(res[0].size, 3);
+        assert_eq!(res[0].bytes[0], 0x4C);
+        assert_eq!(res[0].bytes[1], 0x03);
+        assert_eq!(res[0].bytes[2], 0x80);
+
+        // rts
+        assert_eq!(res[1].size, 1);
+        assert_eq!(res[1].bytes[0], 0x60);
     }
 
     // Control statements
