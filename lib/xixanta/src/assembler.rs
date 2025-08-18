@@ -900,6 +900,11 @@ impl<'a> Assembler<'a> {
         let mut right = self.evaluate_node(node.right.as_ref().unwrap())?;
         let rval = right.value();
 
+        // Some operations need to evaluate a "left" node, and the literal mode
+        // might have been changed by the previous evaluation of the "right"
+        // node. Hence, reset it here to avoid problems.
+        self.literal_mode = None;
+
         let res: isize = match operation_type {
             OperationType::UnaryPositive => {
                 right.negative = false;
