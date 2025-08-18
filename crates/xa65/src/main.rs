@@ -14,7 +14,7 @@ struct Args {
     config: Option<String>,
     target: Option<String>,
     out: String,
-    error: bool,
+    strict: bool,
 }
 
 // Print the help message and quit.
@@ -24,7 +24,7 @@ fn print_help() {
     println!("Options:");
     println!("  -b, --bin <PROGRAM>\tAlternative to the binary for 'nasm'.");
     println!("  -C, --config <FILE>\tLinker configuration to be used, whether an identifier or a file path.");
-    println!("  -e, --error\tDon't dismiss errors from 'nasm' and use the same exit code.");
+    println!("  -s, --strict\tError out if the output differ or 'nasm' has produced an error.");
     println!("  -o, --out <FILE>\tFile path where the output should be located after execution.");
     println!("  --target nes\t\tUsed for compatibility with 'ca65'.");
     std::process::exit(0);
@@ -57,7 +57,6 @@ fn parse_arguments() -> Args {
                     }
                 },
             },
-            "-e" | "--error" => res.error = true,
             "-h" | "--help" => print_help(),
             "-o" | "--out" => {
                 if res.out.is_empty() {
@@ -71,6 +70,7 @@ fn parse_arguments() -> Args {
                     die("only specify the '-o/--out' flag once".to_string());
                 }
             }
+            "-s" | "--strict" => res.strict = true,
             "--target" => match res.target {
                 Some(_) => die("only specify the '--target' flag once".to_string()),
                 None => match args.next() {
@@ -209,6 +209,8 @@ fn attempt_hexdump(dir: &Path) {
 }
 
 fn main() {
+    let mut exit_code = 0;
+
     // Parse arguments.
     let args = parse_arguments();
 
@@ -242,7 +244,7 @@ fn main() {
         .status()
     {
         Ok(cmd) => {
-            if !cmd.success() && args.error {
+            if !cmd.success() && args.strict {
                 std::process::exit(cmd.code().unwrap_or(1));
             }
         }
@@ -296,6 +298,12 @@ fn main() {
                     "xa65 (error): 'nasm' and 'ca65' have a mismatch. Check the results at {}",
                     dir.display()
                 );
+
+                // If 'strict' was enabled, an error should be produced in the
+                // end.
+                if args.strict {
+                    exit_code = 1;
+                }
             }
         }
         Err(e) => {
@@ -310,4 +318,6 @@ fn main() {
     if let Err(e) = std::fs::copy(dir.join("cl65.nes"), args.out) {
         die(format!("could not copy the resulting binary: {e}"));
     }
+
+    std::process::exit(exit_code);
 }
