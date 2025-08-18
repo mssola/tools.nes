@@ -32,6 +32,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install cc65 from Ubuntu sources
+        run: |
+          sudo apt-get update
+          sudo apt-get install cc65
+
       - name: Ensure latest Rust stable
         run: |
           rustup update stable
