@@ -448,11 +448,33 @@ impl<'a> Assembler<'a> {
                         });
                     }
 
-                    // If this control statement actually has a body, go inside
-                    // of it.
+                    // If this control statement actually has a body, try to go
+                    // inside of it. That is not possible, for example, on
+                    // if/ifdef/ifndef conditions with a condition that
+                    // evaluates to false.
                     if control_type.has_body() {
-                        let inner = &node.right.as_ref().unwrap().args.as_ref().unwrap();
-                        self.eval_context(inner)?;
+                        match control_type {
+                            ControlType::IfDef | ControlType::IfNDef => {
+                                // NOTE: you cannot realistically evaluate a
+                                // condition which might depend on macro
+                                // arguments which have not been provided at
+                                // this stage. Hence, don't go into the inner
+                                // block if this is the case.
+                                if self.macros_seen == 0 {
+                                    self.evaluate_ifdef_block(node)?
+                                }
+                            }
+                            ControlType::If => {
+                                // NOTE: see IfDef | IfNDef.
+                                if self.macros_seen == 0 {
+                                    self.evaluate_if_block(node)?;
+                                }
+                            }
+                            _ => {
+                                let inner = &node.right.as_ref().unwrap().args.as_ref().unwrap();
+                                self.eval_context(inner)?;
+                            }
+                        };
                     }
                 }
                 _ => {}
@@ -1649,6 +1671,8 @@ impl<'a> Assembler<'a> {
                 source: self.source_for(node),
                 global: false,
             });
+        } else if self.stage == Stage::Context {
+            self.eval_context(inner)?;
         } else {
             self.bundle(inner)?;
         }
@@ -3629,6 +3653,29 @@ JAL procedure
             assert_eq!(res[i].bytes[0], instrs[i][0]);
             assert_eq!(res[i].bytes[1], instrs[i][1]);
         }
+    }
+
+    #[test]
+    fn dont_redefine_variables_inside_false_ifdefs() {
+        let res = just_bundles(
+            r#"Var = 1
+.ifndef Var
+  Var = 0
+.endif
+
+.if !.defined(Var)
+  Var = 0
+.endif
+
+lda #Var
+"#,
+        );
+
+        assert_eq!(res.len(), 1);
+
+        assert_eq!(res[0].size, 2);
+        assert_eq!(res[0].bytes[0], 0xA9);
+        assert_eq!(res[0].bytes[1], 0x01);
     }
 
     // Macros
