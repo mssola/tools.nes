@@ -1,0 +1,6 @@
+[submodule "tests/aoc2023.nes"]
+	path = tests/aoc2023.nes
+	url = git@github.com:mssola/aoc2023.nes
+[submodule "tests/code.nes"]
+	path = tests/code.nes
+	url = git@github.com:mssola/code.nes
