@@ -12,6 +12,7 @@ authors = ["Miquel Sabaté Solà <mikisabate@gmail.com>"]
 [workspace.dependencies]
 xixanta = { path = "./lib/xixanta", version = "0.1.0" }
 header = { path = "./lib/header", version = "0.1.0" }
+vnf = { path = "./lib/vnf", version = "0.1.0" }
 
 [profile.release]
 codegen-units = 1

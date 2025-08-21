@@ -1,0 +1,11 @@
+[package]
+name = "vnf"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+header.workspace = true
+xixanta.workspace = true

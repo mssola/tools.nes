@@ -53,6 +53,12 @@ can be gathered from it. For now this only applies to information on the header,
 but in the future we might want to add disassembling user-specified segments,
 for example.
 
+## `vnf`
+
+**V**irtual **N**ES/**F**amicom is an NES/Famicom virtual machine. The main
+purpose of this is to be able to run an NES/Famicom programatically, so
+developers can use it to test their resulting ROM files.
+
 ## License
 
 This repository holds two licenses, as you can also note on the `Cargo.toml`

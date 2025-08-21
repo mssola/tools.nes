@@ -35,6 +35,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "runrom"
+version = "0.1.0"
+dependencies = [
+ "header",
+ "vnf",
+]
+
+[[package]]
+name = "vnf"
+version = "0.1.0"
+dependencies = [
+ "header",
+ "xixanta",
+]
+
+[[package]]
 name = "xa65"
 version = "0.1.0"
 
