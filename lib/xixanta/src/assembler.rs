@@ -13,7 +13,7 @@ use std::ops::Neg;
 
 /// The mode in which a literal is expressed.
 #[derive(Clone, PartialEq)]
-pub enum LiteralMode {
+enum LiteralMode {
     /// An 8/16 bit hexadecimal value.
     Hexadecimal,
 
@@ -27,7 +27,7 @@ pub enum LiteralMode {
 /// The different stages that the assembler goes through and which are relevant
 /// for the process.
 #[derive(PartialEq)]
-pub enum Stage {
+enum Stage {
     /// The context is still building up (i.e. we don't have all the variable
     /// values, labels and their addresses yet).
     Context,
@@ -43,8 +43,10 @@ pub enum Stage {
     Crunching,
 }
 
+/// A Node which is pending to be resolved, with all the info necessary so a
+/// stage like Stage::Crunching can re-create the original context.
 #[derive(Clone, Debug)]
-pub struct PendingNode {
+struct PendingNode {
     mapping: usize,
     segment: usize,
     context: String,
@@ -53,7 +55,7 @@ pub struct PendingNode {
     labels_seen: usize,
 }
 
-pub struct Assembler<'a> {
+struct Assembler<'a> {
     context: Context,
     literal_mode: Option<LiteralMode>,
     stage: Stage,
@@ -83,11 +85,24 @@ pub struct Assembler<'a> {
     sources: Vec<SourceInfo>,
 }
 
+/// All the information that a caller needs after calling either
+/// `assembler::assemble` or `assembler::assemble_with_mapping`.
 #[derive(Debug)]
 pub struct AssemblerResult {
+    /// The binary data that comes as a result from assembling a given
+    /// source. Ignore this if `errors` is not empty.
     pub bundles: Vec<Bundle>,
+
+    /// Errors which the assembler detected and which should make the
+    /// application to fail.
     pub errors: Vec<Error>,
+
+    /// Issues caught by the assembler which is up to the application to deem as
+    /// a failure or not.
     pub warnings: Vec<Error>,
+
+    /// The resulting mappings after assembling a source. You can count on
+    /// fields like `offset` if `errors` is empty.
     pub mappings: Vec<Mapping>,
 }
 
@@ -218,7 +233,7 @@ pub fn assemble_with_mapping(
 }
 
 impl<'a> Assembler<'a> {
-    pub fn new(mappings: Vec<Mapping>) -> Self {
+    fn new(mappings: Vec<Mapping>) -> Self {
         Self {
             context: Context::new(),
             literal_mode: None,
@@ -238,7 +253,7 @@ impl<'a> Assembler<'a> {
     }
 
     /// Define a new variable by using the given `name` and `value`.
-    pub fn define_variable_value(&mut self, name: &String, value: u8) -> Result<(), Error> {
+    fn define_variable_value(&mut self, name: &String, value: u8) -> Result<(), Error> {
         if name.is_empty() {
             return Err(Error {
                 global: true,
