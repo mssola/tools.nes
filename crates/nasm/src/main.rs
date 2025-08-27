@@ -14,6 +14,7 @@ struct Args {
     out: Option<String>,
     werror: bool,
     stdout: bool,
+    stats: bool,
     defines: Vec<(String, u8)>,
 }
 
@@ -25,6 +26,7 @@ fn print_help() {
     println!("  -c, --config <FILE>\tLinker configuration to be used, whether an identifier or a file path.");
     println!("  -D <NAME>(=VALUE)\tDefine an 8-bit variable on the global scope (default: 1)");
     println!("  -o, --out <FILE>\tFile path where the output should be located after execution.");
+    println!("  -s, --stats\t\tPrint the statistics on how segments have been filled.");
     println!("  --stdout\t\tPrint the output binary to the standard output.");
     println!("  -Werror\t\tWarnings should be treated as errors.");
     std::process::exit(0);
@@ -100,6 +102,7 @@ fn parse_arguments() -> Args {
                     }
                 }
             },
+            "-s" | "--stats" => res.stats = true,
             "--stdout" => match res.out {
                 Some(_) => die("you cannot mix '-o/--out' and '--stdout'".to_string()),
                 None => {
@@ -210,6 +213,27 @@ fn main() {
                     eprintln!("error: could not write result in '{output_name}': {e}");
                     std::process::exit(1);
                 }
+            }
+        }
+    }
+
+    if args.stats {
+        println!("== Statistics ==\n");
+        println!("=> Amount of space on each segment (in bytes):\n");
+
+        for mapping in res.mappings {
+            let perc = (mapping.offset * 100) as f64 / mapping.size as f64;
+
+            if perc.fract().abs() < f64::EPSILON {
+                println!(
+                    "{}: {}/{} ({:.0}%)",
+                    mapping.name, mapping.offset, mapping.size, perc
+                );
+            } else {
+                println!(
+                    "{}: {}/{} ({:.2}%)",
+                    mapping.name, mapping.offset, mapping.size, perc
+                );
             }
         }
     }

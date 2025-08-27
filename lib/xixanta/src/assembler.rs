@@ -88,6 +88,7 @@ pub struct AssemblerResult {
     pub bundles: Vec<Bundle>,
     pub errors: Vec<Error>,
     pub warnings: Vec<Error>,
+    pub mappings: Vec<Mapping>,
 }
 
 /// Read the contents from the `reader` as a source file and produce a list of
@@ -114,6 +115,7 @@ pub fn assemble(
                     source,
                 }],
                 warnings: vec![],
+                mappings: vec![],
             };
         }
     };
@@ -143,6 +145,7 @@ pub fn assemble_with_mapping(
             bundles: vec![],
             errors,
             warnings: asm.warnings,
+            mappings: asm.mappings,
         };
     }
 
@@ -157,6 +160,7 @@ pub fn assemble_with_mapping(
                 bundles: vec![],
                 errors: e.into(),
                 warnings: vec![],
+                mappings: asm.mappings,
             };
         }
     }
@@ -168,6 +172,7 @@ pub fn assemble_with_mapping(
             bundles: vec![],
             errors,
             warnings: asm.warnings,
+            mappings: asm.mappings,
         };
     }
 
@@ -180,6 +185,7 @@ pub fn assemble_with_mapping(
             bundles: vec![],
             errors,
             warnings: asm.warnings,
+            mappings: asm.mappings,
         };
     }
 
@@ -190,6 +196,7 @@ pub fn assemble_with_mapping(
             bundles: vec![],
             errors,
             warnings: asm.warnings,
+            mappings: asm.mappings,
         };
     }
 
@@ -199,11 +206,13 @@ pub fn assemble_with_mapping(
             bundles,
             errors: vec![],
             warnings: asm.warnings,
+            mappings: asm.mappings,
         },
         Err(errors) => AssemblerResult {
             bundles: vec![],
             errors,
             warnings: asm.warnings,
+            mappings: asm.mappings,
         },
     }
 }
