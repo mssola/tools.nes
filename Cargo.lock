@@ -14,20 +14,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ncount"
-version = "0.0.1"
-dependencies = [
- "xixanta",
-]
-
-[[package]]
-name = "ngrep"
-version = "0.0.1"
-dependencies = [
- "xixanta",
-]
-
-[[package]]
 name = "readrom"
 version = "1.0.0"
 dependencies = [
