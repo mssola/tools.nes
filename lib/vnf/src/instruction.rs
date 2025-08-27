@@ -6,9 +6,14 @@ use xixanta::opcodes::AddressingMode;
 pub enum InstructionIdentifier {
     Unknown,
     Start,
+    Adc,
     And,
+    Asl,
+    Bcc,
+    Bcs,
     Bit,
     Beq,
+    Bmi,
     Bne,
     Bpl,
     Clc,
@@ -21,6 +26,7 @@ pub enum InstructionIdentifier {
     Dec,
     Dex,
     Dey,
+    Eor,
     Inc,
     Inx,
     Iny,
@@ -31,7 +37,11 @@ pub enum InstructionIdentifier {
     Ldy,
     Lsr,
     Nop,
+    Ora,
     Rts,
+    Rol,
+    Ror,
+    Sbc,
     Sec,
     Sed,
     Sei,
@@ -70,11 +80,16 @@ impl Instruction {
 impl std::fmt::Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let id = match self.identifier {
+            InstructionIdentifier::Adc => "adc",
             InstructionIdentifier::And => "and",
+            InstructionIdentifier::Asl => "asl",
+            InstructionIdentifier::Bcc => "bcc",
+            InstructionIdentifier::Bcs => "bcs",
             InstructionIdentifier::Bit => "bit",
             InstructionIdentifier::Beq => "beq",
             InstructionIdentifier::Bne => "bne",
             InstructionIdentifier::Bpl => "bpl",
+            InstructionIdentifier::Bmi => "bmi",
             InstructionIdentifier::Clc => "clc",
             InstructionIdentifier::Cld => "cld",
             InstructionIdentifier::Cli => "cli",
@@ -85,6 +100,7 @@ impl std::fmt::Display for Instruction {
             InstructionIdentifier::Dec => "dec",
             InstructionIdentifier::Dex => "dex",
             InstructionIdentifier::Dey => "dey",
+            InstructionIdentifier::Eor => "eor",
             InstructionIdentifier::Inc => "inc",
             InstructionIdentifier::Inx => "inx",
             InstructionIdentifier::Iny => "iny",
@@ -95,7 +111,11 @@ impl std::fmt::Display for Instruction {
             InstructionIdentifier::Ldy => "ldy",
             InstructionIdentifier::Lsr => "lsr",
             InstructionIdentifier::Nop => "nop",
+            InstructionIdentifier::Ora => "ora",
+            InstructionIdentifier::Rol => "rol",
+            InstructionIdentifier::Ror => "ror",
             InstructionIdentifier::Rts => "rts",
+            InstructionIdentifier::Sbc => "sbc",
             InstructionIdentifier::Sec => "sec",
             InstructionIdentifier::Sed => "sed",
             InstructionIdentifier::Sei => "sei",
@@ -109,7 +129,7 @@ impl std::fmt::Display for Instruction {
             InstructionIdentifier::Txs => "txs",
             InstructionIdentifier::Tya => "tya",
             InstructionIdentifier::Start => "<start>",
-            _ => "<unknown>",
+            InstructionIdentifier::Unknown => "<unknown>",
         };
 
         match self.addressing_mode {
@@ -157,6 +177,104 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
         },
     );
 
+    // adc
+    ops.insert(
+        0x69,
+        Instruction {
+            identifier: InstructionIdentifier::Adc,
+            addressing_mode: AddressingMode::Immediate,
+            cycles: 2,
+            opcode: 0x69,
+            size: 2,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x65,
+        Instruction {
+            identifier: InstructionIdentifier::Adc,
+            addressing_mode: AddressingMode::RelativeOrZeropage,
+            cycles: 3,
+            opcode: 0x65,
+            size: 2,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x75,
+        Instruction {
+            identifier: InstructionIdentifier::Adc,
+            addressing_mode: AddressingMode::ZeropageIndexedX,
+            cycles: 4,
+            opcode: 0x75,
+            size: 2,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x6D,
+        Instruction {
+            identifier: InstructionIdentifier::Adc,
+            addressing_mode: AddressingMode::Absolute,
+            cycles: 4,
+            opcode: 0x6D,
+            size: 3,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x7D,
+        Instruction {
+            identifier: InstructionIdentifier::Adc,
+            addressing_mode: AddressingMode::IndexedX,
+            cycles: 4,
+            opcode: 0x7D,
+            size: 3,
+            affected_on_page: true,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x79,
+        Instruction {
+            identifier: InstructionIdentifier::Adc,
+            addressing_mode: AddressingMode::IndexedY,
+            cycles: 4,
+            opcode: 0x79,
+            size: 3,
+            affected_on_page: true,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x61,
+        Instruction {
+            identifier: InstructionIdentifier::Adc,
+            addressing_mode: AddressingMode::IndirectX,
+            cycles: 6,
+            opcode: 0x61,
+            size: 2,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x71,
+        Instruction {
+            identifier: InstructionIdentifier::Adc,
+            addressing_mode: AddressingMode::IndirectY,
+            cycles: 5,
+            opcode: 0x71,
+            size: 2,
+            affected_on_page: true,
+            bytes: [0, 0],
+        },
+    );
+
     // and
     ops.insert(
         0x29,
@@ -170,7 +288,153 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             bytes: [0, 0],
         },
     );
-    // TODO
+    ops.insert(
+        0x25,
+        Instruction {
+            identifier: InstructionIdentifier::And,
+            addressing_mode: AddressingMode::RelativeOrZeropage,
+            cycles: 3,
+            opcode: 0x25,
+            size: 2,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x35,
+        Instruction {
+            identifier: InstructionIdentifier::And,
+            addressing_mode: AddressingMode::ZeropageIndexedX,
+            cycles: 4,
+            opcode: 0x35,
+            size: 2,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x2D,
+        Instruction {
+            identifier: InstructionIdentifier::And,
+            addressing_mode: AddressingMode::Absolute,
+            cycles: 4,
+            opcode: 0x2D,
+            size: 3,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x3D,
+        Instruction {
+            identifier: InstructionIdentifier::And,
+            addressing_mode: AddressingMode::IndexedX,
+            cycles: 4,
+            opcode: 0x3D,
+            size: 3,
+            affected_on_page: true,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x39,
+        Instruction {
+            identifier: InstructionIdentifier::And,
+            addressing_mode: AddressingMode::IndexedY,
+            cycles: 4,
+            opcode: 0x39,
+            size: 3,
+            affected_on_page: true,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x21,
+        Instruction {
+            identifier: InstructionIdentifier::And,
+            addressing_mode: AddressingMode::IndirectX,
+            cycles: 6,
+            opcode: 0x21,
+            size: 2,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x31,
+        Instruction {
+            identifier: InstructionIdentifier::And,
+            addressing_mode: AddressingMode::IndirectY,
+            cycles: 5,
+            opcode: 0x31,
+            size: 2,
+            affected_on_page: true,
+            bytes: [0, 0],
+        },
+    );
+
+    // asl
+    ops.insert(
+        0x0A,
+        Instruction {
+            identifier: InstructionIdentifier::Asl,
+            addressing_mode: AddressingMode::Implied,
+            cycles: 2,
+            opcode: 0x0A,
+            size: 1,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x06,
+        Instruction {
+            identifier: InstructionIdentifier::Asl,
+            addressing_mode: AddressingMode::RelativeOrZeropage,
+            cycles: 5,
+            opcode: 0x06,
+            size: 2,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x16,
+        Instruction {
+            identifier: InstructionIdentifier::Asl,
+            addressing_mode: AddressingMode::ZeropageIndexedX,
+            cycles: 6,
+            opcode: 0x16,
+            size: 2,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x0E,
+        Instruction {
+            identifier: InstructionIdentifier::Asl,
+            addressing_mode: AddressingMode::Absolute,
+            cycles: 6,
+            opcode: 0x0E,
+            size: 3,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+
+    ops.insert(
+        0x1E,
+        Instruction {
+            identifier: InstructionIdentifier::Asl,
+            addressing_mode: AddressingMode::IndexedX,
+            cycles: 7,
+            opcode: 0x1E,
+            size: 3,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
 
     // bit
     ops.insert(
@@ -198,6 +462,34 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
         },
     );
 
+    // bcc
+    ops.insert(
+        0x90,
+        Instruction {
+            identifier: InstructionIdentifier::Bcc,
+            addressing_mode: AddressingMode::RelativeOrZeropage,
+            cycles: 2,
+            opcode: 0x90,
+            size: 2,
+            affected_on_page: true,
+            bytes: [0, 0],
+        },
+    );
+
+    // bcs
+    ops.insert(
+        0xB0,
+        Instruction {
+            identifier: InstructionIdentifier::Bcs,
+            addressing_mode: AddressingMode::RelativeOrZeropage,
+            cycles: 2,
+            opcode: 0xB0,
+            size: 2,
+            affected_on_page: true,
+            bytes: [0, 0],
+        },
+    );
+
     // beq
     ops.insert(
         0xF0,
@@ -207,7 +499,7 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0xF0,
             size: 2,
-            affected_on_page: false,
+            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -221,7 +513,7 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0xD0,
             size: 2,
-            affected_on_page: false,
+            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -235,7 +527,21 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0x10,
             size: 2,
-            affected_on_page: false,
+            affected_on_page: true,
+            bytes: [0, 0],
+        },
+    );
+
+    // bmi
+    ops.insert(
+        0x30,
+        Instruction {
+            identifier: InstructionIdentifier::Bmi,
+            addressing_mode: AddressingMode::RelativeOrZeropage,
+            cycles: 2,
+            opcode: 0x30,
+            size: 2,
+            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -544,6 +850,104 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             opcode: 0x88,
             size: 1,
             affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+
+    // eor
+    ops.insert(
+        0x49,
+        Instruction {
+            identifier: InstructionIdentifier::Eor,
+            addressing_mode: AddressingMode::Immediate,
+            cycles: 2,
+            opcode: 0x49,
+            size: 2,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x45,
+        Instruction {
+            identifier: InstructionIdentifier::Eor,
+            addressing_mode: AddressingMode::RelativeOrZeropage,
+            cycles: 3,
+            opcode: 0x45,
+            size: 2,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x55,
+        Instruction {
+            identifier: InstructionIdentifier::Eor,
+            addressing_mode: AddressingMode::ZeropageIndexedX,
+            cycles: 4,
+            opcode: 0x55,
+            size: 2,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x4D,
+        Instruction {
+            identifier: InstructionIdentifier::Eor,
+            addressing_mode: AddressingMode::Absolute,
+            cycles: 4,
+            opcode: 0x4D,
+            size: 3,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x5D,
+        Instruction {
+            identifier: InstructionIdentifier::Eor,
+            addressing_mode: AddressingMode::IndexedX,
+            cycles: 4,
+            opcode: 0x5D,
+            size: 3,
+            affected_on_page: true,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x59,
+        Instruction {
+            identifier: InstructionIdentifier::Eor,
+            addressing_mode: AddressingMode::IndexedY,
+            cycles: 4,
+            opcode: 0x59,
+            size: 3,
+            affected_on_page: true,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x41,
+        Instruction {
+            identifier: InstructionIdentifier::Eor,
+            addressing_mode: AddressingMode::IndirectX,
+            cycles: 6,
+            opcode: 0x41,
+            size: 2,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x51,
+        Instruction {
+            identifier: InstructionIdentifier::Eor,
+            addressing_mode: AddressingMode::IndirectY,
+            cycles: 5,
+            opcode: 0x51,
+            size: 2,
+            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -953,6 +1357,228 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
         },
     );
 
+    // ora
+    ops.insert(
+        0x09,
+        Instruction {
+            identifier: InstructionIdentifier::Ora,
+            addressing_mode: AddressingMode::Immediate,
+            cycles: 2,
+            opcode: 0x09,
+            size: 2,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x05,
+        Instruction {
+            identifier: InstructionIdentifier::Ora,
+            addressing_mode: AddressingMode::RelativeOrZeropage,
+            cycles: 3,
+            opcode: 0x05,
+            size: 2,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x15,
+        Instruction {
+            identifier: InstructionIdentifier::Ora,
+            addressing_mode: AddressingMode::ZeropageIndexedX,
+            cycles: 4,
+            opcode: 0x15,
+            size: 2,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x0D,
+        Instruction {
+            identifier: InstructionIdentifier::Ora,
+            addressing_mode: AddressingMode::Absolute,
+            cycles: 4,
+            opcode: 0x0D,
+            size: 3,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x1D,
+        Instruction {
+            identifier: InstructionIdentifier::Ora,
+            addressing_mode: AddressingMode::IndexedX,
+            cycles: 4,
+            opcode: 0x1D,
+            size: 3,
+            affected_on_page: true,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x19,
+        Instruction {
+            identifier: InstructionIdentifier::Ora,
+            addressing_mode: AddressingMode::IndexedY,
+            cycles: 4,
+            opcode: 0x19,
+            size: 3,
+            affected_on_page: true,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x01,
+        Instruction {
+            identifier: InstructionIdentifier::Ora,
+            addressing_mode: AddressingMode::IndirectX,
+            cycles: 6,
+            opcode: 0x01,
+            size: 2,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x11,
+        Instruction {
+            identifier: InstructionIdentifier::Ora,
+            addressing_mode: AddressingMode::IndirectY,
+            cycles: 5,
+            opcode: 0x11,
+            size: 2,
+            affected_on_page: true,
+            bytes: [0, 0],
+        },
+    );
+
+    // rol
+    ops.insert(
+        0x2A,
+        Instruction {
+            identifier: InstructionIdentifier::Rol,
+            addressing_mode: AddressingMode::Implied,
+            cycles: 2,
+            opcode: 0x2A,
+            size: 1,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x26,
+        Instruction {
+            identifier: InstructionIdentifier::Rol,
+            addressing_mode: AddressingMode::RelativeOrZeropage,
+            cycles: 5,
+            opcode: 0x26,
+            size: 2,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x36,
+        Instruction {
+            identifier: InstructionIdentifier::Rol,
+            addressing_mode: AddressingMode::ZeropageIndexedX,
+            cycles: 6,
+            opcode: 0x36,
+            size: 2,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x2E,
+        Instruction {
+            identifier: InstructionIdentifier::Rol,
+            addressing_mode: AddressingMode::Absolute,
+            cycles: 6,
+            opcode: 0x2E,
+            size: 3,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x3E,
+        Instruction {
+            identifier: InstructionIdentifier::Rol,
+            addressing_mode: AddressingMode::IndexedX,
+            cycles: 7,
+            opcode: 0x3E,
+            size: 3,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+
+    // ror
+    ops.insert(
+        0x6A,
+        Instruction {
+            identifier: InstructionIdentifier::Ror,
+            addressing_mode: AddressingMode::Implied,
+            cycles: 2,
+            opcode: 0x6A,
+            size: 1,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x66,
+        Instruction {
+            identifier: InstructionIdentifier::Ror,
+            addressing_mode: AddressingMode::RelativeOrZeropage,
+            cycles: 5,
+            opcode: 0x66,
+            size: 2,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x76,
+        Instruction {
+            identifier: InstructionIdentifier::Ror,
+            addressing_mode: AddressingMode::ZeropageIndexedX,
+            cycles: 6,
+            opcode: 0x76,
+            size: 2,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x6E,
+        Instruction {
+            identifier: InstructionIdentifier::Ror,
+            addressing_mode: AddressingMode::Absolute,
+            cycles: 6,
+            opcode: 0x6E,
+            size: 3,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0x7E,
+        Instruction {
+            identifier: InstructionIdentifier::Ror,
+            addressing_mode: AddressingMode::IndexedX,
+            cycles: 7,
+            opcode: 0x7E,
+            size: 3,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+
     // rts
     ops.insert(
         0x60,
@@ -961,6 +1587,118 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             addressing_mode: AddressingMode::Implied,
             cycles: 6,
             opcode: 0x60,
+            size: 1,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+
+    // sbc
+    ops.insert(
+        0xE9,
+        Instruction {
+            identifier: InstructionIdentifier::Sbc,
+            addressing_mode: AddressingMode::Immediate,
+            cycles: 2,
+            opcode: 0xE9,
+            size: 2,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0xE5,
+        Instruction {
+            identifier: InstructionIdentifier::Sbc,
+            addressing_mode: AddressingMode::RelativeOrZeropage,
+            cycles: 3,
+            opcode: 0xE5,
+            size: 2,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0xF5,
+        Instruction {
+            identifier: InstructionIdentifier::Sbc,
+            addressing_mode: AddressingMode::ZeropageIndexedX,
+            cycles: 4,
+            opcode: 0xF5,
+            size: 2,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0xED,
+        Instruction {
+            identifier: InstructionIdentifier::Sbc,
+            addressing_mode: AddressingMode::Absolute,
+            cycles: 4,
+            opcode: 0xED,
+            size: 3,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0xFD,
+        Instruction {
+            identifier: InstructionIdentifier::Sbc,
+            addressing_mode: AddressingMode::IndexedX,
+            cycles: 4,
+            opcode: 0xFD,
+            size: 3,
+            affected_on_page: true,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0xF9,
+        Instruction {
+            identifier: InstructionIdentifier::Sbc,
+            addressing_mode: AddressingMode::IndexedY,
+            cycles: 4,
+            opcode: 0xF9,
+            size: 3,
+            affected_on_page: true,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0xE1,
+        Instruction {
+            identifier: InstructionIdentifier::Sbc,
+            addressing_mode: AddressingMode::IndirectX,
+            cycles: 6,
+            opcode: 0xE1,
+            size: 2,
+            affected_on_page: false,
+            bytes: [0, 0],
+        },
+    );
+    ops.insert(
+        0xF1,
+        Instruction {
+            identifier: InstructionIdentifier::Sbc,
+            addressing_mode: AddressingMode::IndirectY,
+            cycles: 5,
+            opcode: 0xF1,
+            size: 2,
+            affected_on_page: true,
+            bytes: [0, 0],
+        },
+    );
+
+    // sec
+    ops.insert(
+        0x38,
+        Instruction {
+            identifier: InstructionIdentifier::Sec,
+            addressing_mode: AddressingMode::Implied,
+            cycles: 2,
+            opcode: 0x38,
             size: 1,
             affected_on_page: false,
             bytes: [0, 0],

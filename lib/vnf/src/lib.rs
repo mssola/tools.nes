@@ -14,7 +14,7 @@ pub mod instruction;
 // there needs to be a translation between the Rom's prg_rom and the working
 // prg_rom. NOTE: self.ip - 0x8000.
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct StatusRegister {
     negative: bool,
     overflow: bool,
@@ -23,6 +23,20 @@ pub struct StatusRegister {
     interrupt: bool,
     zero: bool,
     carry: bool,
+}
+
+impl Default for StatusRegister {
+    fn default() -> Self {
+        Self {
+            negative: false,
+            overflow: false,
+            brk: false,
+            decimal: false,
+            interrupt: true,
+            zero: false,
+            carry: false,
+        }
+    }
 }
 
 impl StatusRegister {
@@ -135,6 +149,9 @@ impl Joypad {
 }
 
 pub struct Machine {
+    active: bool,
+    run_function_mode: bool,
+
     pub prg_rom: Vec<u8>,
     pub prg_rom_size: usize,
     pub current_instruction: Instruction,
@@ -151,7 +168,6 @@ pub struct Machine {
 
     pub ram: Vec<MemoryCell>,
 
-    // TODO: what about overflows?
     pub a: u8,
     pub x: u8,
     pub y: u8,
@@ -163,6 +179,8 @@ pub struct Machine {
     pub verbose: bool,
     should_report_apu: bool,
     should_report_ppu: bool,
+
+    initial_stack_value: u8,
 
     policy: MemoryPolicy,
 
@@ -189,6 +207,13 @@ fn init_memory(policy: &MemoryPolicy) -> Vec<MemoryCell> {
     }
 
     vec
+}
+
+macro_rules! u16_to_u8_with_carry {
+    ($val:expr) => {{
+        let low_byte = ($val & 0x00FF) as u8;
+        (low_byte, ($val & 0xFF00) != 0)
+    }};
 }
 
 impl Machine {
@@ -222,11 +247,13 @@ impl Machine {
 
         // TODO: allow for randomized initialization.
         Ok(Self {
+            active: true,
+            run_function_mode: false,
             prg_rom,
             prg_rom_size: header.prg_rom_size,
             pc: start as usize,
             skip_pc: false,
-            cycles: 0,
+            cycles: 7, // NOTE: as per 6502 initialization process.
             extra_cycles: 0,
             page_penalty: 0,
             instructions: 0,
@@ -242,7 +269,8 @@ impl Machine {
             a: 0,
             x: 0,
             y: 0,
-            s: 0,
+            s: 0xFD, // NOTE: as per 6502 initialization process.
+            initial_stack_value: 0xFD,
             ram: init_memory(&policy),
             status_register: StatusRegister::default(),
             apu: APU::default(),
@@ -302,6 +330,10 @@ impl Machine {
             );
             self.should_report_ppu = false;
         }
+
+        if !self.active {
+            println!("<end>");
+        }
     }
 
     fn joypad_read(&mut self, id: usize) -> Result<u8, String> {
@@ -330,7 +362,14 @@ impl Machine {
             Some(jp) => match jp.state {
                 JoypadState::Waiting => {
                     if value != 1 {
-                        return Err(format!("expecting exacly a '1', '{}' received", value));
+                        // NOTE: if we are writing on joypad 2, then there might
+                        // be a conflict with the APU frame counter. If that's
+                        // the case, then ignore this "error" and just return
+                        // early. In any other case, a value != 1 is an error.
+                        if id == 0 {
+                            return Err(format!("expecting exacly a '1', '{}' received", value));
+                        }
+                        return Ok(());
                     }
                     jp.state = JoypadState::Received;
                     Ok(())
@@ -395,7 +434,7 @@ impl Machine {
             Some(instr) => instr.clone(),
             None => {
                 return Err(format!(
-                    "could not find instruction with opcode <{:x}>",
+                    "could not find instruction with opcode <{:02X}>",
                     opcode
                 ))
             }
@@ -415,6 +454,16 @@ impl Machine {
                 self.current_instruction.bytes = [0, 0];
             }
         };
+
+        Ok(())
+    }
+
+    pub fn run_function(&mut self) -> Result<(), String> {
+        self.run_function_mode = true;
+
+        while self.active {
+            self.next()?;
+        }
 
         Ok(())
     }
@@ -487,7 +536,7 @@ impl Machine {
     }
 
     fn pop_stack(&mut self) -> Result<u8, String> {
-        if self.s == 0xFF {
+        if self.s == self.initial_stack_value {
             return Err("stack overflow!".to_string());
         }
 
@@ -499,6 +548,10 @@ impl Machine {
 
         let address = 0x200 + self.s as u16;
         self.read_memory(address)
+    }
+
+    fn is_stack_empty(&mut self) -> bool {
+        self.s == self.initial_stack_value
     }
 
     fn compare(&mut self, value: i16) -> Result<(), String> {
@@ -525,49 +578,64 @@ impl Machine {
             InstructionIdentifier::Clv => self.status_register.overflow = false,
 
             // Arithmetic and logic.
+            InstructionIdentifier::Adc => {
+                let mut val = (self.load()? as u16) + self.a as u16;
+                if self.status_register.carry {
+                    val += 1;
+                }
+                (self.a, self.status_register.carry) = u16_to_u8_with_carry!(val);
+
+                self.status_register.zero = self.a == 0;
+                self.status_register.negative = (self.a & 0x80) == 0x80;
+            }
+            InstructionIdentifier::Sbc => {
+                let mut val = self.a as i16 - self.load()? as i16;
+                if !self.status_register.carry {
+                    val -= 1;
+                }
+                (self.a, self.status_register.carry) = u16_to_u8_with_carry!(val as u16);
+
+                self.status_register.zero = self.a == 0;
+                self.status_register.negative = (self.a & 0x80) == 0x80;
+            }
             InstructionIdentifier::And => {
                 let val = self.load()?;
                 self.a &= val;
                 self.status_register.zero = self.a == 0;
                 self.status_register.negative = (self.a & 0x80) == 0x80;
             }
+            InstructionIdentifier::Ora => {
+                let val = self.load()?;
+                self.a |= val;
+                self.status_register.zero = self.a == 0;
+                self.status_register.negative = (self.a & 0x80) == 0x80;
+            }
+            InstructionIdentifier::Eor => {
+                let val = self.load()?;
+                self.a ^= val;
+                self.status_register.zero = self.a == 0;
+                self.status_register.negative = (self.a & 0x80) == 0x80;
+            }
             InstructionIdentifier::Inc => {
-                let mut val = self.load()?;
-                if val == u8::MAX {
-                    self.store(0)?;
+                let val = ((self.load()? as u16 + 1) & 0x00FF) as u8;
 
-                    self.status_register.zero = true;
-                    self.status_register.negative = false;
-                } else {
-                    val += 1;
-                    self.store(val)?;
-                    self.status_register.zero = false;
-                    self.status_register.negative = (val & 0x80) == 0x80;
-                }
+                self.store(val)?;
+                self.status_register.zero = val == 0;
+                self.status_register.negative = (val & 0x80) == 0x80;
             }
             InstructionIdentifier::Inx => {
-                if self.x == u8::MAX {
-                    self.x = 0;
+                let val = ((self.x as u16 + 1) & 0x00FF) as u8;
 
-                    self.status_register.zero = true;
-                    self.status_register.negative = false;
-                } else {
-                    self.x += 1;
-                    self.status_register.zero = false;
-                    self.status_register.negative = (self.x & 0x80) == 0x80;
-                }
+                self.x = val;
+                self.status_register.zero = val == 0;
+                self.status_register.negative = (val & 0x80) == 0x80;
             }
             InstructionIdentifier::Iny => {
-                if self.y == u8::MAX {
-                    self.y = 0;
+                let val = ((self.y as u16 + 1) & 0x00FF) as u8;
 
-                    self.status_register.zero = true;
-                    self.status_register.negative = false;
-                } else {
-                    self.y += 1;
-                    self.status_register.zero = false;
-                    self.status_register.negative = (self.x & 0x80) == 0x80;
-                }
+                self.y = val;
+                self.status_register.zero = val == 0;
+                self.status_register.negative = (val & 0x80) == 0x80;
             }
             InstructionIdentifier::Dec => {
                 let mut val = self.load()?;
@@ -607,6 +675,23 @@ impl Machine {
                     self.status_register.negative = (self.y & 0x80) == 0x80;
                 }
             }
+            InstructionIdentifier::Asl => {
+                match self.current_instruction.addressing_mode {
+                    AddressingMode::Implied => {
+                        let val = (self.a as u16) << 1;
+                        (self.a, self.status_register.carry) = u16_to_u8_with_carry!(val);
+                        self.status_register.zero = self.a == 0;
+                        self.status_register.negative = (val & 0x0080) == 0x0080;
+                    }
+                    _ => {
+                        let val = (self.load()? as u16) << 1;
+                        self.status_register.carry = (val & 0xFF00) != 0;
+                        self.status_register.zero = val == 0;
+                        self.store((val & 0x00FF) as u8)?;
+                        self.status_register.negative = (val & 0x0080) == 0x0080;
+                    }
+                };
+            }
             InstructionIdentifier::Lsr => {
                 match self.current_instruction.addressing_mode {
                     AddressingMode::Implied => {
@@ -615,9 +700,59 @@ impl Machine {
                         self.status_register.zero = self.a == 0;
                     }
                     _ => {
-                        let mut val = self.load()? as usize;
+                        let mut val = self.load()? as u16;
                         self.status_register.carry = (val & 0x1) == 0x1;
                         val >>= 1;
+                        self.status_register.zero = self.a == 0;
+                        self.store(val as u8)?;
+                    }
+                };
+                self.status_register.negative = false;
+            }
+            InstructionIdentifier::Ror => {
+                match self.current_instruction.addressing_mode {
+                    AddressingMode::Implied => {
+                        let carry = self.status_register.carry;
+                        self.status_register.carry = (self.a & 0x1) == 0x1;
+                        self.a >>= 1;
+                        if carry {
+                            self.a |= 0x80;
+                        }
+                        self.status_register.zero = self.a == 0;
+                    }
+                    _ => {
+                        let mut val = self.load()? as usize;
+                        let carry = self.status_register.carry;
+                        self.status_register.carry = (val & 0x1) == 0x1;
+                        val >>= 1;
+                        if carry {
+                            val |= 0x80;
+                        }
+                        self.status_register.zero = self.a == 0;
+                        self.store(val as u8)?;
+                    }
+                };
+                self.status_register.negative = false;
+            }
+            InstructionIdentifier::Rol => {
+                match self.current_instruction.addressing_mode {
+                    AddressingMode::Implied => {
+                        let carry = self.status_register.carry;
+                        self.status_register.carry = (self.a & 0x80) == 0x80;
+                        self.a <<= 1;
+                        if carry {
+                            self.a |= 0x01;
+                        }
+                        self.status_register.zero = self.a == 0;
+                    }
+                    _ => {
+                        let mut val = self.load()? as usize;
+                        let carry = self.status_register.carry;
+                        self.status_register.carry = (val & 0x80) == 0x80;
+                        val <<= 1;
+                        if carry {
+                            val |= 0x01;
+                        }
                         self.status_register.zero = self.a == 0;
                         self.store(val as u8)?;
                     }
@@ -664,6 +799,16 @@ impl Machine {
                 self.pc = address;
                 self.skip_pc = true;
             }
+            InstructionIdentifier::Bcs => {
+                if self.status_register.carry {
+                    self.branch();
+                }
+            }
+            InstructionIdentifier::Bcc => {
+                if !self.status_register.carry {
+                    self.branch();
+                }
+            }
             InstructionIdentifier::Beq => {
                 if self.status_register.zero {
                     self.branch();
@@ -679,7 +824,21 @@ impl Machine {
                     self.branch();
                 }
             }
+            InstructionIdentifier::Bmi => {
+                if self.status_register.negative {
+                    self.branch();
+                }
+            }
             InstructionIdentifier::Rts => {
+                // If the stack is empty but we were just running a function,
+                // then assume that the machine is done.
+                if self.is_stack_empty() && self.run_function_mode {
+                    if self.active {
+                        self.active = false;
+                    }
+                    return Ok(());
+                }
+
                 // Pull the previous address from the stack and jump there. Note
                 // that we have to subtract the current instruction's size
                 // because it will be re-added after the call to `execute`.
@@ -694,7 +853,10 @@ impl Machine {
             InstructionIdentifier::Tay => self.y = self.a,
             InstructionIdentifier::Tsx => self.x = self.s,
             InstructionIdentifier::Txa => self.a = self.x,
-            InstructionIdentifier::Txs => self.s = self.x,
+            InstructionIdentifier::Txs => {
+                self.s = self.x;
+                self.initial_stack_value = self.x;
+            }
             InstructionIdentifier::Tya => self.a = self.y,
 
             // other
@@ -705,8 +867,10 @@ impl Machine {
                 self.status_register.overflow = (val & 0x40) == 0x40;
             }
 
-            // Unknown + nop
-            _ => {}
+            InstructionIdentifier::Start | InstructionIdentifier::Nop => {}
+            InstructionIdentifier::Unknown => {
+                return Err("found an unknown instruction!".to_string());
+            }
         }
 
         Ok(())
@@ -756,7 +920,6 @@ impl Machine {
                 0x2007 => self.ppu.data,
                 0x4010 => self.apu.dmc,
                 0x4014 => self.ppu.oam_dma, // TODO: maybe read fault
-                0x4017 => self.apu.frame_counter, // TODO: WTF??? ON THE VALUE
                 0x00..0x2000 => {
                     // NOTE: 0x0800 until 0x2000 are simply mirrors of the first
                     // 2KB. Let's mask out the upper bits.
@@ -768,6 +931,8 @@ impl Machine {
                     *self.prg_rom.get(real).unwrap() as u8
                 }
                 0x4016 => self.joypad_read(0)?,
+                // NOTE: the joypad 2 and the APU frame counter share the same
+                // address, but read is only reserved for joypad 2.
                 0x4017 => self.joypad_read(1)?,
                 _ => todo!(),
             }
@@ -845,9 +1010,15 @@ impl Machine {
                 self.ppu.oam_dma = value;
                 self.should_report_ppu = self.verbose;
             }
+            0x4016 => self.joypad_write(0, value)?,
             0x4017 => {
+                // NOTE: a write on $4017 affects both the APU frame counter and
+                // the joypad 2 read sequence.
+
                 self.apu.frame_counter = value;
                 self.should_report_apu = self.verbose;
+
+                self.joypad_write(1, value)?;
             }
             0x00..0x2000 => {
                 // NOTE: 0x0800 until 0x2000 are simply mirrors of the first
@@ -855,8 +1026,6 @@ impl Machine {
                 let real = address & 0x07FF;
                 self.write_memory(real as u16, value)?;
             }
-            0x4016 => self.joypad_write(0, value)?,
-            0x4017 => self.joypad_write(1, value)?,
             _ => {
                 println!("HERE!: {:04X}", address);
                 self.report();
@@ -866,4 +1035,11 @@ impl Machine {
 
         Ok(())
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // TODO
 }

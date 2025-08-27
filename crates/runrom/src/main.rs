@@ -10,14 +10,17 @@ const VERSION: &str = "0.1.0";
 struct Args {
     file: String,
     start: Option<u16>,
+    assume_function: bool,
 }
 
 fn print_help() {
     println!("Run an NES/Famicom ROM for testing purposes.\n");
     println!("usage: runrom [OPTIONS] <FILE>\n");
     println!("Options:");
-    println!("  -h, --help\tPrint this message and quit.");
-    println!("  -s, --start\tAddress from where to start (default: reset vector).");
+    println!("  -f, --function\tRun the code by assuming it's a function.");
+    println!("  -h, --help\t\tPrint this message and quit.");
+    println!("  -s, --start\t\tAddress from where to start (default: reset vector).");
+    println!("  -v, --version\t\tPrint version information.");
     std::process::exit(0);
 }
 
@@ -81,6 +84,9 @@ fn parse_arguments() -> Args {
                     Ok(n) => res.start = Some(n),
                     Err(e) => die(e),
                 }
+            }
+            "-f" | "--function" => {
+                res.assume_function = true;
             }
             "-v" | "--version" => {
                 println!("runrom {VERSION}");
@@ -157,7 +163,7 @@ fn start_from_reset_vector(file: &String) -> u16 {
     ((buf[1] as u16) << 8) + buf[0] as u16
 }
 
-fn run(file: &String, start: u16) -> Result<(), String> {
+fn run(file: &String, start: u16, assume_function: bool) -> Result<(), String> {
     let mut machine = Machine::from(
         file,
         start,
@@ -170,15 +176,11 @@ fn run(file: &String, start: u16) -> Result<(), String> {
     )?;
     machine.verbose = true;
 
-    machine.until_address(0x9500)?;
-    // machine.next()?;
-    // machine.next()?;
-    // machine.next()?;
-    // machine.next()?;
-    // machine.next()?;
-    // machine.next()?;
-
-    Ok(())
+    if assume_function {
+        machine.run_function()
+    } else {
+        machine.until_address(0x9500)
+    }
 }
 
 fn main() {
@@ -188,7 +190,7 @@ fn main() {
         None => start_from_reset_vector(&args.file),
     };
 
-    match run(&args.file, start) {
+    match run(&args.file, start, args.assume_function) {
         Ok(m) => m,
         Err(e) => {
             die(e);
