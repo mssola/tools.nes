@@ -1,3 +1,4 @@
+use header::Header;
 use std::fs::File;
 use std::io::{self, Write};
 use std::path::Path;
@@ -205,8 +206,36 @@ fn main() {
         error_count += 1;
     }
 
-    // If everything was right, just deliver the bundles.
+    // Deliver the bundles unless the header is borked.
     if error_count == 0 {
+        // Fetch the header first.
+        let mut temptative_header = vec![];
+        for b in &res.bundles {
+            for i in 0..b.size {
+                temptative_header.push(b.bytes[i as usize]);
+            }
+            if temptative_header.len() >= 0x10 {
+                break;
+            }
+        }
+
+        // Validate the resulting header.
+        match Header::try_from(temptative_header.as_slice()) {
+            Ok(header) => {
+                if res.accessing_working_ram && !header.has_persistent_memory {
+                    die(
+                        "requires Working RAM but the ROM header does not advertise it".to_string(),
+                    );
+                }
+            }
+            Err(e) => {
+                die(format!(
+                    "output would produce a malformed NES/Famicom ROM: {e}"
+                ));
+            }
+        };
+
+        // And now deliver the bundles.
         for b in res.bundles {
             for i in 0..b.size {
                 if let Err(e) = output.write_all(&[b.bytes[i as usize]]) {

@@ -6,3 +6,4 @@ authors = ["Miquel Sabaté Solà <mikisabate@gmail.com>"]
 
 [dependencies]
 xixanta.workspace = true
+header.workspace = true

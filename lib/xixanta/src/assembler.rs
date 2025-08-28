@@ -83,6 +83,10 @@ struct Assembler<'a> {
     // Sources that have been evaluated for the current session. This is
     // directly tied to `Parser::sources`.
     sources: Vec<SourceInfo>,
+
+    // Whether the assembler has detected accesses to Working RAM or not
+    // (0x6000-0x7FFF).
+    accessing_working_ram: bool,
 }
 
 /// All the information that a caller needs after calling either
@@ -104,6 +108,10 @@ pub struct AssemblerResult {
     /// The resulting mappings after assembling a source. You can count on
     /// fields like `offset` if `errors` is empty.
     pub mappings: Vec<Mapping>,
+
+    /// Whether the resulting ROM needs Working RAM to be available in order to
+    /// work. Ignore this field if `errors` is not empty.
+    pub accessing_working_ram: bool,
 }
 
 /// Read the contents from the `reader` as a source file and produce a list of
@@ -131,6 +139,7 @@ pub fn assemble(
                 }],
                 warnings: vec![],
                 mappings: vec![],
+                accessing_working_ram: false,
             };
         }
     };
@@ -161,6 +170,7 @@ pub fn assemble_with_mapping(
             errors,
             warnings: asm.warnings,
             mappings: asm.mappings,
+            accessing_working_ram: asm.accessing_working_ram,
         };
     }
 
@@ -176,6 +186,7 @@ pub fn assemble_with_mapping(
                 errors: e.into(),
                 warnings: vec![],
                 mappings: asm.mappings,
+                accessing_working_ram: asm.accessing_working_ram,
             };
         }
     }
@@ -188,6 +199,7 @@ pub fn assemble_with_mapping(
             errors,
             warnings: asm.warnings,
             mappings: asm.mappings,
+            accessing_working_ram: asm.accessing_working_ram,
         };
     }
 
@@ -201,6 +213,7 @@ pub fn assemble_with_mapping(
             errors,
             warnings: asm.warnings,
             mappings: asm.mappings,
+            accessing_working_ram: asm.accessing_working_ram,
         };
     }
 
@@ -212,6 +225,7 @@ pub fn assemble_with_mapping(
             errors,
             warnings: asm.warnings,
             mappings: asm.mappings,
+            accessing_working_ram: asm.accessing_working_ram,
         };
     }
 
@@ -222,12 +236,14 @@ pub fn assemble_with_mapping(
             errors: vec![],
             warnings: asm.warnings,
             mappings: asm.mappings,
+            accessing_working_ram: asm.accessing_working_ram,
         },
         Err(errors) => AssemblerResult {
             bundles: vec![],
             errors,
             warnings: asm.warnings,
             mappings: asm.mappings,
+            accessing_working_ram: asm.accessing_working_ram,
         },
     }
 }
@@ -249,6 +265,7 @@ impl<'a> Assembler<'a> {
             repeats_seen: 0,
             warnings: vec![],
             sources: vec![],
+            accessing_working_ram: false,
         }
     }
 
@@ -2002,6 +2019,15 @@ impl<'a> Assembler<'a> {
             Some(_) => self.get_addressing_mode_and_bytes(node)?,
             None => (AddressingMode::Implied, Bundle::new(true)),
         };
+
+        // If the instruction is accessing memory and the bundle is resolved, we
+        // can start gathering info on the memory being used.
+        if bundle.resolved && !matches!(mode, AddressingMode::Implied | AddressingMode::Immediate) {
+            let value = bundle.value() as usize;
+            if (0x6000..0x8000).contains(&value) {
+                self.accessing_working_ram = true;
+            }
+        }
 
         let mnemonic = node.value.value.to_lowercase();
         match INSTRUCTIONS.get(&mnemonic) {
