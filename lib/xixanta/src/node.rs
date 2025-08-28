@@ -249,6 +249,12 @@ pub enum OperationType {
     Greater,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum CommentType {
+    AsanReserve(u8),
+    AsanWeak,
+}
+
 /// The PNode type.
 #[derive(Debug, Clone, PartialEq)]
 pub enum NodeType {
@@ -299,6 +305,9 @@ pub enum NodeType {
     /// A operation expression. If the operation has two sides, then the left
     /// and right arms contain the operands, otherwise only the right one.
     Operation(OperationType),
+
+    /// A command which is relevant for the current session.
+    Comment(CommentType),
 }
 
 impl fmt::Display for NodeType {
@@ -337,6 +346,10 @@ impl fmt::Display for NodeType {
                 OperationType::GreaterEqual => write!(f, "greater or equal"),
                 OperationType::Less => write!(f, "less"),
                 OperationType::Greater => write!(f, "greater"),
+            },
+            NodeType::Comment(ct) => match ct {
+                CommentType::AsanReserve(_) => write!(f, ";; asan:reserve"),
+                CommentType::AsanWeak => write!(f, ";; asan:weak"),
             },
         }
     }

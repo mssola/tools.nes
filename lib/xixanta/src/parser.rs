@@ -1,9 +1,17 @@
-use crate::node::{ControlType, NodeBodyType, NodeType, OperationType, PNode, PString};
+use crate::node::{
+    CommentType, ControlType, NodeBodyType, NodeType, OperationType, PNode, PString,
+};
 use crate::opcodes::{CONTROL_FUNCTIONS, INSTRUCTIONS};
 use crate::{Error, SourceInfo};
 use std::cmp::Ordering;
 use std::io::{self, BufRead, Read};
 use std::path;
+
+// Kinds of whitespace stops that can be found by `skip_whitespace`.
+enum Whitespace {
+    Empty,
+    Comment,
+}
 
 /// The Parser struct holds basic data for the current parsing session.
 #[derive(Default)]
@@ -134,16 +142,125 @@ impl Parser {
         self.nodes.first().unwrap().to_vec()
     }
 
+    // Handle the comment at the `init` offset for the given `line`. That is,
+    // check on whether there is a special directive which needs to be treated
+    // differently.
+    fn handle_comment(&mut self, line: &str, init: usize) -> Result<(), Vec<Error>> {
+        let mut offset = init;
+        for c in line.get(offset..).unwrap_or("").chars() {
+            if c != ';' && !c.is_whitespace() {
+                break;
+            }
+            offset += 1;
+        }
+
+        let start = offset;
+        let mut cmd = String::from("");
+        for c in line.get(offset..).unwrap_or("").chars() {
+            if c.is_whitespace() {
+                break;
+            }
+            cmd.push(c);
+            offset += 1;
+        }
+
+        match cmd.as_str() {
+            "asan:reserve" => {
+                // Skip whitespaces.
+                for c in line.get(offset..).unwrap_or("").chars() {
+                    if c != ';' && !c.is_whitespace() {
+                        break;
+                    }
+                    offset += 1;
+                }
+
+                // Fetch the argument.
+                let mut arg = String::from("");
+                for c in line.get(offset..).unwrap_or("").chars() {
+                    if c.is_whitespace() {
+                        break;
+                    }
+                    arg.push(c);
+                }
+
+                // Argument validation.
+                if !arg.starts_with('$') || arg.len() > 3 {
+                    return Err(Error {
+                        line: self.line,
+                        global: false,
+                        source: self.sources[self.current_source].clone(),
+                        message: "expecting a byte formatted with a leading '$' sign".to_string(),
+                    }
+                    .into());
+                }
+                let Ok(val) = u8::from_str_radix(arg.get(1..).unwrap_or("00"), 16) else {
+                    return Err(Error {
+                        line: self.line,
+                        global: false,
+                        source: self.sources[self.current_source].clone(),
+                        message: "could not parse asan:reserve number".to_string(),
+                    }
+                    .into());
+                };
+                if val < 2 {
+                    return Err(Error {
+                        line: self.line,
+                        global: false,
+                        source: self.sources[self.current_source].clone(),
+                        message: "bad asan:reserve number, should be higher than $01".to_string(),
+                    }
+                    .into());
+                }
+
+                // Push whatever was parsed.
+                self.nodes.last_mut().unwrap().push(PNode {
+                    node_type: NodeType::Comment(CommentType::AsanReserve(val)),
+                    value: PString {
+                        value: cmd,
+                        line: self.line,
+                        start,
+                        end: offset - 1,
+                    },
+                    left: None,
+                    right: None,
+                    args: None,
+                    source: self.current_source,
+                });
+            }
+            "asan:weak" => {
+                self.nodes.last_mut().unwrap().push(PNode {
+                    node_type: NodeType::Comment(CommentType::AsanWeak),
+                    value: PString {
+                        value: cmd,
+                        line: self.line,
+                        start,
+                        end: offset - 1,
+                    },
+                    left: None,
+                    right: None,
+                    args: None,
+                    source: self.current_source,
+                });
+            }
+            &_ => {}
+        }
+
+        Ok(())
+    }
+
     // Parse a single `line` and push the parsed nodes into `self.nodes`.
     fn parse_line(&mut self, line: &str) -> Result<(), Vec<Error>> {
         self.column = 0;
         self.offset = 0;
 
         // Skip until the first non-whitespace character. If that's not
-        // possible, then it's an empty line and we can return early.
-        if !self.skip_whitespace(line) {
-            return Ok(());
-        }
+        // possible, then it's an empty line and we can return early. If the
+        // line is a comment, check if there are any special statements in it.
+        match self.skip_whitespace(line) {
+            Some(Whitespace::Empty) => return Ok(()),
+            Some(Whitespace::Comment) => return self.handle_comment(line, self.offset),
+            None => {}
+        };
 
         // Let's pin point the last character we need to care for parsing. This
         // can be either the start position of an inline comment (i.e. ';'), or
@@ -200,7 +317,8 @@ impl Parser {
     }
 
     // Returns the index to the absolute end of the semantic line (i.e.
-    // everything before the end of the string or an inline comment).
+    // everything before the end of the string or an inline comment). If there
+    // was an inline comment, it will also call `handle_comment` for it.
     fn find_line_end(&mut self, line: &str) -> Result<usize, Error> {
         // If there is no semicolon, then we just return the end of the line.
         let Some(sc) = line.find(';') else {
@@ -210,12 +328,18 @@ impl Parser {
         // If there is no double quote, then the semicolon that we found is
         // really an inline comment.
         let Some(quote) = line.find('"') else {
+            if let Err(errors) = self.handle_comment(line, sc) {
+                return Err(errors.first().unwrap().clone());
+            }
             return Ok(sc);
         };
 
         // If the quote character is after the semicolon, then it's inside of
         // the comment.
         if quote > sc {
+            if let Err(errors) = self.handle_comment(line, sc) {
+                return Err(errors.first().unwrap().clone());
+            }
             return Ok(sc);
         }
 
@@ -233,6 +357,9 @@ impl Parser {
         if end_quote > sc {
             Ok(end_quote)
         } else {
+            if let Err(errors) = self.handle_comment(line, sc) {
+                return Err(errors.first().unwrap().clone());
+            }
             Ok(sc)
         }
     }
@@ -303,7 +430,7 @@ impl Parser {
                                             global: false,
                                             source: self.sources[self.current_source].clone(),
                                             message: "you cannot have a relative label inside of an identifier".to_string(),
-                                    });
+                                        });
                                     }
 
                                     // Skip the ':' character for the next loop.
@@ -753,9 +880,7 @@ impl Parser {
         };
         if *node_type != expected_close {
             return Err(self
-                .parser_error(
-                    format!("expecting '{expected_close}', found '{node_type}'").as_str(),
-                )
+                .parser_error(format!("expecting '{expected_close}', found '{node_type}'").as_str())
                 .into());
         }
 
@@ -810,9 +935,7 @@ impl Parser {
                 line: node.value.line,
                 global: false,
                 source: current_source.clone(),
-                message: format!(
-                    "could not find out the parent directory for file '{file_path}'"
-                ),
+                message: format!("could not find out the parent directory for file '{file_path}'"),
             }
             .into());
         };
@@ -1572,24 +1695,25 @@ impl Parser {
 
     // Advances `self.column` and `self.offset` until a non-whitespace character
     // is found. Note that the initial index is bound to `self.offset`. Returns
-    // false if the line can be skipped entirely, true otherwise.
-    fn skip_whitespace(&mut self, line: &str) -> bool {
+    // None if a non-whitespace character could be found, otherwise a Whitespace
+    // value on what kind of whitespace made the parsing stop.
+    fn skip_whitespace(&mut self, line: &str) -> Option<Whitespace> {
         if line.is_empty() {
-            return false;
+            return Some(Whitespace::Empty);
         }
 
         for c in line.get(self.offset..).unwrap_or("").chars() {
             if !c.is_whitespace() {
                 if c == ';' {
-                    return false;
+                    return Some(Whitespace::Comment);
                 }
-                return true;
+                return None;
             }
 
             self.next();
         }
 
-        true
+        None
     }
 
     // Increment `self.column` and `self.offset` by one.
@@ -3112,5 +3236,72 @@ inc $20
             assert_node(args.first().unwrap(), NodeType::Value, line, "arg1");
             assert_node(args.last().unwrap(), NodeType::Value, line, "arg2");
         }
+    }
+
+    #[test]
+    fn parse_comment_asan_reserve() {
+        let code = r#";; asan:reserve $02
+VAR = $00
+
+VAR2 = $02 ;; asan:reserve $03
+"#;
+        let mut parser = Parser::default();
+        assert!(parser.parse(code.as_bytes(), SourceInfo::default()).is_ok());
+
+        let nodes = parser.nodes();
+        assert_eq!(nodes.len(), 4);
+
+        assert_node(
+            nodes.first().unwrap(),
+            NodeType::Comment(CommentType::AsanReserve(2)),
+            code,
+            "asan:reserve",
+        );
+
+        // Yeah, `assert_node` is bad at multi-line cases, let's do it
+        // manually...
+        let last = nodes.get(2).unwrap();
+        assert_eq!(
+            last.node_type,
+            NodeType::Comment(CommentType::AsanReserve(3))
+        );
+        assert_eq!(last.value.line, 3);
+        assert_eq!(last.value.start, 14);
+        assert_eq!(last.value.end, 26);
+        assert_eq!(last.value.value.as_str(), "asan:reserve");
+    }
+
+    #[test]
+    fn parse_comment_asan_reserve_no_hex() {
+        let code = r#";; asan:reserve 02
+;; asan:reserve $00
+;; asan:reserve $1
+;; asan:reserve $123
+"#;
+
+        let mut parser = Parser::default();
+        let res = parser.parse(code.as_bytes(), SourceInfo::default());
+
+        assert!(res.is_err());
+
+        let errors = res.unwrap_err();
+        assert_eq!(errors.len(), 4);
+
+        assert_eq!(
+            errors.first().unwrap().message,
+            "expecting a byte formatted with a leading '$' sign"
+        );
+        assert_eq!(
+            errors.get(1).unwrap().message,
+            "bad asan:reserve number, should be higher than $01"
+        );
+        assert_eq!(
+            errors.get(2).unwrap().message,
+            "bad asan:reserve number, should be higher than $01"
+        );
+        assert_eq!(
+            errors.last().unwrap().message,
+            "expecting a byte formatted with a leading '$' sign"
+        );
     }
 }
