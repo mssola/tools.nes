@@ -1236,7 +1236,7 @@ impl Parser {
                 return Ok(PNode {
                     node_type: NodeType::Value,
                     value: PString {
-                        value: line.get(start..self.offset).unwrap().to_string(),
+                        value: line.get(start..self.offset).unwrap_or("").to_string(),
                         line: self.line,
                         start: start_column,
                         end: self.column,
