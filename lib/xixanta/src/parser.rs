@@ -752,13 +752,28 @@ impl Parser {
         ) {
             // Validate that it's a top layer statement.
             if self.nodes.len() > 1 {
-                return Err(Error {
-                    line: node.value.line,
-                    global: false,
-                    message: ".include statement cannot be inside of a code block".to_string(),
-                    source: self.sources[self.current_source].clone(),
+                // This is not a top layer statement! Usually it would be a
+                // cause for trouble, but we actually allow this in case this is
+                // all just a bunch of `.scope` statements surrounding
+                // things. NOTE: the iteration has to go over all top nodes
+                // except the last one which is the current one.
+                let nodes = &self.nodes[..self.nodes.len() - 1];
+                if nodes.iter().any(|n| {
+                    !matches!(
+                        n.last().unwrap().node_type,
+                        NodeType::Control(ControlType::StartScope)
+                    )
+                }) {
+                    // There is something else besides a '.scope' statement,
+                    // this is just asking for trouble...
+                    return Err(Error {
+                        line: node.value.line,
+                        global: false,
+                        message: ".include statement cannot be inside of a code block".to_string(),
+                        source: self.sources[self.current_source].clone(),
+                    }
+                    .into());
                 }
-                .into());
             }
 
             // Before including all the nodes from the referenced file, add the
