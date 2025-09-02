@@ -24,9 +24,11 @@ fn print_help() {
     println!("Options:");
     println!("  -b, --bin <PROGRAM>\tAlternative to the binary for 'nasm'.");
     println!("  -C, --config <FILE>\tLinker configuration to be used, whether an identifier or a file path.");
-    println!("  -s, --strict\tError out if the output differ or 'nasm' has produced an error.");
+    println!("  -h, --help\t\tPrint this message.");
+    println!("  -s, --strict\t\tError out if the output differ or 'nasm' has produced an error.");
     println!("  -o, --out <FILE>\tFile path where the output should be located after execution.");
     println!("  --target nes\t\tUsed for compatibility with 'ca65'.");
+    println!("  -v, --version\t\tPrint the version of this program.");
     std::process::exit(0);
 }
 

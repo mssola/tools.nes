@@ -15,7 +15,9 @@ fn print_help() {
     println!("Display information about NES/Famicom ROM files.\n");
     println!("usage: readrom [OPTIONS] <FILE>\n");
     println!("Options:");
-    println!("  -H, --header\tJust print the ROM header and quit.");
+    println!("  -h, --help\t\tPrint this message.");
+    println!("  -H, --header\t\tJust print the ROM header and quit.");
+    println!("  -v, --version\t\tPrint the version of this program.");
     std::process::exit(0);
 }
 

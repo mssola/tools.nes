@@ -26,9 +26,11 @@ fn print_help() {
     println!("Options:");
     println!("  -c, --config <FILE>\tLinker configuration to be used, whether an identifier or a file path.");
     println!("  -D <NAME>(=VALUE)\tDefine an 8-bit variable on the global scope (default: 1)");
+    println!("  -h, --help\t\tPrint this message.");
     println!("  -o, --out <FILE>\tFile path where the output should be located after execution.");
     println!("  -s, --stats\t\tPrint the statistics on how segments have been filled.");
     println!("  --stdout\t\tPrint the output binary to the standard output.");
+    println!("  -v, --version\t\tPrint the version of this program.");
     println!("  -Werror\t\tWarnings should be treated as errors.");
     std::process::exit(0);
 }
