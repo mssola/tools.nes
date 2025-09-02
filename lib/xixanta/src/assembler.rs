@@ -1,5 +1,5 @@
 use crate::mapping::{get_mapping_configuration, Mapping};
-use crate::node::{ControlType, EchoKind, NodeType, OperationType, PNode, PString};
+use crate::node::{CommentType, ControlType, EchoKind, NodeType, OperationType, PNode, PString};
 use crate::object::{Bundle, Context, Object, ObjectType};
 use crate::opcodes::{AddressingMode, INSTRUCTIONS};
 use crate::parser::Parser;
@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::ops::Neg;
+use std::ops::Range;
 
 /// The mode in which a literal is expressed.
 #[derive(Clone, PartialEq)]
@@ -55,6 +56,40 @@ struct PendingNode {
     labels_seen: usize,
 }
 
+/// Memory range that can be identified by a name.
+#[derive(Clone, Debug)]
+pub struct MemoryRange {
+    // The range in memory itself.
+    pub range: Range<usize>,
+
+    // Name that can access this memory range.
+    pub name: String,
+}
+
+impl MemoryRange {
+    /// Display the range in hexadecimal format and by taking into consideration
+    /// on whether it's really a range or a single value.
+    pub fn range_to_human(&self) -> String {
+        if self.range.start + 1 == self.range.end {
+            if self.range.start <= 0xFF {
+                return format!("${:02X}", self.range.start);
+            }
+            return format!("${:04X}", self.range.start);
+        }
+
+        if self.range.start <= 0xFF {
+            return format!("${:02X}-${:02X}", self.range.start, self.range.end - 1);
+        }
+        format!("${:04X}-${:04X}", self.range.start, self.range.end - 1)
+    }
+}
+
+impl std::fmt::Display for MemoryRange {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "'{}' ({})", self.name, self.range_to_human())
+    }
+}
+
 struct Assembler<'a> {
     context: Context,
     literal_mode: Option<LiteralMode>,
@@ -87,6 +122,32 @@ struct Assembler<'a> {
     // Whether the assembler has detected accesses to Working RAM or not
     // (0x6000-0x7FFF).
     accessing_working_ram: bool,
+
+    // Whether the Address Sanitizer is enabled or not.
+    asan_enabled: bool,
+
+    // Whether the next assignment should be ignored or not by the address
+    // sanitizer.
+    asan_next_ignore: bool,
+
+    // The amount of bytes to reserve for the next variable assignment.
+    asan_next_reserve: u8,
+}
+
+/// The result to be given at the end of `assembler::assemble` and
+/// `assembler::assemble_with_mapping` functions. It includes everything a
+/// caller might want to know about the resulting memory layout.
+#[derive(Debug, Default)]
+pub struct MemoryResult {
+    /// Memory ranges used by the source.
+    pub memory_ranges: Vec<MemoryRange>,
+
+    /// Total Internal RAM being used by the source in bytes.
+    pub total_internal_ram: usize,
+
+    /// Total Working RAM being used by the source in bytes. Ignore this field
+    /// if `accessing_working_ram` has been set to false in `Assembler`.
+    pub total_working_ram: usize,
 }
 
 /// All the information that a caller needs after calling either
@@ -112,6 +173,10 @@ pub struct AssemblerResult {
     /// Whether the resulting ROM needs Working RAM to be available in order to
     /// work. Ignore this field if `errors` is not empty.
     pub accessing_working_ram: bool,
+
+    /// The resaulting memory analysis from the address sanitizer. Ignore this
+    /// if you did not assemble the source with the address sanitizer enabled.
+    pub memory: MemoryResult,
 }
 
 /// Read the contents from the `reader` as a source file and produce a list of
@@ -124,7 +189,8 @@ pub fn assemble(
     reader: impl Read,
     mapping: &str,
     defines: &[(String, u8)],
-    source: SourceInfo,
+    source: &SourceInfo,
+    asan: bool,
 ) -> AssemblerResult {
     let config = match get_mapping_configuration(mapping) {
         Ok(config) => config,
@@ -135,16 +201,17 @@ pub fn assemble(
                     global: true,
                     line: 0,
                     message: e,
-                    source,
+                    source: source.clone(),
                 }],
                 warnings: vec![],
                 mappings: vec![],
                 accessing_working_ram: false,
+                memory: MemoryResult::default(),
             };
         }
     };
 
-    assemble_with_mapping(reader, config, defines, source)
+    assemble_with_mapping(reader, config, defines, source, asan)
 }
 
 /// Read the contents from the `reader` as a source file and produce a list of
@@ -157,9 +224,12 @@ pub fn assemble_with_mapping(
     reader: impl Read,
     mapping: Vec<Mapping>,
     defines: &[(String, u8)],
-    source: SourceInfo,
+    source: &SourceInfo,
+    asan: bool,
 ) -> AssemblerResult {
     let mut asm = Assembler::new(mapping);
+    let mut memory = MemoryResult::default();
+    asm.asan_enabled = asan;
 
     // First of all, parse the input so we get a list of nodes we can work
     // with.
@@ -171,6 +241,7 @@ pub fn assemble_with_mapping(
             warnings: asm.warnings,
             mappings: asm.mappings,
             accessing_working_ram: asm.accessing_working_ram,
+            memory,
         };
     }
 
@@ -187,6 +258,7 @@ pub fn assemble_with_mapping(
                 warnings: vec![],
                 mappings: asm.mappings,
                 accessing_working_ram: asm.accessing_working_ram,
+                memory,
             };
         }
     }
@@ -200,6 +272,7 @@ pub fn assemble_with_mapping(
             warnings: asm.warnings,
             mappings: asm.mappings,
             accessing_working_ram: asm.accessing_working_ram,
+            memory,
         };
     }
 
@@ -214,6 +287,7 @@ pub fn assemble_with_mapping(
             warnings: asm.warnings,
             mappings: asm.mappings,
             accessing_working_ram: asm.accessing_working_ram,
+            memory,
         };
     }
 
@@ -226,7 +300,21 @@ pub fn assemble_with_mapping(
             warnings: asm.warnings,
             mappings: asm.mappings,
             accessing_working_ram: asm.accessing_working_ram,
+            memory,
         };
+    }
+
+    if asm.asan_enabled {
+        if let Err(errors) = asm.asan(&mut memory) {
+            return AssemblerResult {
+                bundles: vec![],
+                errors,
+                warnings: asm.warnings,
+                mappings: asm.mappings,
+                accessing_working_ram: asm.accessing_working_ram,
+                memory,
+            };
+        }
     }
 
     // All set, fill the vector of bundles to be returned.
@@ -237,6 +325,7 @@ pub fn assemble_with_mapping(
             warnings: asm.warnings,
             mappings: asm.mappings,
             accessing_working_ram: asm.accessing_working_ram,
+            memory,
         },
         Err(errors) => AssemblerResult {
             bundles: vec![],
@@ -244,6 +333,7 @@ pub fn assemble_with_mapping(
             warnings: asm.warnings,
             mappings: asm.mappings,
             accessing_working_ram: asm.accessing_working_ram,
+            memory,
         },
     }
 }
@@ -266,6 +356,9 @@ impl<'a> Assembler<'a> {
             warnings: vec![],
             sources: vec![],
             accessing_working_ram: false,
+            asan_enabled: false,
+            asan_next_ignore: false,
+            asan_next_reserve: 1,
         }
     }
 
@@ -292,6 +385,8 @@ impl<'a> Assembler<'a> {
             mapping: self.current_mapping,
             segment: self.current_segment,
             object_type: ObjectType::Value,
+            asan_ignore: false,
+            asan_reserve: 1,
         };
 
         if let Err(err) = self.context.set_variable(&var_name, &var_value, false) {
@@ -338,6 +433,12 @@ impl<'a> Assembler<'a> {
         let mut errors = Vec::new();
 
         for node in nodes {
+            // Remove asan:ignore if the current node is not to be an assignment.
+            if self.asan_next_ignore && !matches!(&node.node_type, NodeType::Assignment) {
+                self.asan_next_ignore = false;
+                self.asan_next_reserve = 1;
+            }
+
             match &node.node_type {
                 // At this stage we only define the label into the current
                 // context so it's known. The actual value cannot be computed
@@ -362,6 +463,12 @@ impl<'a> Assembler<'a> {
                         errors.push(err);
                     }
                 }
+                NodeType::Comment(CommentType::AsanReserve(size)) => {
+                    self.asan_next_reserve = *size;
+                }
+                NodeType::Comment(CommentType::AsanIgnore) => {
+                    self.asan_next_ignore = true;
+                }
                 NodeType::Assignment => {
                     if self.macros_seen > 0 || self.repeats_seen > 0 {
                         errors.push(Error {
@@ -374,6 +481,7 @@ impl<'a> Assembler<'a> {
                         continue;
                     }
                     self.literal_mode = None;
+
                     match self.evaluate_node(node.left.as_ref().unwrap()) {
                         Ok(value) => {
                             if let Err(err) = self.context.set_variable(
@@ -384,6 +492,8 @@ impl<'a> Assembler<'a> {
                                     mapping: self.current_mapping,
                                     segment: self.current_segment,
                                     object_type: ObjectType::Value,
+                                    asan_ignore: self.asan_next_ignore,
+                                    asan_reserve: self.asan_next_reserve,
                                 },
                                 false,
                             ) {
@@ -394,6 +504,8 @@ impl<'a> Assembler<'a> {
                                     source: self.source_for(node),
                                 });
                             }
+                            self.asan_next_ignore = false;
+                            self.asan_next_reserve = 1;
                         }
                         Err(e) => errors.push(e),
                     }
@@ -550,6 +662,8 @@ impl<'a> Assembler<'a> {
             mapping: self.current_mapping,
             segment: self.current_segment,
             object_type: ObjectType::Address,
+            asan_ignore: false,
+            asan_reserve: 1,
         };
 
         if !node.value.is_empty() {
@@ -718,6 +832,77 @@ impl<'a> Assembler<'a> {
         }
     }
 
+    fn asan(&mut self, memory: &mut MemoryResult) -> Result<(), Vec<Error>> {
+        let mut errors = vec![];
+
+        for (_context, map) in self.context.map.iter() {
+            for (name, bundle) in map {
+                // Ignore this bundle if the user explicitely told us to do so.
+                if bundle.asan_ignore {
+                    continue;
+                }
+
+                // Evaluate if the given object conflicts with an existing
+                // range.
+                if name.starts_with("zp_") || name.starts_with("m_") || name.starts_with("wr_") {
+                    let val = bundle.bundle.value() as usize;
+                    let range = MemoryRange {
+                        range: (val..val + bundle.asan_reserve as usize),
+                        name: name.clone(),
+                    };
+
+                    for existing in &memory.memory_ranges {
+                        if (range.range.start >= existing.range.start
+                            && range.range.start < existing.range.end)
+                            || (range.range.end > existing.range.start
+                                && range.range.end < existing.range.end)
+                        {
+                            errors.push(Error {
+                                line: 0,
+                                global: true,
+                                message: format!("The variable {range} conflicts with {existing}",),
+                                source: self.sources[0].clone(),
+                            });
+                        }
+                    }
+                    memory.memory_ranges.push(range);
+                }
+
+                // Increase the counters for memory usage on either RAM slot and
+                // check for bounds.
+                if name.starts_with("zp_") || name.starts_with("m_") {
+                    memory.total_internal_ram += bundle.asan_reserve as usize;
+
+                    if memory.total_internal_ram > 0x800 {
+                        errors.push(Error {
+                            line: 0,
+                            global: true,
+                            message: "out of internal RAM".to_string(),
+                            source: self.sources[0].clone(),
+                        });
+                    }
+                } else if name.starts_with("wr_") {
+                    memory.total_working_ram += bundle.asan_reserve as usize;
+
+                    if memory.total_working_ram > 0x2000 {
+                        errors.push(Error {
+                            line: 0,
+                            global: true,
+                            message: "out of working RAM".to_string(),
+                            source: self.sources[0].clone(),
+                        });
+                    }
+                }
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
     fn fill(&mut self) -> Result<Vec<Bundle>, Vec<Error>> {
         let mut errors = vec![];
 
@@ -844,6 +1029,8 @@ impl<'a> Assembler<'a> {
                     mapping: self.current_mapping,
                     segment: self.current_segment,
                     object_type: ObjectType::Value,
+                    asan_ignore: false,
+                    asan_reserve: 1,
                 };
 
                 // Note that we overwrite the variable value from previous
@@ -1641,7 +1828,9 @@ impl<'a> Assembler<'a> {
                         node: None,
                         mapping: self.current_mapping,
                         segment: self.current_segment,
+                        asan_ignore: false,
                         object_type: ObjectType::Value,
+                        asan_reserve: 1,
                     },
                     true,
                 ) {
@@ -2385,7 +2574,13 @@ mod tests {
         // the assembler will freak out.
         let real_line = minimal_header().to_string() + line;
 
-        assemble_with_mapping(real_line.as_bytes(), empty(), &[], SourceInfo::default())
+        assemble_with_mapping(
+            real_line.as_bytes(),
+            empty(),
+            &[],
+            &SourceInfo::default(),
+            false,
+        )
     }
 
     // Like `just_assemble` but it only returns bundles passed the header.
@@ -4202,7 +4397,8 @@ lda #Variable
             .as_bytes(),
             one_two().to_vec(),
             &[],
-            SourceInfo::default(),
+            &SourceInfo::default(),
+            false,
         );
 
         assert_eq!(res.bundles.len(), 0x11);
@@ -4244,7 +4440,8 @@ lda #Variable
             .as_bytes(),
             one_two().to_vec(),
             &[],
-            SourceInfo::default(),
+            &SourceInfo::default(),
+            false,
         );
 
         let bundles = &res.bundles[0x11..];
@@ -4318,7 +4515,8 @@ lda #Variable
             .as_bytes(),
             one_two().to_vec(),
             &[],
-            SourceInfo::default(),
+            &SourceInfo::default(),
+            false,
         );
 
         let bundles = &res.bundles[0x12..]; // Ignoring HEADER + first two ONE
@@ -4366,7 +4564,8 @@ lda #Variable
             .as_bytes(),
             one_two().to_vec(),
             &[],
-            SourceInfo::default(),
+            &SourceInfo::default(),
+            false,
         );
 
         let bundles = &res.bundles[0x11..]; // Ignoring HEADER + first nop
@@ -4421,7 +4620,8 @@ lda #Variable
             .as_bytes(),
             one_two().to_vec(),
             &[],
-            SourceInfo::default(),
+            &SourceInfo::default(),
+            false,
         );
 
         let bundles = &res.bundles[0x10..];
@@ -4448,7 +4648,8 @@ lda #Variable
             .as_bytes(),
             one_two().to_vec(),
             &[],
-            SourceInfo::default(),
+            &SourceInfo::default(),
+            false,
         );
 
         assert_eq!(

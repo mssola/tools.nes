@@ -80,15 +80,15 @@ impl Parser {
     /// Parse the input from the given `reader`. You can then access the results
     /// from the `nodes` field. Otherwise, a vector of Error's might be
     /// returned.
-    pub fn parse(&mut self, reader: impl Read, source: SourceInfo) -> Result<(), Vec<Error>> {
+    pub fn parse(&mut self, reader: impl Read, source: &SourceInfo) -> Result<(), Vec<Error>> {
         let mut errors = Vec::new();
 
         // Push the sources for the parsing session (note that this list might
         // be initialized by the caller already). The `current_source` is simply
         // the one we push upon initialization.
         self.sources.push(SourceInfo {
-            directory: path::absolute(&source.directory).unwrap_or(source.directory),
-            name: source.name,
+            directory: path::absolute(&source.directory).unwrap_or(source.directory.clone()),
+            name: source.name.clone(),
         });
         self.current_source = self.sources.len() - 1;
 
@@ -227,9 +227,9 @@ impl Parser {
                     source: self.current_source,
                 });
             }
-            "asan:weak" => {
+            "asan:ignore" => {
                 self.nodes.last_mut().unwrap().push(PNode {
-                    node_type: NodeType::Comment(CommentType::AsanWeak),
+                    node_type: NodeType::Comment(CommentType::AsanIgnore),
                     value: PString {
                         value: cmd,
                         line: self.line,
@@ -948,7 +948,7 @@ impl Parser {
         };
         parser.parse(
             file,
-            SourceInfo {
+            &SourceInfo {
                 directory: parent.to_path_buf(),
                 name: path.file_name().unwrap().to_str().unwrap().to_string(),
             },
@@ -1735,7 +1735,9 @@ mod tests {
     use crate::node::ControlType;
 
     fn assert_one_valid(parser: &mut Parser, line: &str) {
-        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+        assert!(parser
+            .parse(line.as_bytes(), &SourceInfo::default())
+            .is_ok());
         assert!(parser.nodes.len() == 1);
     }
 
@@ -1753,7 +1755,7 @@ mod tests {
     #[test]
     fn empty_line() {
         let mut parser = Parser::default();
-        assert!(parser.parse("".as_bytes(), SourceInfo::default()).is_ok());
+        assert!(parser.parse("".as_bytes(), &SourceInfo::default()).is_ok());
         assert_eq!(parser.nodes.last().unwrap().len(), 0);
     }
 
@@ -1761,7 +1763,7 @@ mod tests {
     fn spaced_line() {
         let mut parser = Parser::default();
         assert!(parser
-            .parse("   ".as_bytes(), SourceInfo::default())
+            .parse("   ".as_bytes(), &SourceInfo::default())
             .is_ok());
         assert_eq!(parser.nodes.last().unwrap().len(), 0);
     }
@@ -1770,7 +1772,9 @@ mod tests {
     fn just_a_comment_line() {
         for line in vec![";; This is a comment", "    ;; Comment"].into_iter() {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+            assert!(parser
+                .parse(line.as_bytes(), &SourceInfo::default())
+                .is_ok());
             assert_eq!(parser.nodes.last().unwrap().len(), 0);
         }
     }
@@ -1780,7 +1784,7 @@ mod tests {
     #[test]
     fn anonymous_label() {
         let mut parser = Parser::default();
-        assert!(parser.parse(":".as_bytes(), SourceInfo::default()).is_ok());
+        assert!(parser.parse(":".as_bytes(), &SourceInfo::default()).is_ok());
 
         let mut nodes = parser.nodes.last().unwrap();
         assert_eq!(nodes.len(), 1);
@@ -1790,7 +1794,7 @@ mod tests {
 
         parser = Parser::default();
         assert!(parser
-            .parse("  :".as_bytes(), SourceInfo::default())
+            .parse("  :".as_bytes(), &SourceInfo::default())
             .is_ok());
 
         nodes = parser.nodes.last().unwrap();
@@ -1804,7 +1808,7 @@ mod tests {
     fn named_label() {
         let mut parser = Parser::default();
         assert!(parser
-            .parse("label:".as_bytes(), SourceInfo::default())
+            .parse("label:".as_bytes(), &SourceInfo::default())
             .is_ok());
 
         let mut nodes = parser.nodes.last().unwrap();
@@ -1815,7 +1819,7 @@ mod tests {
 
         parser = Parser::default();
         assert!(parser
-            .parse("  label:".as_bytes(), SourceInfo::default())
+            .parse("  label:".as_bytes(), &SourceInfo::default())
             .is_ok());
 
         nodes = parser.nodes.last().unwrap();
@@ -1830,7 +1834,9 @@ mod tests {
         let line = "label: dex";
 
         let mut parser = Parser::default();
-        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+        assert!(parser
+            .parse(line.as_bytes(), &SourceInfo::default())
+            .is_ok());
 
         let nodes = parser.nodes();
         assert_eq!(nodes.len(), 2);
@@ -1849,7 +1855,9 @@ mod tests {
         let line = ".L1: dex";
 
         let mut parser = Parser::default();
-        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+        assert!(parser
+            .parse(line.as_bytes(), &SourceInfo::default())
+            .is_ok());
 
         let nodes = parser.nodes();
         assert_eq!(nodes.len(), 2);
@@ -1876,7 +1884,9 @@ mod tests {
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+            assert!(parser
+                .parse(line.as_bytes(), &SourceInfo::default())
+                .is_ok());
 
             let nodes = parser.nodes();
 
@@ -1896,7 +1906,9 @@ mod tests {
     fn parse_compound_literal() {
         let line = "lda #$20";
         let mut parser = Parser::default();
-        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+        assert!(parser
+            .parse(line.as_bytes(), &SourceInfo::default())
+            .is_ok());
 
         let nodes = parser.nodes();
 
@@ -1924,7 +1936,9 @@ mod tests {
     fn parse_variable_in_literal() {
         let line = "lda #Variable";
         let mut parser = Parser::default();
-        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+        assert!(parser
+            .parse(line.as_bytes(), &SourceInfo::default())
+            .is_ok());
 
         let nodes = parser.nodes();
 
@@ -1946,7 +1960,9 @@ mod tests {
     fn parse_paren_expression() {
         let line = "ldx #(Variable)";
         let mut parser = Parser::default();
-        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+        assert!(parser
+            .parse(line.as_bytes(), &SourceInfo::default())
+            .is_ok());
 
         let instr = parser.nodes.last().unwrap().last().unwrap();
         assert_eq!(instr.node_type, NodeType::Instruction);
@@ -1972,7 +1988,7 @@ mod tests {
         for line in vec!["lda #", "lda #%", "lda $"].into_iter() {
             let mut parser = Parser::default();
             let err = parser
-                .parse(line.as_bytes(), SourceInfo::default())
+                .parse(line.as_bytes(), &SourceInfo::default())
                 .unwrap_err();
 
             assert_eq!(err.first().unwrap().message, "invalid identifier");
@@ -1981,7 +1997,7 @@ mod tests {
         for line in vec!["lda $ 2", "lda #% 2", "lda # 2"].into_iter() {
             let mut parser = Parser::default();
             let err = parser
-                .parse(line.as_bytes(), SourceInfo::default())
+                .parse(line.as_bytes(), &SourceInfo::default())
                 .unwrap_err();
 
             assert_eq!(
@@ -2002,7 +2018,7 @@ mod tests {
         {
             let mut parser = Parser::default();
             let err = parser
-                .parse(line.as_bytes(), SourceInfo::default())
+                .parse(line.as_bytes(), &SourceInfo::default())
                 .unwrap_err();
 
             assert_eq!(err.first().unwrap().message, "bad literal syntax");
@@ -2014,7 +2030,9 @@ mod tests {
         let mut parser = Parser::default();
         let line = ".asciiz \"=a: b, c; d\"  ; Comment";
 
-        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+        assert!(parser
+            .parse(line.as_bytes(), &SourceInfo::default())
+            .is_ok());
 
         let stmt = parser.nodes.last().unwrap().last().unwrap();
         let inner = stmt.args.as_ref().unwrap().first().unwrap();
@@ -2032,7 +2050,7 @@ mod tests {
         let line = ".asciiz \"à\"";
 
         let err = parser
-            .parse(line.as_bytes(), SourceInfo::default())
+            .parse(line.as_bytes(), &SourceInfo::default())
             .unwrap_err();
 
         assert_eq!(
@@ -2055,7 +2073,9 @@ mod tests {
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+            assert!(parser
+                .parse(line.as_bytes(), &SourceInfo::default())
+                .is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "dex");
@@ -2141,7 +2161,9 @@ mod tests {
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+            assert!(parser
+                .parse(line.as_bytes(), &SourceInfo::default())
+                .is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "inc");
@@ -2168,7 +2190,9 @@ mod tests {
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+            assert!(parser
+                .parse(line.as_bytes(), &SourceInfo::default())
+                .is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "lda");
@@ -2193,7 +2217,9 @@ mod tests {
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+            assert!(parser
+                .parse(line.as_bytes(), &SourceInfo::default())
+                .is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "lda");
@@ -2211,7 +2237,7 @@ mod tests {
         let mut parser = Parser::default();
 
         let err = parser
-            .parse("lda (Variable, x), y".as_bytes(), SourceInfo::default())
+            .parse("lda (Variable, x), y".as_bytes(), &SourceInfo::default())
             .unwrap_err();
         assert_eq!(err.first().unwrap().message, "bad indirect addressing");
     }
@@ -2220,7 +2246,9 @@ mod tests {
     fn indirect_addressing_y() {
         for line in vec!["lda ($20), y"].into_iter() {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+            assert!(parser
+                .parse(line.as_bytes(), &SourceInfo::default())
+                .is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "lda");
@@ -2239,7 +2267,9 @@ mod tests {
     fn variable_in_instruction() {
         let line = "lda Variable, x";
         let mut parser = Parser::default();
-        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+        assert!(parser
+            .parse(line.as_bytes(), &SourceInfo::default())
+            .is_ok());
 
         let node = parser.nodes.last().unwrap().last().unwrap();
         assert_node(node, NodeType::Instruction, line, "lda");
@@ -2258,7 +2288,9 @@ mod tests {
     fn variable_literal_in_instruction() {
         let line = "lda #Variable, x";
         let mut parser = Parser::default();
-        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+        assert!(parser
+            .parse(line.as_bytes(), &SourceInfo::default())
+            .is_ok());
 
         let node = parser.nodes.last().unwrap().last().unwrap();
         assert_node(node, NodeType::Instruction, line, "lda");
@@ -2278,7 +2310,9 @@ mod tests {
         for var in vec!["Scope::Variable", "Scope::Inner::Variable"].into_iter() {
             let line = format!("lda #{var}");
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+            assert!(parser
+                .parse(line.as_bytes(), &SourceInfo::default())
+                .is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line.as_str(), "lda");
@@ -2299,7 +2333,7 @@ mod tests {
         let mut parser = Parser::default();
 
         let err = parser
-            .parse("adc #One:Variable".as_bytes(), SourceInfo::default())
+            .parse("adc #One:Variable".as_bytes(), &SourceInfo::default())
             .unwrap_err();
         assert_eq!(
             err.first().unwrap().message,
@@ -2312,7 +2346,7 @@ mod tests {
         let mut parser = Parser::default();
 
         let err = parser
-            .parse("lda = $10".as_bytes(), SourceInfo::default())
+            .parse("lda = $10".as_bytes(), &SourceInfo::default())
             .unwrap_err();
         assert_eq!(
             err.first().unwrap().message,
@@ -2325,7 +2359,9 @@ mod tests {
         for label in vec![":+", ":++", ":+++ ", ":++++", ":-", ":--", ":---", ":----"].into_iter() {
             let line = format!("jmp {label}");
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+            assert!(parser
+                .parse(line.as_bytes(), &SourceInfo::default())
+                .is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line.as_str(), "jmp");
@@ -2347,7 +2383,7 @@ mod tests {
 
         let mut line = "jmp :+++++";
         let mut err = parser
-            .parse(line.as_bytes(), SourceInfo::default())
+            .parse(line.as_bytes(), &SourceInfo::default())
             .unwrap_err();
         assert_eq!(
             err.first().unwrap().message,
@@ -2356,7 +2392,7 @@ mod tests {
 
         line = "jmp :+-";
         err = parser
-            .parse(line.as_bytes(), SourceInfo::default())
+            .parse(line.as_bytes(), &SourceInfo::default())
             .unwrap_err();
         assert_eq!(
             err.first().unwrap().message,
@@ -2365,7 +2401,7 @@ mod tests {
 
         line = "jmp :-+-";
         err = parser
-            .parse(line.as_bytes(), SourceInfo::default())
+            .parse(line.as_bytes(), &SourceInfo::default())
             .unwrap_err();
         assert_eq!(
             err.first().unwrap().message,
@@ -2374,7 +2410,7 @@ mod tests {
 
         line = "jmp Identifier:++";
         err = parser
-            .parse(line.as_bytes(), SourceInfo::default())
+            .parse(line.as_bytes(), &SourceInfo::default())
             .unwrap_err();
         assert_eq!(
             err.first().unwrap().message,
@@ -2389,7 +2425,7 @@ mod tests {
         let mut parser = Parser::default();
 
         let mut err = parser
-            .parse("abc = $10".as_bytes(), SourceInfo::default())
+            .parse("abc = $10".as_bytes(), &SourceInfo::default())
             .unwrap_err();
         assert_eq!(
             err.first().unwrap().message,
@@ -2398,7 +2434,7 @@ mod tests {
 
         parser = Parser::default();
         err = parser
-            .parse(".var = 1".as_bytes(), SourceInfo::default())
+            .parse(".var = 1".as_bytes(), &SourceInfo::default())
             .unwrap_err();
         assert_eq!(
             err.first().unwrap().message,
@@ -2407,19 +2443,19 @@ mod tests {
 
         parser = Parser::default();
         err = parser
-            .parse("var =".as_bytes(), SourceInfo::default())
+            .parse("var =".as_bytes(), &SourceInfo::default())
             .unwrap_err();
         assert_eq!(err.first().unwrap().message, "incomplete assignment");
 
         parser = Parser::default();
         err = parser
-            .parse("var =   ".as_bytes(), SourceInfo::default())
+            .parse("var =   ".as_bytes(), &SourceInfo::default())
             .unwrap_err();
         assert_eq!(err.first().unwrap().message, "incomplete assignment");
 
         parser = Parser::default();
         err = parser
-            .parse("var =   ; Comment".as_bytes(), SourceInfo::default())
+            .parse("var =   ; Comment".as_bytes(), &SourceInfo::default())
             .unwrap_err();
         assert_eq!(err.first().unwrap().message, "incomplete assignment");
     }
@@ -2430,7 +2466,9 @@ mod tests {
     fn constant_expression_test() {
         let line = "ldx #(4 * NUM_SPRITES)";
         let mut parser = Parser::default();
-        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+        assert!(parser
+            .parse(line.as_bytes(), &SourceInfo::default())
+            .is_ok());
 
         let node = parser.nodes.last().unwrap().last().unwrap();
         assert_node(node, NodeType::Instruction, line, "ldx");
@@ -2455,7 +2493,9 @@ mod tests {
     fn nested_expression_test() {
         let line = "lda #$80 >> ((BCD_BITS - 1) & 3)";
         let mut parser = Parser::default();
-        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+        assert!(parser
+            .parse(line.as_bytes(), &SourceInfo::default())
+            .is_ok());
 
         let instr = parser.nodes.last().unwrap().last().unwrap();
         assert_node(instr, NodeType::Instruction, line, "lda");
@@ -2493,7 +2533,9 @@ mod tests {
     fn parens_to_desambiguate() {
         let line = ".byte ($01 << 4) | ($01 << 2) | ($01 << 1)";
         let mut parser = Parser::default();
-        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+        assert!(parser
+            .parse(line.as_bytes(), &SourceInfo::default())
+            .is_ok());
 
         let node = parser.nodes.last().unwrap().last().unwrap();
         assert_node(node, NodeType::Control(ControlType::Byte), line, ".byte");
@@ -2533,7 +2575,9 @@ mod tests {
     fn parens_to_desambiguate2() {
         let line = ".byte ($01 << 4) | ($01 << 2) | ($01 << 1), $02";
         let mut parser = Parser::default();
-        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+        assert!(parser
+            .parse(line.as_bytes(), &SourceInfo::default())
+            .is_ok());
 
         let node = parser.nodes.last().unwrap().last().unwrap();
         assert_node(node, NodeType::Control(ControlType::Byte), line, ".byte");
@@ -2556,7 +2600,9 @@ mod tests {
     fn unary_operator_test() {
         let line = "ldx #<NUM_SPRITES";
         let mut parser = Parser::default();
-        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+        assert!(parser
+            .parse(line.as_bytes(), &SourceInfo::default())
+            .is_ok());
 
         let node = parser.nodes.last().unwrap().last().unwrap();
         assert_node(node, NodeType::Instruction, line, "ldx");
@@ -2583,7 +2629,9 @@ mod tests {
     fn parse_control_no_args() {
         for line in vec![".byte", "    .byte", " label: .byte   ; Comment"].into_iter() {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+            assert!(parser
+                .parse(line.as_bytes(), &SourceInfo::default())
+                .is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Control(ControlType::Byte), line, ".byte");
@@ -2605,7 +2653,9 @@ mod tests {
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+            assert!(parser
+                .parse(line.as_bytes(), &SourceInfo::default())
+                .is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(
@@ -2635,7 +2685,9 @@ mod tests {
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+            assert!(parser
+                .parse(line.as_bytes(), &SourceInfo::default())
+                .is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Control(ControlType::Byte), line, ".byte");
@@ -2653,7 +2705,9 @@ mod tests {
     fn parse_byte_with_character_literals() {
         let line = ".byte 'N', 'E', 'S', $1A";
         let mut parser = Parser::default();
-        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+        assert!(parser
+            .parse(line.as_bytes(), &SourceInfo::default())
+            .is_ok());
 
         let args = parser
             .nodes
@@ -2705,7 +2759,9 @@ mod tests {
             let real = String::from(line) + "\n.endscope";
 
             let mut parser = Parser::default();
-            assert!(parser.parse(real.as_bytes(), SourceInfo::default()).is_ok());
+            assert!(parser
+                .parse(real.as_bytes(), &SourceInfo::default())
+                .is_ok());
 
             let nodes = parser.nodes();
             let node = &nodes[nodes.len() - 2];
@@ -2739,7 +2795,9 @@ mod tests {
             let real = String::from(line) + "\n.endmacro";
 
             let mut parser = Parser::default();
-            assert!(parser.parse(real.as_bytes(), SourceInfo::default()).is_ok());
+            assert!(parser
+                .parse(real.as_bytes(), &SourceInfo::default())
+                .is_ok());
 
             let nodes = parser.nodes();
             let node = &nodes[nodes.len() - 2];
@@ -2776,7 +2834,9 @@ mod tests {
             let real = String::from(line) + "\n.endmacro";
 
             let mut parser = Parser::default();
-            assert!(parser.parse(real.as_bytes(), SourceInfo::default()).is_ok());
+            assert!(parser
+                .parse(real.as_bytes(), &SourceInfo::default())
+                .is_ok());
 
             let nodes = parser.nodes();
             let node = &nodes[nodes.len() - 2];
@@ -2802,7 +2862,7 @@ mod tests {
     fn parse_control_unclosed() {
         let mut parser = Parser::default();
         let err = parser
-            .parse(".macro MACRO".as_bytes(), SourceInfo::default())
+            .parse(".macro MACRO".as_bytes(), &SourceInfo::default())
             .unwrap_err();
 
         assert_eq!(
@@ -2815,7 +2875,7 @@ mod tests {
     fn parse_control_too_many_closes() {
         let mut parser = Parser::default();
         let err = parser
-            .parse(".endmacro".as_bytes(), SourceInfo::default())
+            .parse(".endmacro".as_bytes(), &SourceInfo::default())
             .unwrap_err();
 
         assert_eq!(
@@ -2832,7 +2892,7 @@ mod tests {
     .endmacro"#;
         let mut parser = Parser::default();
         let err = parser
-            .parse(code.as_bytes(), SourceInfo::default())
+            .parse(code.as_bytes(), &SourceInfo::default())
             .unwrap_err();
 
         assert_eq!(
@@ -2852,7 +2912,9 @@ nop
 inc $20
 .endmacro"#;
         let mut parser = Parser::default();
-        assert!(parser.parse(code.as_bytes(), SourceInfo::default()).is_ok());
+        assert!(parser
+            .parse(code.as_bytes(), &SourceInfo::default())
+            .is_ok());
 
         let nodes = parser.nodes();
         assert_eq!(nodes.len(), 2); // .macro and .endmacro
@@ -2886,7 +2948,7 @@ inc $20
         for line in vec![".hibyte", ".hibyte($20, $22)"].into_iter() {
             let mut parser = Parser::default();
             let err = parser
-                .parse(line.as_bytes(), SourceInfo::default())
+                .parse(line.as_bytes(), &SourceInfo::default())
                 .unwrap_err();
 
             assert_eq!(
@@ -2900,7 +2962,9 @@ inc $20
     fn parse_control_in_instructions() {
         for line in vec!["lda #.hibyte($2010)", "  label:   lda #.hibyte   $2010   "].into_iter() {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+            assert!(parser
+                .parse(line.as_bytes(), &SourceInfo::default())
+                .is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "lda");
@@ -2937,7 +3001,9 @@ inc $20
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+            assert!(parser
+                .parse(line.as_bytes(), &SourceInfo::default())
+                .is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "lda");
@@ -2981,7 +3047,9 @@ inc $20
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+            assert!(parser
+                .parse(line.as_bytes(), &SourceInfo::default())
+                .is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Instruction, line, "lda");
@@ -3026,7 +3094,9 @@ inc $20
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+            assert!(parser
+                .parse(line.as_bytes(), &SourceInfo::default())
+                .is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Assignment, line, "lala");
@@ -3058,7 +3128,7 @@ inc $20
     fn parse_repeat_control() {
         let mut parser = Parser::default();
         let err = parser
-            .parse(".repeat\n.endrepeat".as_bytes(), SourceInfo::default())
+            .parse(".repeat\n.endrepeat".as_bytes(), &SourceInfo::default())
             .unwrap_err();
         assert_eq!(
             err.first().unwrap().message,
@@ -3069,7 +3139,7 @@ inc $20
         let err = parser
             .parse(
                 ".repeat 1, 2, 3\n.endrepeat".as_bytes(),
-                SourceInfo::default(),
+                &SourceInfo::default(),
             )
             .unwrap_err();
         assert_eq!(
@@ -3082,7 +3152,9 @@ inc $20
         parser = Parser::default();
         let mut line = ".repeat 2\n.endrepeat";
 
-        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+        assert!(parser
+            .parse(line.as_bytes(), &SourceInfo::default())
+            .is_ok());
         let mut control = parser.nodes.last().unwrap().first().unwrap();
         assert_node(
             control,
@@ -3108,7 +3180,9 @@ inc $20
         parser = Parser::default();
         line = ".repeat 2, I\n.endrepeat";
 
-        assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+        assert!(parser
+            .parse(line.as_bytes(), &SourceInfo::default())
+            .is_ok());
         control = parser.nodes.last().unwrap().first().unwrap();
         assert_node(
             control,
@@ -3135,13 +3209,13 @@ inc $20
     fn parse_unknown_control() {
         let mut parser = Parser::default();
         let err = parser
-            .parse(".".as_bytes(), SourceInfo::default())
+            .parse(".".as_bytes(), &SourceInfo::default())
             .unwrap_err();
         assert_eq!(err.first().unwrap().message, "empty identifier");
 
         parser = Parser::default();
         assert!(parser
-            .parse(".whatever".as_bytes(), SourceInfo::default())
+            .parse(".whatever".as_bytes(), &SourceInfo::default())
             .is_ok());
     }
 
@@ -3157,7 +3231,9 @@ inc $20
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+            assert!(parser
+                .parse(line.as_bytes(), &SourceInfo::default())
+                .is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Call, line, "MACRO_CALL");
@@ -3179,7 +3255,9 @@ inc $20
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+            assert!(parser
+                .parse(line.as_bytes(), &SourceInfo::default())
+                .is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Call, line, "MACRO_CALL");
@@ -3200,7 +3278,9 @@ inc $20
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+            assert!(parser
+                .parse(line.as_bytes(), &SourceInfo::default())
+                .is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Call, line, "MACRO_CALL");
@@ -3224,7 +3304,9 @@ inc $20
         .into_iter()
         {
             let mut parser = Parser::default();
-            assert!(parser.parse(line.as_bytes(), SourceInfo::default()).is_ok());
+            assert!(parser
+                .parse(line.as_bytes(), &SourceInfo::default())
+                .is_ok());
 
             let node = parser.nodes.last().unwrap().last().unwrap();
             assert_node(node, NodeType::Call, line, "MACRO_CALL");
@@ -3246,7 +3328,9 @@ VAR = $00
 VAR2 = $02 ;; asan:reserve $03
 "#;
         let mut parser = Parser::default();
-        assert!(parser.parse(code.as_bytes(), SourceInfo::default()).is_ok());
+        assert!(parser
+            .parse(code.as_bytes(), &SourceInfo::default())
+            .is_ok());
 
         let nodes = parser.nodes();
         assert_eq!(nodes.len(), 4);
@@ -3280,7 +3364,7 @@ VAR2 = $02 ;; asan:reserve $03
 "#;
 
         let mut parser = Parser::default();
-        let res = parser.parse(code.as_bytes(), SourceInfo::default());
+        let res = parser.parse(code.as_bytes(), &SourceInfo::default());
 
         assert!(res.is_err());
 

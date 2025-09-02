@@ -1,8 +1,9 @@
 use header::Header;
-use std::fs::File;
+use std::fs::{create_dir, File};
 use std::io::{self, Write};
-use std::path::Path;
-use xixanta::assembler::assemble;
+use std::path::{Path, PathBuf};
+use xixanta::assembler::{assemble, MemoryResult};
+use xixanta::mapping::Mapping;
 use xixanta::SourceInfo;
 
 /// Version for this program.
@@ -17,6 +18,8 @@ struct Args {
     stdout: bool,
     stats: bool,
     defines: Vec<(String, u8)>,
+    asan: bool,
+    info: bool,
 }
 
 // Print the help message and quit.
@@ -24,6 +27,7 @@ fn print_help() {
     println!("Assembler for the 6502 microprocessor that targets the NES/Famicom.\n");
     println!("usage: nasm [OPTIONS] <FILE>\n");
     println!("Options:");
+    println!("  -a, --asan\t\tEnable the Address Sanitizer.");
     println!("  -c, --config <FILE>\tLinker configuration to be used, whether an identifier or a file path.");
     println!("  -D <NAME>(=VALUE)\tDefine an 8-bit variable on the global scope (default: 1)");
     println!("  -h, --help\t\tPrint this message.");
@@ -31,6 +35,9 @@ fn print_help() {
     println!("  -s, --stats\t\tPrint the statistics on how segments have been filled.");
     println!("  --stdout\t\tPrint the output binary to the standard output.");
     println!("  -v, --version\t\tPrint the version of this program.");
+    println!(
+        "  -w, --write-info\tWrite debug/analysis information into a special '.nasm' directory."
+    );
     println!("  -Werror\t\tWarnings should be treated as errors.");
     std::process::exit(0);
 }
@@ -77,6 +84,7 @@ fn parse_arguments() -> Args {
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "a" | "--asan" => res.asan = true,
             "-c" | "--config" => match res.config {
                 Some(_) => die("only specify the '-C/--config' flag once".to_string()),
                 None => match args.next() {
@@ -106,6 +114,7 @@ fn parse_arguments() -> Args {
                 }
             },
             "-s" | "--stats" => res.stats = true,
+            "-w" | "--write-info" => res.info = true,
             "--stdout" => match res.out {
                 Some(_) => die("you cannot mix '-o/--out' and '--stdout'".to_string()),
                 None => {
@@ -150,6 +159,106 @@ fn die(message: String) {
     std::process::exit(1);
 }
 
+// Given a `source` object, find the first parent directory (including
+// `source.directory`) which has a `.git` subdirectory. If none could be found,
+// then `source.directory` is returned.
+fn find_git_directory(source: &SourceInfo) -> PathBuf {
+    for dir in source.directory.ancestors() {
+        if dir.join(".git").exists() {
+            return dir.to_path_buf();
+        }
+    }
+    source.directory.clone()
+}
+
+// Get the path to the closest `.nasm` special directory and create it if it's
+// not available on the expected base directory.
+fn get_directory_from_source(source: &SourceInfo) -> PathBuf {
+    let dir = find_git_directory(source).join(".nasm");
+
+    if !dir.exists() {
+        if let Err(e) = create_dir(&dir) {
+            die(e.to_string());
+        }
+    }
+    dir
+}
+
+// Save the `memory` object into the `<source>/.nasm/memory.txt` file.
+fn save_memory_stats(source: &SourceInfo, memory: &mut MemoryResult, has_working_ram: bool) {
+    let Ok(mut file) = File::create(get_directory_from_source(source).join("memory.txt")) else {
+        return die("could not write memory.txt file".to_string());
+    };
+
+    let ranges = &mut memory.memory_ranges;
+    ranges.sort_by(|a, b| a.range.start.cmp(&b.range.start));
+
+    for mr in ranges {
+        if mr.range.start + 1 == mr.range.end {
+            if let Err(e) = writeln!(file, "{}: {}", mr.range_to_human(), mr.name) {
+                return die(format!("could not write memory.txt file: {e}"));
+            }
+        } else if let Err(e) = writeln!(file, "{}: {}", mr.range_to_human(), mr.name) {
+            return die(format!("could not write memory.txt file: {e}"));
+        }
+    }
+
+    if let Err(e) = writeln!(file, "\n--- Summary (in bytes) ---") {
+        return die(format!("could not write memory.txt file: {e}"));
+    }
+    print_memory_summary(Box::new(file), memory, has_working_ram);
+}
+
+// Print a memory summary message as given in `memory` to the `output`
+// stream. The Working RAM will only be reported if `has_working_ram` is set to
+// true.
+fn print_memory_summary(mut output: Box<dyn Write>, memory: &MemoryResult, has_working_ram: bool) {
+    let perc = (memory.total_internal_ram * 100) as f64 / 2048.0;
+
+    if let Err(e) = writeln!(
+        output,
+        "- Internal RAM: {}/2048 ({:.2}%)",
+        memory.total_internal_ram, perc
+    ) {
+        return die(format!("could not write memory summary: {e}"));
+    }
+
+    if has_working_ram {
+        let perc = (memory.total_working_ram * 100) as f64 / 8192.0;
+        if let Err(e) = writeln!(
+            output,
+            "- Working RAM: {}/8192 ({:.2}%)",
+            memory.total_working_ram, perc
+        ) {
+            die(format!("could not write memory summary: {e}"))
+        }
+    }
+}
+
+// Print to the `output` stream the statistics that can be gathered from the
+// given `mappings`.
+fn print_segments_stats(mut output: Box<dyn Write>, mappings: &[Mapping]) {
+    for mapping in mappings {
+        let perc = (mapping.offset * 100) as f64 / mapping.size as f64;
+
+        if perc.fract().abs() < f64::EPSILON {
+            if let Err(e) = writeln!(
+                output,
+                "- {}: {}/{} ({:.0}%)",
+                mapping.name, mapping.offset, mapping.size, perc
+            ) {
+                return die(format!("could not write segments summary: {e}"));
+            }
+        } else if let Err(e) = writeln!(
+            output,
+            "- {}: {}/{} ({:.2}%)",
+            mapping.name, mapping.offset, mapping.size, perc
+        ) {
+            return die(format!("could not write segments summary: {e}"));
+        }
+    }
+}
+
 fn main() {
     let args = parse_arguments();
 
@@ -190,7 +299,8 @@ fn main() {
         input,
         args.config.unwrap_or("nrom".to_string()).as_str(),
         &args.defines,
-        source,
+        &source,
+        args.asan,
     );
 
     // Print warnings and errors first, while also computing the amount of them
@@ -207,6 +317,8 @@ fn main() {
         eprintln!("error: {error}");
         error_count += 1;
     }
+
+    let mut has_working_ram = false;
 
     // Deliver the bundles unless the header is borked.
     if error_count == 0 {
@@ -229,6 +341,7 @@ fn main() {
                         "requires Working RAM but the ROM header does not advertise it".to_string(),
                     );
                 }
+                has_working_ram = header.has_persistent_memory;
             }
             Err(e) => {
                 die(format!(
@@ -246,26 +359,39 @@ fn main() {
                 }
             }
         }
-    }
 
-    if args.stats {
-        println!("== Statistics ==\n");
-        println!("=> Amount of space on each segment (in bytes):\n");
-
-        for mapping in res.mappings {
-            let perc = (mapping.offset * 100) as f64 / mapping.size as f64;
-
-            if perc.fract().abs() < f64::EPSILON {
-                println!(
-                    "{}: {}/{} ({:.0}%)",
-                    mapping.name, mapping.offset, mapping.size, perc
-                );
-            } else {
-                println!(
-                    "{}: {}/{} ({:.2}%)",
-                    mapping.name, mapping.offset, mapping.size, perc
-                );
+        // Print segment statistics.
+        if args.stats {
+            if args.info {
+                let Ok(file) =
+                    File::create(get_directory_from_source(&source).join("segments.txt"))
+                else {
+                    return die("could not write segments.txt file".to_string());
+                };
+                print_segments_stats(Box::new(file), &res.mappings);
             }
+
+            println!("== Statistics ==\n");
+            println!("=> Amount of space on each segment (in bytes):\n");
+
+            print_segments_stats(Box::new(io::stdout()), &res.mappings);
+        }
+
+        // Print memory statistics.
+        if args.asan {
+            let mut memory = res.memory;
+            if args.info {
+                save_memory_stats(&source, &mut memory, has_working_ram);
+            }
+
+            if !args.stats {
+                println!("== Statistics ==\n");
+            } else {
+                println!();
+            }
+            println!("=> Amount of memory used (in bytes):\n");
+
+            print_memory_summary(Box::new(io::stdout()), &memory, has_working_ram);
         }
     }
 

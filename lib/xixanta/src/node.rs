@@ -252,7 +252,7 @@ pub enum OperationType {
 #[derive(Debug, Clone, PartialEq)]
 pub enum CommentType {
     AsanReserve(u8),
-    AsanWeak,
+    AsanIgnore,
 }
 
 /// The PNode type.
@@ -349,7 +349,7 @@ impl fmt::Display for NodeType {
             },
             NodeType::Comment(ct) => match ct {
                 CommentType::AsanReserve(_) => write!(f, ";; asan:reserve"),
-                CommentType::AsanWeak => write!(f, ";; asan:weak"),
+                CommentType::AsanIgnore => write!(f, ";; asan:ignore"),
             },
         }
     }

@@ -101,7 +101,8 @@ impl Bundle {
 }
 
 /// The type of object being referenced, which is either a value as-is, or an
-/// address that needs to be interpreted when fetching it.
+/// address that needs to be interpreted when fetching it; or a reference to a
+/// value (i.e. something the address sanitizer can ignore).
 #[derive(Debug, Clone)]
 pub enum ObjectType {
     Address,
@@ -132,6 +133,12 @@ pub struct Object {
 
     /// The type for this object.
     pub object_type: ObjectType,
+
+    /// Whether the address sanitizer should ignore this object or not.
+    pub asan_ignore: bool,
+
+    /// Amount of bytes reserved for this object on the address sanitizer.
+    pub asan_reserve: u8,
 }
 
 impl Object {
@@ -143,6 +150,8 @@ impl Object {
             mapping,
             segment,
             object_type,
+            asan_ignore: false,
+            asan_reserve: 1,
         }
     }
 }
