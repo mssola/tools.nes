@@ -1,0 +1,1 @@
+warning: variable 'zp_unused' ($00) is unused (unused.s)

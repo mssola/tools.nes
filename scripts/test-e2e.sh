@@ -49,6 +49,12 @@ echo "test: custom => defines-two.nes"
 diff tests/out/defines-two.nes tests/expected/defines-two.nes
 exit_code=$((exit_code + $?))
 
+echo "test: custom => unused.nes"
+./target/debug/nasm -c empty --asan -o tests/out/unused.nes tests/unused.s 2>tests/out/unused-warning.txt
+diff tests/out/unused-warning.txt tests/expected/unused-warning.txt
+diff tests/out/unused.nes tests/expected/unused.nes
+exit_code=$((exit_code + $?))
+
 ##
 # code.nes
 

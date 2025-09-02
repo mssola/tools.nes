@@ -397,6 +397,7 @@ impl<'a> Assembler<'a> {
             object_type: ObjectType::Value,
             asan_ignore: false,
             asan_reserve: 1,
+            accessed: 0,
         };
 
         if let Err(err) = self.context.set_variable(&var_name, &var_value, false) {
@@ -504,6 +505,7 @@ impl<'a> Assembler<'a> {
                                     object_type: ObjectType::Value,
                                     asan_ignore: self.asan_next_ignore,
                                     asan_reserve: self.asan_next_reserve,
+                                    accessed: 0,
                                 },
                                 false,
                             ) {
@@ -674,6 +676,7 @@ impl<'a> Assembler<'a> {
             object_type: ObjectType::Address,
             asan_ignore: false,
             asan_reserve: 1,
+            accessed: 0,
         };
 
         if !node.value.is_empty() {
@@ -852,31 +855,50 @@ impl<'a> Assembler<'a> {
                     continue;
                 }
 
+                // If it doesn't have the proper prefix, skip as well.
+                if !name.starts_with("zp_") && !name.starts_with("m_") && !name.starts_with("wr_") {
+                    continue;
+                }
+
+                // Build up the memory range object for this bundle.
+                let val = bundle.bundle.value() as usize;
+                let range = MemoryRange {
+                    range: (val..val + bundle.asan_reserve as usize),
+                    name: name.clone(),
+                };
+
+                // Check if this variable was ever accessed and warn about
+                // it. Even if later it conflicts with another memory range, the
+                // fact that it's not used is not a danger and hence a conflict
+                // does not have to be reported. Hence, skip after issueing the
+                // warning.
+                if bundle.accessed == 0 {
+                    self.warnings.push(Error {
+                        line: 0,
+                        message: format!("variable {range} is unused"),
+                        source: self.sources[0].clone(),
+                        global: true,
+                    });
+                    continue;
+                }
+
                 // Evaluate if the given object conflicts with an existing
                 // range.
-                if name.starts_with("zp_") || name.starts_with("m_") || name.starts_with("wr_") {
-                    let val = bundle.bundle.value() as usize;
-                    let range = MemoryRange {
-                        range: (val..val + bundle.asan_reserve as usize),
-                        name: name.clone(),
-                    };
-
-                    for existing in &memory.memory_ranges {
-                        if (range.range.start >= existing.range.start
-                            && range.range.start < existing.range.end)
-                            || (range.range.end > existing.range.start
-                                && range.range.end < existing.range.end)
-                        {
-                            errors.push(Error {
-                                line: 0,
-                                global: true,
-                                message: format!("The variable {range} conflicts with {existing}",),
-                                source: self.sources[0].clone(),
-                            });
-                        }
+                for existing in &memory.memory_ranges {
+                    if (range.range.start >= existing.range.start
+                        && range.range.start < existing.range.end)
+                        || (range.range.end > existing.range.start
+                            && range.range.end < existing.range.end)
+                    {
+                        errors.push(Error {
+                            line: 0,
+                            global: true,
+                            message: format!("The variable {range} conflicts with {existing}",),
+                            source: self.sources[0].clone(),
+                        });
                     }
-                    memory.memory_ranges.push(range);
                 }
+                memory.memory_ranges.push(range);
 
                 // Increase the counters for memory usage on either RAM slot and
                 // check for bounds.
@@ -1041,6 +1063,7 @@ impl<'a> Assembler<'a> {
                     object_type: ObjectType::Value,
                     asan_ignore: false,
                     asan_reserve: 1,
+                    accessed: 0,
                 };
 
                 // Note that we overwrite the variable value from previous
@@ -1841,6 +1864,7 @@ impl<'a> Assembler<'a> {
                         asan_ignore: false,
                         object_type: ObjectType::Value,
                         asan_reserve: 1,
+                        accessed: 0,
                     },
                     true,
                 ) {

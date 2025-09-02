@@ -1,4 +1,5 @@
 /target
 /*.nes
 tests/out/*.nes
+tests/out/*.txt
 TODO

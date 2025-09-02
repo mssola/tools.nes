@@ -139,6 +139,9 @@ pub struct Object {
 
     /// Amount of bytes reserved for this object on the address sanitizer.
     pub asan_reserve: u8,
+
+    /// Number of times this object was accessed. Incremented by `get_variable`.
+    pub accessed: usize,
 }
 
 impl Object {
@@ -152,6 +155,7 @@ impl Object {
             object_type,
             asan_ignore: false,
             asan_reserve: 1,
+            accessed: 0,
         }
     }
 }
@@ -198,7 +202,7 @@ impl Context {
     /// this `id` can be scoped or not, and this function will try to pick the
     /// variable from the right scope. The value itself will be resolved if the
     /// type is ObjectType::Address.
-    pub fn get_variable(&self, id: &PString, mappings: &[Mapping]) -> Result<Object, String> {
+    pub fn get_variable(&mut self, id: &PString, mappings: &[Mapping]) -> Result<Object, String> {
         // First of all, figure out the name of the scope and the real name of
         // the variable. If this was not scoped at all (None case when trying to
         // rsplit by the "::" operator), then we assume on the current scope.
@@ -207,25 +211,32 @@ impl Context {
             None => (self.name(), id.value.as_str()),
         };
 
-        self.get_variable_in_scope(scope_name, var_name, mappings)
+        let scope_name_obj = scope_name.to_string();
+        self.get_variable_in_scope(&scope_name_obj, var_name, mappings)
     }
 
     // Get the `var_name` variable on the `scope_name` scope (or parents). For
     // further context, take the `mappings` into consideration when resolving
     // labels, and `line` when producing context errors.
     fn get_variable_in_scope(
-        &self,
-        scope_name: &str,
+        &mut self,
+        scope_name: &String,
         var_name: &str,
         mappings: &[Mapping],
     ) -> Result<Object, String> {
         // And with that, the only thing left is to find the scope and the
         // variable in it.
-        match self.map.get(scope_name) {
-            Some(scope) => match scope.get(var_name) {
+        match self.map.get_mut(scope_name) {
+            Some(scope) => match scope.get_mut(var_name) {
                 Some(var) => match var.object_type {
-                    ObjectType::Value => Ok(var.clone()),
-                    ObjectType::Address => Ok(self.resolve_label(mappings, var)?),
+                    ObjectType::Value => {
+                        var.accessed += 1;
+                        Ok(var.clone())
+                    }
+                    ObjectType::Address => {
+                        let var_to_resolve = var.clone();
+                        Ok(self.resolve_label(mappings, &var_to_resolve)?)
+                    }
                 },
                 None => {
                     // If it cannot be found, then we have to move up through
@@ -248,8 +259,9 @@ impl Context {
                         // error from the recursive call, preserve the original
                         // error so it better reflects the original scope where
                         // this was first attempted.
-                        let parent = self.parent(scope_name);
-                        if let Ok(object) = self.get_variable_in_scope(parent, var_name, mappings) {
+                        let parent = self.parent(scope_name).to_string();
+                        if let Ok(object) = self.get_variable_in_scope(&parent, var_name, mappings)
+                        {
                             Ok(object)
                         } else {
                             err
