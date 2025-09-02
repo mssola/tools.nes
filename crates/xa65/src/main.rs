@@ -14,7 +14,9 @@ struct Args {
     config: Option<String>,
     target: Option<String>,
     out: String,
+    no_errors: bool,
     strict: bool,
+    stats: bool,
 }
 
 // Print the help message and quit.
@@ -25,7 +27,11 @@ fn print_help() {
     println!("  -b, --bin <PROGRAM>\tAlternative to the binary for 'nasm'.");
     println!("  -C, --config <FILE>\tLinker configuration to be used, whether an identifier or a file path.");
     println!("  -h, --help\t\tPrint this message.");
-    println!("  -s, --strict\t\tError out if the output differ or 'nasm' has produced an error.");
+    println!(
+        "  -n, --no-errors\t\tError out if the output differ or 'nasm' has produced an error."
+    );
+    println!("  -s, --strict\t\tBe more strict on 'nasm' by adding the address-sanitizer and writing debug/analysis information.");
+    println!("  --stats\t\tPrint statistics to the standard output.");
     println!("  -o, --out <FILE>\tFile path where the output should be located after execution.");
     println!("  --target nes\t\tUsed for compatibility with 'ca65'.");
     println!("  -v, --version\t\tPrint the version of this program.");
@@ -72,6 +78,8 @@ fn parse_arguments() -> Args {
                     die("only specify the '-o/--out' flag once".to_string());
                 }
             }
+            "-n" | "--no-errors" => res.no_errors = true,
+            "--stats" => res.stats = true,
             "-s" | "--strict" => res.strict = true,
             "--target" => match res.target {
                 Some(_) => die("only specify the '--target' flag once".to_string()),
@@ -237,16 +245,25 @@ fn main() {
     // 'nasm' if the '-e/--error' flag was provided, otherwise we just go on as
     // if nothing had happened (i.e. the user just wants a binary, even if it
     // comes from cl65).
-    match Command::new(nasm)
-        .arg(&args.file)
+    let mut cmd = Command::new(nasm);
+    cmd.arg(&args.file)
         .arg("-o")
         .arg(dir.join("nasm.nes"))
         .arg("-c")
-        .arg(args.config.clone().unwrap_or("nrom65".to_string()))
-        .status()
-    {
+        .arg(args.config.clone().unwrap_or("nrom65".to_string()));
+
+    // Add stricter flags for 'nasm' if requested.
+    if args.strict {
+        cmd.arg("--asan").arg("--write-info");
+    }
+    if args.stats {
+        cmd.arg("--stats");
+    }
+
+    // Actually run the command.
+    match cmd.status() {
         Ok(cmd) => {
-            if !cmd.success() && args.strict {
+            if !cmd.success() && args.no_errors {
                 std::process::exit(cmd.code().unwrap_or(1));
             }
         }
@@ -301,9 +318,9 @@ fn main() {
                     dir.display()
                 );
 
-                // If 'strict' was enabled, an error should be produced in the
+                // If 'no_errors' was enabled, an error should be produced in the
                 // end.
-                if args.strict {
+                if args.no_errors {
                     exit_code = 1;
                 }
             }

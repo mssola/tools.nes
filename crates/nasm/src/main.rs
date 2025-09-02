@@ -32,7 +32,7 @@ fn print_help() {
     println!("  -D <NAME>(=VALUE)\tDefine an 8-bit variable on the global scope (default: 1)");
     println!("  -h, --help\t\tPrint this message.");
     println!("  -o, --out <FILE>\tFile path where the output should be located after execution.");
-    println!("  -s, --stats\t\tPrint the statistics on how segments have been filled.");
+    println!("  -s, --stats\t\tPrint the statistics on the final layout of segments and memory.");
     println!("  --stdout\t\tPrint the output binary to the standard output.");
     println!("  -v, --version\t\tPrint the version of this program.");
     println!(
@@ -383,15 +383,10 @@ fn main() {
             if args.info {
                 save_memory_stats(&source, &mut memory, has_working_ram);
             }
-
-            if !args.stats {
-                println!("== Statistics ==\n");
-            } else {
-                println!();
+            if args.stats {
+                println!("\n=> Amount of memory used (in bytes):\n");
+                print_memory_summary(Box::new(io::stdout()), &memory, has_working_ram);
             }
-            println!("=> Amount of memory used (in bytes):\n");
-
-            print_memory_summary(Box::new(io::stdout()), &memory, has_working_ram);
         }
     }
 
