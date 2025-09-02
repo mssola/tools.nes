@@ -227,6 +227,10 @@ pub fn assemble_with_mapping(
     source: &SourceInfo,
     asan: bool,
 ) -> AssemblerResult {
+    // Save the original current working directory in case it changes after a
+    // directive like '.incbin' or '.include'.
+    let original_directory = std::env::current_dir().unwrap();
+
     let mut asm = Assembler::new(mapping);
     let mut memory = MemoryResult::default();
     asm.asan_enabled = asan;
@@ -316,6 +320,12 @@ pub fn assemble_with_mapping(
             };
         }
     }
+
+    // Return back to the original directory for this session. This is important
+    // so after calling this function the environment is not completely borked,
+    // but it's not so important that in (the very unlikely) case that the call
+    // fails we have to bail out.
+    let _ = std::env::set_current_dir(original_directory);
 
     // All set, fill the vector of bundles to be returned.
     match asm.fill() {
