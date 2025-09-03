@@ -35,3 +35,5 @@ lda palettes, x
 
 palettes:
     .byte $0F
+
+lda $200                        ; asan:ignore

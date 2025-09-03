@@ -706,6 +706,7 @@ impl<'a> Assembler<'a> {
 
     fn bundle(&mut self, nodes: &'a [PNode]) -> Result<(), Vec<Error>> {
         let mut errors = Vec::new();
+        let mut next_ignore = false;
 
         self.stage = Stage::Bundling;
 
@@ -752,6 +753,10 @@ impl<'a> Assembler<'a> {
                     } else {
                         self.bundle(args)?;
                     }
+                }
+                NodeType::Comment(CommentType::AsanIgnore) => {
+                    next_ignore = true;
+                    self.asan_next_ignore = true;
                 }
                 NodeType::Instruction => {
                     self.literal_mode = None;
@@ -809,6 +814,13 @@ impl<'a> Assembler<'a> {
                 }
 
                 _ => {}
+            }
+
+            // Keep `self.asan_next_ignore` to false if possible.
+            if next_ignore {
+                next_ignore = false;
+            } else {
+                self.asan_next_ignore = false;
             }
         }
 
@@ -2543,7 +2555,7 @@ impl<'a> Assembler<'a> {
     // called by `jmp` or `jsr` kind of instructions on the absolute addressing
     // mode, as they operate on another level.
     fn asan_check_arm(&mut self, node: &PNode, value: &Bundle) -> Result<(), Error> {
-        if !self.asan_enabled {
+        if !self.asan_enabled || self.asan_next_ignore {
             return Ok(());
         }
 
