@@ -37,3 +37,7 @@ palettes:
     .byte $0F
 
 lda $200                        ; asan:ignore
+lda $200
+
+jmp $8000
+jmp ($8000)

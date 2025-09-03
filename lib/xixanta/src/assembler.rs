@@ -2398,7 +2398,9 @@ impl<'a> Assembler<'a> {
                             global: false,
                         });
                     }
-                    self.asan_check_arm(evaluated_node, &val)?;
+                    if !matches!(node.value.value.as_str(), "jmp" | "jsr") {
+                        self.asan_check_arm(evaluated_node, &val)?;
+                    }
                     Ok((AddressingMode::Indirect, val))
                 }
             },
@@ -2514,6 +2516,9 @@ impl<'a> Assembler<'a> {
                     val.size = 1;
                     Ok((AddressingMode::RelativeOrZeropage, val))
                 } else {
+                    if !matches!(base.value.value.as_str(), "jmp" | "jsr") {
+                        self.asan_check_arm(left_arm, &val)?;
+                    }
                     Ok((AddressingMode::Absolute, val))
                 }
             }
