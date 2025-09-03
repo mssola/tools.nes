@@ -1,5 +1,8 @@
 use crate::mapping::{get_mapping_configuration, Mapping};
-use crate::node::{CommentType, ControlType, EchoKind, NodeType, OperationType, PNode, PString};
+use crate::node::{
+    is_asan_friendly_name, CommentType, ControlType, EchoKind, NodeType, OperationType, PNode,
+    PString,
+};
 use crate::object::{Bundle, Context, Object, ObjectType};
 use crate::opcodes::{AddressingMode, INSTRUCTIONS};
 use crate::parser::Parser;
@@ -856,9 +859,10 @@ impl<'a> Assembler<'a> {
                 }
 
                 // If it doesn't have the proper prefix, skip as well.
-                if !name.starts_with("zp_") && !name.starts_with("m_") && !name.starts_with("wr_") {
+                if !is_asan_friendly_name(name) {
                     continue;
                 }
+                let actual_name = name.split("::").last().unwrap_or("");
 
                 // Build up the memory range object for this bundle.
                 let val = bundle.bundle.value() as usize;
@@ -902,7 +906,7 @@ impl<'a> Assembler<'a> {
 
                 // Increase the counters for memory usage on either RAM slot and
                 // check for bounds.
-                if name.starts_with("zp_") || name.starts_with("m_") {
+                if actual_name.starts_with("zp_") || actual_name.starts_with("m_") {
                     memory.total_internal_ram += bundle.asan_reserve as usize;
 
                     if memory.total_internal_ram > 0x800 {
@@ -913,7 +917,7 @@ impl<'a> Assembler<'a> {
                             source: self.sources[0].clone(),
                         });
                     }
-                } else if name.starts_with("wr_") {
+                } else if actual_name.starts_with("wr_") {
                     memory.total_working_ram += bundle.asan_reserve as usize;
 
                     if memory.total_working_ram > 0x2000 {
@@ -2318,7 +2322,8 @@ impl<'a> Assembler<'a> {
                         });
                     }
 
-                    let val = self.evaluate_node(left.left.as_ref().unwrap())?;
+                    let evaluated_node = left.left.as_ref().unwrap();
+                    let val = self.evaluate_node(evaluated_node)?;
                     if val.size != 1 {
                         return Err(Error {
                             message: "address can only be one byte long on indirect Y addressing"
@@ -2328,6 +2333,7 @@ impl<'a> Assembler<'a> {
                             global: false,
                         });
                     }
+                    self.asan_check_arm(evaluated_node, &val)?;
                     return Ok((AddressingMode::IndirectY, val));
                 }
                 Err(Error {
@@ -2340,7 +2346,8 @@ impl<'a> Assembler<'a> {
             None => match left.right.as_ref() {
                 Some(right) => {
                     if right.value.value.trim().to_lowercase() == "x" {
-                        let val = self.evaluate_node(left.left.as_ref().unwrap())?;
+                        let evaluated_node = left.left.as_ref().unwrap();
+                        let val = self.evaluate_node(evaluated_node)?;
                         if val.size != 1 {
                             return Err(Error {
                                 message:
@@ -2351,6 +2358,7 @@ impl<'a> Assembler<'a> {
                                 global: false,
                             });
                         }
+                        self.asan_check_arm(evaluated_node, &val)?;
                         return Ok((AddressingMode::IndirectX, val));
                     }
                     Err(Error {
@@ -2361,7 +2369,8 @@ impl<'a> Assembler<'a> {
                     })
                 }
                 None => {
-                    let val = self.evaluate_node(left.left.as_ref().unwrap())?;
+                    let evaluated_node = left.left.as_ref().unwrap();
+                    let val = self.evaluate_node(evaluated_node)?;
                     if val.size != 2 {
                         return Err(Error {
                             message: "expecting a full 16-bit address".to_string(),
@@ -2370,6 +2379,7 @@ impl<'a> Assembler<'a> {
                             global: false,
                         });
                     }
+                    self.asan_check_arm(evaluated_node, &val)?;
                     Ok((AddressingMode::Indirect, val))
                 }
             },
@@ -2398,6 +2408,8 @@ impl<'a> Assembler<'a> {
         let right = node.right.as_ref().unwrap();
         match right.value.value.to_lowercase().trim() {
             "x" => {
+                self.asan_check_arm(left, &val)?;
+
                 // If the size == 2 but we can fit it on a single byte (i.e.
                 // because the second byte is just 0x00), then just "compress"
                 // this instruction. Note that this is only valid if the value
@@ -2429,6 +2441,8 @@ impl<'a> Assembler<'a> {
                 }
             }
             "y" => {
+                self.asan_check_arm(left, &val)?;
+
                 // Same optimization as with the "x" case.
                 if val.size == 1 || (val.resolved && val.bytes[1] == 0x00) {
                     // Similar to the case on "x" indexing.
@@ -2471,10 +2485,13 @@ impl<'a> Assembler<'a> {
             Some(LiteralMode::Hexadecimal) => {
                 // As for checking the most significant byte, it's the same
                 // optimization as with absolute to zeropage indexed addressing.
-                if base.is_branch()
-                    || val.size == 1
+                if base.is_branch() {
+                    val.size = 1;
+                    Ok((AddressingMode::RelativeOrZeropage, val))
+                } else if val.size == 1
                     || (val.bytes[1] == 0x00 && !matches!(base.value.value.as_str(), "jmp" | "jsr"))
                 {
+                    self.asan_check_arm(left_arm, &val)?;
                     val.size = 1;
                     Ok((AddressingMode::RelativeOrZeropage, val))
                 } else {
@@ -2505,6 +2522,107 @@ impl<'a> Assembler<'a> {
                 source: self.source_for(base),
                 global: false,
             }),
+        }
+    }
+
+    // Check the `node` considering is an instructions' "left" arm. More than
+    // that, it assumes that it's a memory access. Hence, only call this
+    // function if the addressing mode allows for it. Moreover, a `value` is
+    // also supplied to perform further checks on the given memory access.
+    //
+    // Note that it will only run if the address sanitizer is enabled, and it
+    // will check that any access only occurs as a variable or a simple pointer
+    // arithmetic. Also note that this function assumes that it's not being
+    // called by `jmp` or `jsr` kind of instructions on the absolute addressing
+    // mode, as they operate on another level.
+    fn asan_check_arm(&mut self, node: &PNode, value: &Bundle) -> Result<(), Error> {
+        if !self.asan_enabled {
+            return Ok(());
+        }
+
+        match node.node_type {
+            NodeType::Value => {
+                let name = &node.value.value;
+                if !is_asan_friendly_name(name) {
+                    // If it's referencing an actual ObjectType::Address, then
+                    // let it be (e.g. 'lda palettes, x'; where 'palettes' is a
+                    // legitimate name even if not 'is_asan_friendly_name').
+                    if let Ok(var) = self.context.get_variable(&node.value, &self.mappings) {
+                        if matches!(var.object_type, ObjectType::Address) {
+                            return Ok(());
+                        }
+                    }
+
+                    // Everything has been exhausted, this is actually not a
+                    // good name access.
+                    self.warnings.push(Error {
+                        line: node.value.line,
+                        message: format!(
+                            "accessing a memory region without a proper name ('{name}')"
+                        ),
+                        source: self.source_for(node),
+                        global: false,
+                    });
+                }
+                Ok(())
+            }
+            NodeType::Operation(OperationType::Add) | NodeType::Operation(OperationType::Sub) => {
+                // Get the name of the variable involved.
+                let left_name = &node.left.as_ref().unwrap().value.value;
+                let right_name = &node.left.as_ref().unwrap().value.value;
+                let name = if is_asan_friendly_name(left_name) {
+                    node.left.as_ref().unwrap()
+                } else if is_asan_friendly_name(right_name) {
+                    node.right.as_ref().unwrap()
+                } else {
+                    self.warnings.push(Error {
+                        line: node.value.line,
+                        message: "accessing a memory region without a proper name".to_string(),
+                        source: self.source_for(node),
+                        global: false,
+                    });
+                    return Ok(());
+                };
+
+                // Fetch the variable. If it doesn't exist or its value hasn't
+                // been resolved yet, we will ignore this check.
+                match self.context.get_variable(&name.value, &self.mappings) {
+                    Ok(object) => {
+                        // If it has a resolved value, then check that the
+                        // pointer arithmetics are within reserved bounds.
+                        if object.bundle.resolved {
+                            let original_value = object.bundle.value() as usize;
+                            let given_value = value.value() as usize;
+                            let end = original_value + object.asan_reserve as usize;
+
+                            if given_value < original_value || given_value >= end {
+                                let range = MemoryRange {
+                                    name: name.value.value.clone(),
+                                    range: (original_value..end),
+                                };
+                                return Err(Error {
+                                    line: node.value.line,
+                                    message: format!("out of bounds memory access for {range}"),
+                                    source: self.source_for(node),
+                                    global: false,
+                                });
+                            }
+                        }
+                        Ok(())
+                    }
+                    Err(_) => Ok(()),
+                }
+            }
+            _ => {
+                self.warnings.push(Error {
+                    line: node.value.line,
+                    message: "accessing a memory region without using a variable".to_string(),
+                    source: self.source_for(node),
+                    global: false,
+                });
+
+                Ok(())
+            }
         }
     }
 

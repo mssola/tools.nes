@@ -52,7 +52,13 @@ exit_code=$((exit_code + $?))
 echo "test: custom => unused.nes"
 ./target/debug/nasm -c empty --asan -o tests/out/unused.nes tests/unused.s 2>tests/out/unused-warning.txt
 diff tests/out/unused-warning.txt tests/expected/unused-warning.txt
+exit_code=$((exit_code + $?))
 diff tests/out/unused.nes tests/expected/unused.nes
+exit_code=$((exit_code + $?))
+
+echo "test: custom => bare_accesses.nes"
+./target/debug/nasm -c empty --asan tests/bare_accesses.s 2>tests/out/bare_accesses.txt
+diff tests/out/bare_accesses.txt tests/expected/bare_accesses.txt
 exit_code=$((exit_code + $?))
 
 ##

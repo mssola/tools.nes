@@ -1,5 +1,13 @@
 use std::fmt;
 
+/// Returns true if this String follows the naming
+/// conventions as expected by the address sanitizer.
+pub fn is_asan_friendly_name(string: &str) -> bool {
+    let name = string.split("::").last().unwrap_or("");
+
+    name.starts_with("zp_") || name.starts_with("wr_") || name.starts_with("m_")
+}
+
 /// A Positioned String. That is, a String which also has information on the
 /// line number and the column range.
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -453,6 +461,28 @@ impl PNode {
             | NodeType::Control(ControlType::EndRepeat)
             | NodeType::Control(ControlType::EndIf) => NodeBodyType::Ends,
             _ => NodeBodyType::None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_asan_friendly_name_test() {
+        let tests = vec![
+            ("zp_name", true),
+            ("name", false),
+            ("Scope::zp_name", true),
+            ("Scope::Inner::zp_good", true),
+            ("Scope::Inner::bad", false),
+        ];
+
+        for (name, expect) in tests {
+            let string = String::from(name);
+
+            assert_eq!(is_asan_friendly_name(&string), expect);
         }
     }
 }
