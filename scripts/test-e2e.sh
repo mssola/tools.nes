@@ -61,6 +61,11 @@ echo "test: custom => bare_accesses.nes"
 diff tests/out/bare_accesses.txt tests/expected/bare_accesses.txt
 exit_code=$((exit_code + $?))
 
+echo "test: custom => variable_names.nes"
+./target/debug/nasm -c empty --asan tests/variable_names.s 2>tests/out/variable_names.txt
+diff tests/out/variable_names.txt tests/expected/variable_names.txt
+exit_code=$((exit_code + $?))
+
 ##
 # code.nes
 

@@ -498,6 +498,13 @@ impl<'a> Assembler<'a> {
 
                     match self.evaluate_node(node.left.as_ref().unwrap()) {
                         Ok(value) => {
+                            // Check that the given name makes sense if the
+                            // address sanitizer is enable and the assigned
+                            // value is known.
+                            if self.asan_enabled && value.resolved {
+                                self.asan_check_variable_name(node, &value);
+                            }
+
                             if let Err(err) = self.context.set_variable(
                                 &node.value,
                                 &Object {
@@ -2622,6 +2629,66 @@ impl<'a> Assembler<'a> {
                 });
 
                 Ok(())
+            }
+        }
+    }
+
+    // Check that the variable name follows the coding convention as expected
+    // from the address sanitizer.
+    fn asan_check_variable_name(&mut self, node: &PNode, bundle: &Bundle) {
+        // If this is not an asan-friendly name, skip it, as it might be a
+        // constant or something else that might be catched later.
+        if !is_asan_friendly_name(&node.value.value) {
+            return;
+        }
+
+        // Let's create this object now to makes things easier for possible
+        // error messages.
+        let actual_name = node.value.value.split("::").last().unwrap_or("");
+
+        if actual_name.starts_with("zp_") {
+            if bundle.size > 1 {
+                let value = bundle.value() as usize;
+                let range = MemoryRange {
+                    name: node.value.value.to_owned(),
+                    range: (value..(value + self.asan_next_reserve as usize)),
+                };
+                self.warnings.push(Error {
+                    line: node.value.line,
+                    message: format!("you are assigning the zero-page variable {range} to something outside of zero page"),
+                    source: self.source_for(node),
+                    global: false,
+                });
+            }
+        } else if bundle.size != 2 {
+            let value = bundle.value() as usize;
+            let range = MemoryRange {
+                name: node.value.value.to_owned(),
+                range: (value..(value + self.asan_next_reserve as usize)),
+            };
+            self.warnings.push(Error {
+                line: node.value.line,
+                message: format!(
+                    "you are assigning the variable {range} to something in zero page"
+                ),
+                source: self.source_for(node),
+                global: false,
+            });
+        } else if actual_name.starts_with("wr_") {
+            let value = bundle.value() as usize;
+            let range = MemoryRange {
+                name: node.value.value.to_owned(),
+                range: (value..(value + self.asan_next_reserve as usize)),
+            };
+            if !(0x6000..0x8000).contains(&value) {
+                self.warnings.push(Error {
+                    line: node.value.line,
+                    message: format!(
+                        "you are assigning the variable {range} to something outside of Working RAM"
+                    ),
+                    source: self.source_for(node),
+                    global: false,
+                });
             }
         }
     }

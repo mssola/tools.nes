@@ -1,0 +1,4 @@
+warning: you are assigning the zero-page variable 'zp_bad' ($0300) to something outside of zero page (variable_names.s: line 11)
+warning: you are assigning the variable 'm_bad' ($02) to something in zero page (variable_names.s: line 13)
+warning: you are assigning the variable 'wr_bad' ($01) to something in zero page (variable_names.s: line 14)
+warning: you are assigning the variable 'wr_out' ($0400) to something outside of Working RAM (variable_names.s: line 16)
