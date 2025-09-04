@@ -69,79 +69,83 @@ exit_code=$((exit_code + $?))
 ##
 # code.nes
 
+# NOTE: the address sanitizer is not enabled here as in most cases these files
+# are using bare numbers for learning purposes, and in some other cases it
+# doesn't matter that much as they are small programs.
+
 echo "test: code.nes => basics/sprite.nes"
-$AS65 --no-errors --strict -b ./target/debug/nasm -C tests/code.nes/config/nrom.cfg -o /dev/null tests/code.nes/basics/sprite.s
+$AS65 --no-errors -b ./target/debug/nasm -C tests/code.nes/config/nrom.cfg -o /dev/null tests/code.nes/basics/sprite.s
 exit_code=$((exit_code + $?))
 
 echo "test: code.nes => basics/input.nes"
-$AS65 --no-errors --strict -b ./target/debug/nasm -C tests/code.nes/config/nrom.cfg -o /dev/null tests/code.nes/basics/input.s
+$AS65 --no-errors -b ./target/debug/nasm -C tests/code.nes/config/nrom.cfg -o /dev/null tests/code.nes/basics/input.s
 exit_code=$((exit_code + $?))
 
 echo "test: code.nes => basics/persist.nes"
-$AS65 --no-errors --strict -b ./target/debug/nasm -C tests/code.nes/config/mmc1.cfg -o /dev/null tests/code.nes/basics/persist.s
+$AS65 --no-errors -b ./target/debug/nasm -C tests/code.nes/config/mmc1.cfg -o /dev/null tests/code.nes/basics/persist.s
 exit_code=$((exit_code + $?))
 
 echo "test: code.nes => basics/flicker.nes"
-$AS65 --no-errors --strict -b ./target/debug/nasm -C tests/code.nes/config/nrom.cfg -o /dev/null tests/code.nes/basics/flicker.s
+$AS65 --no-errors -b ./target/debug/nasm -C tests/code.nes/config/nrom.cfg -o /dev/null tests/code.nes/basics/flicker.s
 exit_code=$((exit_code + $?))
 
 echo "test: code.nes => basics/unrom.nes"
-$AS65 --no-errors --strict -b ./target/debug/nasm -C tests/code.nes/config/unrom.cfg -o /dev/null tests/code.nes/basics/unrom.s
+$AS65 --no-errors -b ./target/debug/nasm -C tests/code.nes/config/unrom.cfg -o /dev/null tests/code.nes/basics/unrom.s
 exit_code=$((exit_code + $?))
 
 echo "test: code.nes => basics/chr-ram.nes"
-$AS65 --no-errors --strict -b ./target/debug/nasm -C tests/code.nes/config/unrom.cfg -o /dev/null tests/code.nes/basics/chr-ram.s
+$AS65 --no-errors -b ./target/debug/nasm -C tests/code.nes/config/unrom.cfg -o /dev/null tests/code.nes/basics/chr-ram.s
 exit_code=$((exit_code + $?))
 
 echo "test: code.nes => fx/blink.nes"
-$AS65 --no-errors --strict -b ./target/debug/nasm -C tests/code.nes/config/mmc3.cfg -o /dev/null tests/code.nes/fx/blink.s
+$AS65 --no-errors -b ./target/debug/nasm -C tests/code.nes/config/mmc3.cfg -o /dev/null tests/code.nes/fx/blink.s
 exit_code=$((exit_code + $?))
 
 echo "test: code.nes => scroll/toggle.nes"
-$AS65 --no-errors --strict -b ./target/debug/nasm -C tests/code.nes/config/nrom.cfg -o /dev/null tests/code.nes/scroll/toggle.s
+$AS65 --no-errors -b ./target/debug/nasm -C tests/code.nes/config/nrom.cfg -o /dev/null tests/code.nes/scroll/toggle.s
 exit_code=$((exit_code + $?))
 
 echo "test: code.nes => scroll/level.nes"
-$AS65 --no-errors --strict -b ./target/debug/nasm -C tests/code.nes/config/nrom.cfg -o /dev/null tests/code.nes/scroll/level.s
+$AS65 --no-errors -b ./target/debug/nasm -C tests/code.nes/config/nrom.cfg -o /dev/null tests/code.nes/scroll/level.s
 exit_code=$((exit_code + $?))
 
 echo "test: code.nes => scroll/sprite0.nes"
-$AS65 --no-errors --strict -b ./target/debug/nasm -C tests/code.nes/config/nrom.cfg -o /dev/null tests/code.nes/scroll/sprite0.s
+$AS65 --no-errors -b ./target/debug/nasm -C tests/code.nes/config/nrom.cfg -o /dev/null tests/code.nes/scroll/sprite0.s
 exit_code=$((exit_code + $?))
 
 echo "test: code.nes => scroll/mmc3.nes"
-$AS65 --no-errors --strict -b ./target/debug/nasm -C tests/code.nes/config/mmc3.cfg -o /dev/null tests/code.nes/scroll/mmc3.s
+$AS65 --no-errors -b ./target/debug/nasm -C tests/code.nes/config/mmc3.cfg -o /dev/null tests/code.nes/scroll/mmc3.s
 exit_code=$((exit_code + $?))
 
 echo "test: code.nes => rand/rand.nes"
-$AS65 --no-errors --strict -b ./target/debug/nasm -C tests/code.nes/config/nrom.cfg -o /dev/null tests/code.nes/rand/rand.s
+$AS65 --no-errors -b ./target/debug/nasm -C tests/code.nes/config/nrom.cfg -o /dev/null tests/code.nes/rand/rand.s
 exit_code=$((exit_code + $?))
 
 echo "test: code.nes => scroll/roulette.nes"
-$AS65 --no-errors --strict -b ./target/debug/nasm -C tests/code.nes/config/mmc3.cfg -o /dev/null tests/code.nes/scroll/roulette.s
+$AS65 --no-errors -b ./target/debug/nasm -C tests/code.nes/config/mmc3.cfg -o /dev/null tests/code.nes/scroll/roulette.s
 exit_code=$((exit_code + $?))
 
 echo "test: code.nes => space/space.nes"
-$AS65 --no-errors --strict -b ./target/debug/nasm -C tests/code.nes/config/nrom.cfg -o /dev/null tests/code.nes/space/src/space.s
+$AS65 --no-errors -b ./target/debug/nasm -C tests/code.nes/config/nrom.cfg -o /dev/null tests/code.nes/space/src/space.s
 exit_code=$((exit_code + $?))
 
 ##
 # aoc2023.nes
 
 echo "test: aoc2023.nes => 1.nes"
-$AS65 --no-errors --strict -b ./target/debug/nasm -C tests/cfg/nrom65.cfg -o /dev/null tests/aoc2023.nes/src/1.s
+$AS65 --no-errors -b ./target/debug/nasm -C tests/cfg/nrom65.cfg -o /dev/null tests/aoc2023.nes/src/1.s
 exit_code=$((exit_code + $?))
 
 echo "test: aoc2023.nes => 2.nes"
-$AS65 --no-errors --strict -b ./target/debug/nasm -C tests/cfg/nrom65.cfg -o /dev/null tests/aoc2023.nes/src/2.s
+$AS65 --no-errors -b ./target/debug/nasm -C tests/cfg/nrom65.cfg -o /dev/null tests/aoc2023.nes/src/2.s
 exit_code=$((exit_code + $?))
 
 echo "test: aoc2023.nes => 3.nes"
-$AS65 --no-errors --strict -b ./target/debug/nasm -C tests/cfg/nrom65.cfg -o /dev/null tests/aoc2023.nes/src/3.s
+$AS65 --no-errors -b ./target/debug/nasm -C tests/cfg/nrom65.cfg -o /dev/null tests/aoc2023.nes/src/3.s
 exit_code=$((exit_code + $?))
 
 echo "test: aoc2023.nes => 4.nes"
-$AS65 --no-errors --strict -b ./target/debug/nasm -C tests/cfg/nrom65.cfg -o /dev/null tests/aoc2023.nes/src/4.s
+$AS65 --no-errors -b ./target/debug/nasm -C tests/cfg/nrom65.cfg -o /dev/null tests/aoc2023.nes/src/4.s
 exit_code=$((exit_code + $?))
 
 ##
