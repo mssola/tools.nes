@@ -112,21 +112,18 @@ zp_bad    = $22   ; NOTE: The address sanitizer will mark it as a *conflict*.
 
 If you want to ignore this (e.g. you are using a variable that shadows other
 ones), then you can explicitely tell the address sanitizer to ignore a given
-assignment:
+assignment or instruction:
 
 ```asm
 zp_buffer = $20   ; asan:reserve $0F
 zp_good   = $22   ; asan:ignore
+lda $200          ; asan:ignore
 ```
 
-TODO: NOTE asan:ignore also takes care of lda $200 ; asan:ignore
-
-
-
-In order for the address sanitizer to be successful, it will warn programmers
-whenever an access to memory is being done without using variables. This allows
-for the address sanitizer to be more thorough, even if there is never the
-guarantee that memory accesses will be safe. For example:
+That is, in order for the address sanitizer to be successful, it will also warn
+programmers whenever an access to memory is being done without using
+variables. This allows for the address sanitizer to be more thorough, even if
+there is never the guarantee that memory accesses will be safe. For example:
 
 ```asm
 zp_variable = $20
