@@ -499,10 +499,12 @@ impl<'a> Assembler<'a> {
                     match self.evaluate_node(node.left.as_ref().unwrap()) {
                         Ok(value) => {
                             // Check that the given name makes sense if the
-                            // address sanitizer is enable and the assigned
+                            // address sanitizer is enabled and the assigned
                             // value is known.
                             if self.asan_enabled && value.resolved {
-                                self.asan_check_variable_name(node, &value);
+                                if let Err(err) = self.asan_check_variable_name(node, &value) {
+                                    errors.push(err);
+                                }
                             }
 
                             if let Err(err) = self.context.set_variable(
@@ -2652,11 +2654,21 @@ impl<'a> Assembler<'a> {
 
     // Check that the variable name follows the coding convention as expected
     // from the address sanitizer.
-    fn asan_check_variable_name(&mut self, node: &PNode, bundle: &Bundle) {
+    fn asan_check_variable_name(&mut self, node: &PNode, bundle: &Bundle) -> Result<(), Error> {
         // If this is not an asan-friendly name, skip it, as it might be a
         // constant or something else that might be catched later.
         if !is_asan_friendly_name(&node.value.value) {
-            return;
+            return Ok(());
+        }
+
+        // If the bundle was explicitely marked as negative, then cry out.
+        if bundle.negative {
+            return Err(Error {
+                line: node.value.line,
+                message: "you cannot use a negative value for a memory variable".to_string(),
+                source: self.source_for(node),
+                global: false,
+            });
         }
 
         // Let's create this object now to makes things easier for possible
@@ -2708,6 +2720,8 @@ impl<'a> Assembler<'a> {
                 });
             }
         }
+
+        Ok(())
     }
 
     fn to_relative_address(&self, node: &PNode, bundle: &mut Bundle) -> Result<(), Error> {
@@ -3192,6 +3206,29 @@ mod tests {
         assert_eq!(pos.bytes[0], 0xA2);
         assert_eq!(pos.bytes[1], 0x02);
         assert_eq!(pos.bytes[2], 0x00);
+    }
+
+    #[test]
+    fn asan_invalid_negative_variable() {
+        let line = "m_var = -1";
+        let real_line = minimal_header().to_string() + line;
+
+        let res = assemble_with_mapping(
+            real_line.as_bytes(),
+            empty(),
+            &[],
+            &SourceInfo::default(),
+            true,
+        );
+
+        assert!(res.bundles.is_empty());
+        assert!(!res.errors.is_empty());
+
+        // NOTE: 3 lines for the "minimal header" being prepended.
+        assert_eq!(
+            res.errors[0].to_string().as_str(),
+            "you cannot use a negative value for a memory variable (line 4)"
+        );
     }
 
     #[test]
