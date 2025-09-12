@@ -11,13 +11,15 @@ pub enum Kind {
 }
 
 /// Nametable arrangement as defined by the header. Typically it's either
-/// Vertical or Horizontal, since this library does not support "alternative"
-/// types. Hence, an "Unknown" value is most probably either a defect on the ROM
-/// file, or a weird alternative arrangement what we don't care.
+/// Vertical or Horizontal, but this library supports "alternative"
+/// types in some well-known scenarios. That being said, an "Unknown" value is
+/// also defined for ROM files which might have a defect.
 #[derive(Debug)]
 pub enum NameTableArrangement {
     Vertical,
     Horizontal,
+    OneScreen,
+    FourScreen,
     Unknown,
 }
 
@@ -115,6 +117,7 @@ impl TryFrom<&[u8]> for Header {
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         let kind = get_rom_kind(bytes)?;
         let ninth = bytes.get(9).unwrap_or(&0);
+        let mapper = parse_mapper(bytes.get(6), bytes.get(7), bytes.get(8));
 
         Ok(Self {
             prg_rom_size: if matches!(kind, Kind::Nes20) {
@@ -127,25 +130,59 @@ impl TryFrom<&[u8]> for Header {
             } else {
                 bytes[5] as usize
             },
-            nametable_arrangement: parse_nametable(bytes.get(6)),
+            nametable_arrangement: parse_nametable(bytes.get(6), &mapper),
             has_persistent_memory: (bytes.get(6).unwrap_or(&0) & 0x2) == 0x2,
             has_trainer: (bytes.get(6).unwrap_or(&0) & 0x4) == 0x4,
-            mapper: parse_mapper(bytes.get(6), bytes.get(7), bytes.get(8)),
+            mapper,
             kind,
         })
     }
 }
 
-fn parse_nametable(byte: Option<&u8>) -> NameTableArrangement {
-    match byte {
-        Some(b) => {
-            if b & 0x1 == 0 {
-                NameTableArrangement::Vertical
-            } else {
-                NameTableArrangement::Horizontal
+// Detect the nametable arrangement given the relevant `byte` value. In some
+// cases the `mapper` might be needed to weed out some ambiguities.
+fn parse_nametable(byte: Option<&u8>, mapper: &Mapper) -> NameTableArrangement {
+    // In some broken scenarios this might not be given. Return an "unknown"
+    // value just to be safe.
+    let Some(b) = byte else {
+        return NameTableArrangement::Unknown;
+    };
+
+    // Handle special per-mapper cases.
+    match mapper {
+        Mapper::Mmc3Acc
+        | Mapper::Mmc3Nec
+        | Mapper::Mmc3Sharp
+        | Mapper::Mmc3T9552
+        | Mapper::Mmc3c => {
+            // MMC3 chips can mean a 4-screen nametable arrangement if
+            // the "alternative nametable layout" bit is set.
+            if (b & 0x08) == 0x08 {
+                return NameTableArrangement::FourScreen;
             }
         }
-        None => NameTableArrangement::Unknown,
+        Mapper::Unrom512 => {
+            // In UNROM 512 chips, if the "alternative nametable layout"
+            // bit is set, then it depends on the "nametable
+            // arrangement" bit to decide whether it's a 1-screen or
+            // 4-screen layout.
+            if (b & 0x08) == 0x08 {
+                if b & 0x1 == 0 {
+                    return NameTableArrangement::OneScreen;
+                }
+                return NameTableArrangement::FourScreen;
+            }
+        }
+        _ => {}
+    }
+
+    // If no special per-mapper case was matched, then we fall back to
+    // the default behavior of checking on the "nametable arrangement"
+    // bit.
+    if b & 0x1 == 0 {
+        NameTableArrangement::Vertical
+    } else {
+        NameTableArrangement::Horizontal
     }
 }
 
@@ -327,6 +364,30 @@ mod tests {
         assert!(!header.has_persistent_memory);
         assert!(!header.has_trainer);
         assert!(matches!(header.mapper, Mapper::Mmc6));
+        assert!(matches!(header.kind, Kind::Nes20));
+    }
+
+    #[test]
+    fn malasombra() {
+        // Header extracted from the 'Malasombra' NES game released in 2025.
+        let header = Header::try_from(
+            vec![
+                b'N', b'E', b'S', 0x1A, 0x20, 0x00, 0x4B, 0x08, 0x00, 0x00, 0x70, 0x07, 0x00, 0x00,
+                0x00, 0x00,
+            ]
+            .as_slice(),
+        )
+        .unwrap();
+
+        assert_eq!(header.prg_rom_size, 32);
+        assert_eq!(header.chr_rom_size, 0);
+        assert!(matches!(
+            header.nametable_arrangement,
+            NameTableArrangement::FourScreen
+        ));
+        assert!(header.has_persistent_memory);
+        assert!(!header.has_trainer);
+        assert!(matches!(header.mapper, Mapper::Mmc3Sharp));
         assert!(matches!(header.kind, Kind::Nes20));
     }
 }
