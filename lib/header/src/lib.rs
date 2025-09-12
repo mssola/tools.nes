@@ -23,6 +23,20 @@ pub enum NameTableArrangement {
     Unknown,
 }
 
+impl NameTableArrangement {
+    /// Returns the mirroring identifier for the nametable arrangement. Note
+    /// that mirroring is not exactly the same as nametable arrangement.
+    pub fn mirroring(&self) -> &str {
+        match self {
+            NameTableArrangement::Horizontal => "vertical",
+            NameTableArrangement::Vertical => "horizontal",
+            NameTableArrangement::OneScreen => "1-screen",
+            NameTableArrangement::FourScreen => "4-screen",
+            NameTableArrangement::Unknown => "unknown",
+        }
+    }
+}
+
 /// Memory mappers. Note that not all of them are listed here, but they will be
 /// added with time (and if I even care).
 #[derive(Debug)]
@@ -77,6 +91,49 @@ impl std::fmt::Display for Mapper {
     }
 }
 
+/// The kind of RAM chip available on the cartridge.
+#[derive(Debug)]
+pub enum RamKind {
+    Ram,
+    Nvram,
+}
+
+impl std::fmt::Display for RamKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Ram => write!(f, "RAM"),
+            Self::Nvram => write!(f, "NVRAM"),
+        }
+    }
+}
+
+/// The kind and size of the external RAM chip available on the cartridge.
+#[derive(Debug)]
+pub struct RamDefinition {
+    pub kind: RamKind,
+    pub size: usize,
+}
+
+/// The CPU/PPU timing architecture.
+#[derive(Debug)]
+pub enum Timing {
+    Ntsc,
+    Pal,
+    MultipleRegion,
+    Dendy,
+}
+
+impl std::fmt::Display for Timing {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Ntsc => write!(f, "NTSC"),
+            Self::Pal => write!(f, "PAL"),
+            Self::MultipleRegion => write!(f, "multi-region"),
+            Self::Dendy => write!(f, "Dendy"),
+        }
+    }
+}
+
 /// Information that has been parsed from an NES/Famicom ROM header. The
 /// `Header` struct implements the `TryFrom` trait. Hence, use
 /// `Header::try_from` in order to parse a header.
@@ -98,8 +155,20 @@ pub struct Header {
     pub nametable_arrangement: NameTableArrangement,
 
     /// Whether the memory region $6000-$7FFF is persistent or not (e.g.
-    /// battery-backed and handled through a mapper like MMC1).
+    /// battery-backed and handled through a mapper like MMC1). For the exact
+    /// kind of RAM definition check the `external_ram_definition` member.
     pub has_persistent_memory: bool,
+
+    /// If `has_persistent_memory` is set to true, then it will contain a Some
+    /// value with the kind of PRG-RAM chip available and its size.
+    pub prg_ram_definition: Option<RamDefinition>,
+
+    /// If `has_persistent_memory` is set to true, then it will contain a Some
+    /// value with the kind of CHR-RAM chip available and its size.
+    pub chr_ram_definition: Option<RamDefinition>,
+
+    /// The CPU/PPU timing detected from the header.
+    pub timing: Timing,
 
     /// Whether there is a 512-byte trainer at $7000-$71FF or not.
     pub has_trainer: bool,
@@ -118,6 +187,7 @@ impl TryFrom<&[u8]> for Header {
         let kind = get_rom_kind(bytes)?;
         let ninth = bytes.get(9).unwrap_or(&0);
         let mapper = parse_mapper(bytes.get(6), bytes.get(7), bytes.get(8));
+        let has_persistent_memory = (bytes.get(6).unwrap_or(&0) & 0x2) == 0x2;
 
         Ok(Self {
             prg_rom_size: if matches!(kind, Kind::Nes20) {
@@ -131,11 +201,72 @@ impl TryFrom<&[u8]> for Header {
                 bytes[5] as usize
             },
             nametable_arrangement: parse_nametable(bytes.get(6), &mapper),
-            has_persistent_memory: (bytes.get(6).unwrap_or(&0) & 0x2) == 0x2,
+            has_persistent_memory,
             has_trainer: (bytes.get(6).unwrap_or(&0) & 0x4) == 0x4,
             mapper,
+            prg_ram_definition: parse_ram_definition(&kind, bytes.get(10), has_persistent_memory),
+            chr_ram_definition: parse_ram_definition(&kind, bytes.get(11), has_persistent_memory),
+            timing: parse_timing(&kind, bytes.get(12)),
             kind,
         })
+    }
+}
+
+// Parse the given `byte` by assuming it's a RAM definition. It will just return
+// `None` if `has_persistent_memory` is false or the `kind` is not NES 2.0.
+fn parse_ram_definition(
+    kind: &Kind,
+    byte: Option<&u8>,
+    has_persistent_memory: bool,
+) -> Option<RamDefinition> {
+    // If the bit for persistent memory was not set, then we don't even
+    // bother. If there was something relevant here, then the ROM does not have
+    // a proper format.\
+    //
+    // Moreover, if this is not NES 2.0 format, then we don't even bother as
+    // defining this on iNES v1 is not recommended.
+    if !has_persistent_memory || !matches!(kind, Kind::Nes20) {
+        return None;
+    }
+    let definition = byte?;
+
+    let mut shift = definition & 0x0F;
+    if shift > 0 {
+        return Some(RamDefinition {
+            kind: RamKind::Ram,
+            size: 64 << (shift as usize),
+        });
+    }
+
+    shift = definition & 0xF0;
+    if shift > 0 {
+        shift >>= 4;
+        return Some(RamDefinition {
+            kind: RamKind::Nvram,
+            size: 64 << (shift as usize),
+        });
+    }
+
+    None
+}
+
+// Parse the CPU/PPU timing in case it's in the NES 2.0 format.
+fn parse_timing(kind: &Kind, byte: Option<&u8>) -> Timing {
+    // By default assume NTSC.
+    if matches!(kind, Kind::INes) {
+        return Timing::Ntsc;
+    }
+    let Some(definition) = byte else {
+        return Timing::Ntsc;
+    };
+
+    // A 0 value is NTSC, but Rust here is not clever enough to assume that
+    // masking out 0x03 only gives 4 possible outcomes.
+    match *definition & 0x03 {
+        0x01 => Timing::Pal,
+        0x02 => Timing::MultipleRegion,
+        0x03 => Timing::Dendy,
+        _ => Timing::Ntsc,
     }
 }
 
@@ -389,5 +520,13 @@ mod tests {
         assert!(!header.has_trainer);
         assert!(matches!(header.mapper, Mapper::Mmc3Sharp));
         assert!(matches!(header.kind, Kind::Nes20));
+
+        let prg_ram = header.prg_ram_definition.unwrap();
+        assert_eq!(prg_ram.size, 0x2000);
+        assert!(matches!(prg_ram.kind, RamKind::Nvram));
+
+        let chr_ram = header.chr_ram_definition.unwrap();
+        assert_eq!(chr_ram.size, 0x2000);
+        assert!(matches!(chr_ram.kind, RamKind::Ram));
     }
 }
