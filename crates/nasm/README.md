@@ -40,6 +40,20 @@ it will also print a warning telling the programmer about this, as this might be
 unexpected at first. Hence, as a general rule `nasm` will be more noisy than
 `ca65`, in the hope that the programmer is more aware about the end result.
 
+That being said, `nasm` is at the same time more flexible than `ca65`. For
+exemple, the order of declaration for variables, proc's, etc. is not
+important. Hence, the following code is valid in `nasm`, but not in `ca65`:
+
+```asm
+.proc foo
+  ;; 'ca65' will complain that 'Variable' is not known.
+  lda #Variable
+  rts
+.endproc
+
+Variable = $00
+```
+
 ## Mappers
 
 By default `nasm` will assume the configuration for an `NROM` mapper, but this
@@ -102,8 +116,8 @@ zp_buffer = $20   ; asan:reserve $0F
 ```
 
 Then the address sanitizer will assume that `zp_buffer = $20..$2F
-(included)`. Any access to this reserved range will be considered a
-conflict. For example:
+(included)`. Any access to this reserved range that is not strictly via
+`zp_buffer` will be considered a conflict. For example:
 
 ```asm
 zp_buffer = $20   ; asan:reserve $0F
@@ -166,6 +180,6 @@ In NES/Famicom programs you have to advertise on the header whether Working RAM
 is being used or not (see [byte 6 on the iNES
 format](https://www.nesdev.org/wiki/INES)). The programmer is expected to set
 this flag on if PRG RAM is available. If there are memory accesses to PRG RAM
-but the programmer did not advertise that on the header flag, then the `nasm`
-will error out as it cannot assume that these accesses are valid. This check
-will happen regardless of the `-a/--asan` flag.
+but the programmer did not advertise that on the header flag, then `nasm` will
+error out as it cannot assume that these accesses are valid. This check will
+happen regardless of the `-a/--asan` flag.
