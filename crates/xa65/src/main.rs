@@ -169,7 +169,7 @@ fn get_binaries(nasm_name: String) -> Result<(PathBuf, PathBuf), String> {
 fn temporary_dir() -> PathBuf {
     let tmp = &std::env::temp_dir();
     let paths = std::fs::read_dir(tmp).unwrap();
-    let name = format!("xa65-{}", paths.count());
+    let name = format!("xa65-{}", paths.count() + 1);
 
     tmp.join(name)
 }
@@ -237,7 +237,7 @@ fn main() {
     // as an intermediate step.
     let dir = temporary_dir();
     if let Err(e) = std::fs::create_dir(&dir) {
-        die(e.to_string());
+        die(format!("could not create temporary directory: {}", e));
         return;
     }
 
