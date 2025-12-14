@@ -259,7 +259,7 @@ pub enum OperationType {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CommentType {
-    AsanReserve(u8),
+    AsanReserve(usize),
     AsanIgnore,
 }
 

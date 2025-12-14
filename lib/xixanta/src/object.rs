@@ -138,7 +138,7 @@ pub struct Object {
     pub asan_ignore: bool,
 
     /// Amount of bytes reserved for this object on the address sanitizer.
-    pub asan_reserve: u8,
+    pub asan_reserve: usize,
 
     /// Number of times this object was accessed. Incremented by `get_variable`.
     pub accessed: usize,

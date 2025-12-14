@@ -184,16 +184,16 @@ impl Parser {
                 }
 
                 // Argument validation.
-                if !arg.starts_with('$') || arg.len() > 3 {
+                if !arg.starts_with('$') || arg.len() > 5 {
                     return Err(Error {
                         line: self.line,
                         global: false,
                         source: self.sources[self.current_source].clone(),
-                        message: "expecting a byte formatted with a leading '$' sign".to_string(),
+                        message: "expecting a number formatted with a leading '$' sign".to_string(),
                     }
                     .into());
                 }
-                let Ok(val) = u8::from_str_radix(arg.get(1..).unwrap_or("00"), 16) else {
+                let Ok(val) = usize::from_str_radix(arg.get(1..).unwrap_or("0000"), 16) else {
                     return Err(Error {
                         line: self.line,
                         global: false,
@@ -3341,6 +3341,8 @@ inc $20
 VAR = $00
 
 VAR2 = $02 ;; asan:reserve $03
+
+VAR3 = $200 ;; asan:reserve $100
 "#;
         let mut parser = Parser::default();
         assert!(parser
@@ -3348,7 +3350,7 @@ VAR2 = $02 ;; asan:reserve $03
             .is_ok());
 
         let nodes = parser.nodes();
-        assert_eq!(nodes.len(), 4);
+        assert_eq!(nodes.len(), 6);
 
         assert_node(
             nodes.first().unwrap(),
@@ -3359,15 +3361,25 @@ VAR2 = $02 ;; asan:reserve $03
 
         // Yeah, `assert_node` is bad at multi-line cases, let's do it
         // manually...
-        let last = nodes.get(2).unwrap();
+        let var2 = nodes.get(2).unwrap();
         assert_eq!(
-            last.node_type,
+            var2.node_type,
             NodeType::Comment(CommentType::AsanReserve(3))
         );
-        assert_eq!(last.value.line, 3);
-        assert_eq!(last.value.start, 14);
-        assert_eq!(last.value.end, 26);
-        assert_eq!(last.value.value.as_str(), "asan:reserve");
+        assert_eq!(var2.value.line, 3);
+        assert_eq!(var2.value.start, 14);
+        assert_eq!(var2.value.end, 26);
+        assert_eq!(var2.value.value.as_str(), "asan:reserve");
+
+        let var3 = nodes.get(4).unwrap();
+        assert_eq!(
+            var3.node_type,
+            NodeType::Comment(CommentType::AsanReserve(256))
+        );
+        assert_eq!(var3.value.line, 5);
+        assert_eq!(var3.value.start, 15);
+        assert_eq!(var3.value.end, 27);
+        assert_eq!(var3.value.value.as_str(), "asan:reserve");
     }
 
     #[test]
@@ -3384,11 +3396,11 @@ VAR2 = $02 ;; asan:reserve $03
         assert!(res.is_err());
 
         let errors = res.unwrap_err();
-        assert_eq!(errors.len(), 4);
+        assert_eq!(errors.len(), 3);
 
         assert_eq!(
             errors.first().unwrap().message,
-            "expecting a byte formatted with a leading '$' sign"
+            "expecting a number formatted with a leading '$' sign"
         );
         assert_eq!(
             errors.get(1).unwrap().message,
@@ -3397,10 +3409,6 @@ VAR2 = $02 ;; asan:reserve $03
         assert_eq!(
             errors.get(2).unwrap().message,
             "bad asan:reserve number, should be higher than $01"
-        );
-        assert_eq!(
-            errors.last().unwrap().message,
-            "expecting a byte formatted with a leading '$' sign"
         );
     }
 }

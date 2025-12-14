@@ -134,7 +134,7 @@ struct Assembler<'a> {
     asan_next_ignore: bool,
 
     // The amount of bytes to reserve for the next variable assignment.
-    asan_next_reserve: u8,
+    asan_next_reserve: usize,
 }
 
 /// The result to be given at the end of `assembler::assemble` and
@@ -888,7 +888,7 @@ impl<'a> Assembler<'a> {
                 // Build up the memory range object for this bundle.
                 let val = bundle.bundle.value() as usize;
                 let range = MemoryRange {
-                    range: (val..val + bundle.asan_reserve as usize),
+                    range: (val..val + bundle.asan_reserve),
                     name: name.clone(),
                 };
 
@@ -928,7 +928,7 @@ impl<'a> Assembler<'a> {
                 // Increase the counters for memory usage on either RAM slot and
                 // check for bounds.
                 if actual_name.starts_with("zp_") || actual_name.starts_with("m_") {
-                    memory.total_internal_ram += bundle.asan_reserve as usize;
+                    memory.total_internal_ram += bundle.asan_reserve;
 
                     if memory.total_internal_ram > 0x800 {
                         errors.push(Error {
@@ -939,7 +939,7 @@ impl<'a> Assembler<'a> {
                         });
                     }
                 } else if actual_name.starts_with("wr_") {
-                    memory.total_working_ram += bundle.asan_reserve as usize;
+                    memory.total_working_ram += bundle.asan_reserve;
 
                     if memory.total_working_ram > 0x2000 {
                         errors.push(Error {
@@ -2619,7 +2619,7 @@ impl<'a> Assembler<'a> {
                         if object.bundle.resolved {
                             let original_value = object.bundle.value() as usize;
                             let given_value = value.value() as usize;
-                            let end = original_value + object.asan_reserve as usize;
+                            let end = original_value + object.asan_reserve;
 
                             if given_value < original_value || given_value >= end {
                                 let range = MemoryRange {
@@ -2680,7 +2680,7 @@ impl<'a> Assembler<'a> {
                 let value = bundle.value() as usize;
                 let range = MemoryRange {
                     name: node.value.value.to_owned(),
-                    range: (value..(value + self.asan_next_reserve as usize)),
+                    range: (value..(value + self.asan_next_reserve)),
                 };
                 self.warnings.push(Error {
                     line: node.value.line,
@@ -2693,7 +2693,7 @@ impl<'a> Assembler<'a> {
             let value = bundle.value() as usize;
             let range = MemoryRange {
                 name: node.value.value.to_owned(),
-                range: (value..(value + self.asan_next_reserve as usize)),
+                range: (value..(value + self.asan_next_reserve)),
             };
             self.warnings.push(Error {
                 line: node.value.line,
@@ -2707,7 +2707,7 @@ impl<'a> Assembler<'a> {
             let value = bundle.value() as usize;
             let range = MemoryRange {
                 name: node.value.value.to_owned(),
-                range: (value..(value + self.asan_next_reserve as usize)),
+                range: (value..(value + self.asan_next_reserve)),
             };
             if !(0x6000..0x8000).contains(&value) {
                 self.warnings.push(Error {
