@@ -923,6 +923,15 @@ impl Parser {
         // working directory. This way we construct the absolute path for the
         // given file.
         let file_path = self.fetch_path_from(node.args.as_ref().unwrap().first().unwrap())?;
+        if file_path.is_empty() {
+            return Err(Error {
+                line: node.value.line,
+                global: false,
+                source: self.sources.get(self.current_source).unwrap().clone(),
+                message: ".include statement with an empty string".to_string(),
+            }
+            .into());
+        }
         let Some(current_source) = self.sources.get(self.current_source) else {
             panic!("mismatch between the number of sources and the current one");
         };
@@ -2071,6 +2080,21 @@ mod tests {
         assert_eq!(
             err.first().unwrap().message,
             "using non-ASCII characters in a string"
+        );
+    }
+
+    #[test]
+    fn error_on_empty_include_string() {
+        let mut parser = Parser::default();
+        let line = ".include \"  \"";
+
+        let err = parser
+            .parse(line.as_bytes(), &SourceInfo::default())
+            .unwrap_err();
+
+        assert_eq!(
+            err.first().unwrap().message,
+            ".include statement with an empty string"
         );
     }
 
