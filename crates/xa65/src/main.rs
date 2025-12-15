@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Version for this program.
 const VERSION: &str = "0.1.0";
@@ -168,8 +169,13 @@ fn get_binaries(nasm_name: String) -> Result<(PathBuf, PathBuf), String> {
 // Returns the path to the temporary directory that can be used for the run.
 fn temporary_dir() -> PathBuf {
     let tmp = &std::env::temp_dir();
-    let paths = std::fs::read_dir(tmp).unwrap();
-    let name = format!("xa65-{}", paths.count() + 1);
+
+    let start = SystemTime::now();
+    let epoch = start
+        .duration_since(UNIX_EPOCH)
+        .expect("xa65 (error): could not get current time.");
+
+    let name = format!("xa65-{}", epoch.as_millis());
 
     tmp.join(name)
 }
