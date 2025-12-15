@@ -923,20 +923,23 @@ impl<'a> Assembler<'a> {
                         });
                     }
                 }
-                memory.memory_ranges.push(range);
 
                 // Increase the counters for memory usage on either RAM slot and
                 // check for bounds.
                 if actual_name.starts_with("zp_") || actual_name.starts_with("m_") {
-                    memory.total_internal_ram += bundle.asan_reserve;
+                    // Avoid considering references to PPU/APU addresses as
+                    // reserved memory.
+                    if range.range.start < 0x2000 {
+                        memory.total_internal_ram += bundle.asan_reserve;
 
-                    if memory.total_internal_ram > 0x800 {
-                        errors.push(Error {
-                            line: 0,
-                            global: true,
-                            message: "out of internal RAM".to_string(),
-                            source: self.sources[0].clone(),
-                        });
+                        if memory.total_internal_ram > 0x800 {
+                            errors.push(Error {
+                                line: 0,
+                                global: true,
+                                message: "out of internal RAM".to_string(),
+                                source: self.sources[0].clone(),
+                            });
+                        }
                     }
                 } else if actual_name.starts_with("wr_") {
                     memory.total_working_ram += bundle.asan_reserve;
@@ -950,6 +953,8 @@ impl<'a> Assembler<'a> {
                         });
                     }
                 }
+
+                memory.memory_ranges.push(range);
             }
         }
 
