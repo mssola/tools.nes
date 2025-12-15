@@ -923,19 +923,19 @@ impl Parser {
         // working directory. This way we construct the absolute path for the
         // given file.
         let file_path = self.fetch_path_from(node.args.as_ref().unwrap().first().unwrap())?;
-        if file_path.is_empty() {
-            return Err(Error {
-                line: node.value.line,
-                global: false,
-                source: self.sources.get(self.current_source).unwrap().clone(),
-                message: ".include statement with an empty string".to_string(),
-            }
-            .into());
-        }
         let Some(current_source) = self.sources.get(self.current_source) else {
             panic!("mismatch between the number of sources and the current one");
         };
         let abs_file = current_source.directory.join(file_path);
+        if !abs_file.is_file() {
+            return Err(Error {
+                line: node.value.line,
+                global: false,
+                source: current_source.clone(),
+                message: ".include statements expect a file as the argument".to_string(),
+            }
+            .into());
+        }
 
         // And open the file. This is the object to be passed as a reader for
         // the recursive `parse` call, but it also allows us to construct the
@@ -2085,17 +2085,17 @@ mod tests {
 
     #[test]
     fn error_on_empty_include_string() {
-        let mut parser = Parser::default();
-        let line = ".include \"  \"";
+        for line in vec![".include \" \"", ".include \".\""].into_iter() {
+            let mut parser = Parser::default();
+            let err = parser
+                .parse(line.as_bytes(), &SourceInfo::default())
+                .unwrap_err();
 
-        let err = parser
-            .parse(line.as_bytes(), &SourceInfo::default())
-            .unwrap_err();
-
-        assert_eq!(
-            err.first().unwrap().message,
-            ".include statement with an empty string"
-        );
+            assert_eq!(
+                err.first().unwrap().message,
+                ".include statements expect a file as the argument"
+            );
+        }
     }
 
     // Regular instructions.
