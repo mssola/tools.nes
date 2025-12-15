@@ -60,7 +60,7 @@ struct PendingNode {
 }
 
 /// Memory range that can be identified by a name.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MemoryRange {
     // The range in memory itself.
     pub range: Range<usize>,
@@ -923,23 +923,6 @@ impl<'a> Assembler<'a> {
                     continue;
                 }
 
-                // Evaluate if the given object conflicts with an existing
-                // range.
-                for existing in &memory.memory_ranges {
-                    if (range.range.start >= existing.range.start
-                        && range.range.start < existing.range.end)
-                        || (range.range.end > existing.range.start
-                            && range.range.end < existing.range.end)
-                    {
-                        errors.push(Error {
-                            line: 0,
-                            global: true,
-                            message: format!("The variable {range} conflicts with {existing}",),
-                            source: self.sources[0].clone(),
-                        });
-                    }
-                }
-
                 // Increase the counters for memory usage on either RAM slot and
                 // check for bounds.
                 if actual_name.starts_with("zp_") || actual_name.starts_with("m_") {
@@ -971,6 +954,35 @@ impl<'a> Assembler<'a> {
                 }
 
                 memory.memory_ranges.push(range);
+            }
+
+            // Now that we have all the available memory ranges that are in the
+            // scope of the address sanitizer, we can check on whether either of
+            // them conflicts with another one. This has to be done in this
+            // second iteration because `memory.memory_ranges` needed to be
+            // filled with valid candidates first. This could potentially be
+            // optimized later on, but so far I haven't seen any big performance
+            // hints because of this (and, hey, going through the address
+            // sanitizer is already a penalty hit compared to a regular run).
+            for (i, range) in memory.memory_ranges.iter().enumerate() {
+                for (j, existing) in memory.memory_ranges.iter().enumerate() {
+                    if i == j {
+                        continue;
+                    }
+
+                    if (range.range.start >= existing.range.start
+                        && range.range.start < existing.range.end)
+                        || (range.range.end > existing.range.start
+                            && range.range.end < existing.range.end)
+                    {
+                        errors.push(Error {
+                            line: 0,
+                            global: true,
+                            message: format!("The variable {range} conflicts with {existing}",),
+                            source: self.sources[0].clone(),
+                        });
+                    }
+                }
             }
         }
 
