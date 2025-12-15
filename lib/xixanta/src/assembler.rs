@@ -1354,6 +1354,13 @@ impl<'a> Assembler<'a> {
         right.bytes[0] = byte_result[0];
         right.bytes[1] = byte_result[1];
 
+        // If the operation makes the end result bigger than what 1 byte can fit
+        // (or it already was bigger before this operation), then we have to
+        // assume that this is a 16-bit value.
+        if res > 0x00FF {
+            right.size = 3;
+        }
+
         Ok(right)
     }
 
@@ -3574,6 +3581,31 @@ cpx #(4 * var2)"#,
     fn bit() {
         assert_instruction("bit $10", &[0x24, 0x10]);
         assert_instruction("bit $1001", &[0x2C, 0x01, 0x10]);
+    }
+
+    #[test]
+    fn arithmetic_memory_access() {
+        let res = just_bundles(
+            r#"
+m_var = $200
+sta $200 + 1
+sta m_var + 1
+    "#,
+        );
+
+        assert_eq!(res.len(), 2);
+
+        // sta <absolute addressing> in both cases.
+
+        assert_eq!(res[0].size, 3);
+        assert_eq!(res[0].bytes[0], 0x8D);
+        assert_eq!(res[0].bytes[1], 0x01);
+        assert_eq!(res[0].bytes[2], 0x02);
+
+        assert_eq!(res[1].size, 3);
+        assert_eq!(res[1].bytes[0], 0x8D);
+        assert_eq!(res[1].bytes[1], 0x01);
+        assert_eq!(res[1].bytes[2], 0x02);
     }
 
     // Labels & branching
