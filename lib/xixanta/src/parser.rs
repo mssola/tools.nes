@@ -183,38 +183,12 @@ impl Parser {
                     arg.push(c);
                 }
 
-                // Argument validation.
-                if !arg.starts_with('$') || arg.len() > 5 {
-                    return Err(Error {
-                        line: self.line,
-                        global: false,
-                        source: self.sources[self.current_source].clone(),
-                        message: "expecting a number formatted with a leading '$' sign".to_string(),
-                    }
-                    .into());
-                }
-                let Ok(val) = usize::from_str_radix(arg.get(1..).unwrap_or("0000"), 16) else {
-                    return Err(Error {
-                        line: self.line,
-                        global: false,
-                        source: self.sources[self.current_source].clone(),
-                        message: "could not parse asan:reserve number".to_string(),
-                    }
-                    .into());
-                };
-                if val < 2 {
-                    return Err(Error {
-                        line: self.line,
-                        global: false,
-                        source: self.sources[self.current_source].clone(),
-                        message: "bad asan:reserve number, should be higher than $01".to_string(),
-                    }
-                    .into());
-                }
+                // Parse the given argument as build it as a NodeType.
+                let node_type = self.asan_reserve_from(arg)?;
 
                 // Push whatever was parsed.
                 self.nodes.last_mut().unwrap().push(PNode {
-                    node_type: NodeType::Comment(CommentType::AsanReserve(val)),
+                    node_type,
                     value: PString {
                         value: cmd,
                         line: self.line,
@@ -246,6 +220,63 @@ impl Parser {
         }
 
         Ok(())
+    }
+
+    // Returns the NodeType that can be filled with the given asan:reserve
+    // argument string in 'arg'.
+    fn asan_reserve_from(&mut self, arg: String) -> Result<NodeType, Error> {
+        if arg.starts_with('$') {
+            self.asan_reserve_from_numeric(arg)
+        } else {
+            let s = PString {
+                value: arg,
+                line: self.line,
+                start: 0,
+                end: 0,
+            };
+            if s.is_valid_identifier(true).is_ok() {
+                Ok(NodeType::Comment(CommentType::AsanReserveIdentifier(s)))
+            } else {
+                Err(Error {
+                    line: self.line,
+                    global: false,
+                    source: self.sources[self.current_source].clone(),
+                    message: "expecting a number formatted with a leading '$' sign".to_string(),
+                })
+            }
+        }
+    }
+
+    // Returns the NodeType that can be filled with the given asan:reserve
+    // argument which is assumed to be a numeric value.
+    fn asan_reserve_from_numeric(&mut self, arg: String) -> Result<NodeType, Error> {
+        // Argument validation.
+        if !arg.starts_with('$') || arg.len() > 5 {
+            return Err(Error {
+                line: self.line,
+                global: false,
+                source: self.sources[self.current_source].clone(),
+                message: "expecting a number formatted with a leading '$' sign".to_string(),
+            });
+        }
+        let Ok(val) = usize::from_str_radix(arg.get(1..).unwrap_or("0000"), 16) else {
+            return Err(Error {
+                line: self.line,
+                global: false,
+                source: self.sources[self.current_source].clone(),
+                message: "could not parse asan:reserve number".to_string(),
+            });
+        };
+        if val < 2 {
+            return Err(Error {
+                line: self.line,
+                global: false,
+                source: self.sources[self.current_source].clone(),
+                message: "bad asan:reserve number, should be higher than $01".to_string(),
+            });
+        }
+
+        Ok(NodeType::Comment(CommentType::AsanReserve(val)))
     }
 
     // Parse a single `line` and push the parsed nodes into `self.nodes`.

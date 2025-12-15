@@ -480,6 +480,22 @@ impl<'a> Assembler<'a> {
                 NodeType::Comment(CommentType::AsanReserve(size)) => {
                     self.asan_next_reserve = *size;
                 }
+                NodeType::Comment(CommentType::AsanReserveIdentifier(id)) => {
+                    match self.context.get_variable(id, &self.mappings) {
+                        Ok(var) => self.asan_next_reserve = var.bundle.value() as usize,
+                        Err(_) => {
+                            errors.push(Error {
+                                line: node.value.line,
+                                message: format!(
+                                    "could not reserve for unknown value of '{}'",
+                                    id.value,
+                                ),
+                                source: self.source_for(node),
+                                global: false,
+                            });
+                        }
+                    }
+                }
                 NodeType::Comment(CommentType::AsanIgnore) => {
                     self.asan_next_ignore = true;
                 }

@@ -1,0 +1,1 @@
+error: The variable 'zp_another' ($01) conflicts with 'zp_var' ($00-$01) (asan_reserve_constant.s)

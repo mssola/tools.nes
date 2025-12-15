@@ -259,6 +259,7 @@ pub enum OperationType {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CommentType {
+    AsanReserveIdentifier(PString),
     AsanReserve(usize),
     AsanIgnore,
 }
@@ -356,6 +357,7 @@ impl fmt::Display for NodeType {
                 OperationType::Greater => write!(f, "greater"),
             },
             NodeType::Comment(ct) => match ct {
+                CommentType::AsanReserveIdentifier(_) => write!(f, ";; asan:reserve"),
                 CommentType::AsanReserve(_) => write!(f, ";; asan:reserve"),
                 CommentType::AsanIgnore => write!(f, ";; asan:ignore"),
             },
