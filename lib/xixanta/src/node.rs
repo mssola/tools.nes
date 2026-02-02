@@ -317,7 +317,7 @@ pub enum NodeType {
     /// and right arms contain the operands, otherwise only the right one.
     Operation(OperationType),
 
-    /// A command which is relevant for the current session.
+    /// A comment which is relevant for the current session.
     Comment(CommentType),
 }
 
