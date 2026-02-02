@@ -57,17 +57,17 @@ diff tests/out/unused.nes tests/expected/unused.nes
 exit_code=$((exit_code + $?))
 
 echo "test: custom => bare_accesses.nes"
-./target/debug/nasm -c empty --asan tests/bare_accesses.s 2>tests/out/bare_accesses.txt
+./target/debug/nasm -c empty --asan tests/bare_accesses.s -o /dev/null 2>tests/out/bare_accesses.txt
 diff tests/out/bare_accesses.txt tests/expected/bare_accesses.txt
 exit_code=$((exit_code + $?))
 
 echo "test: custom => variable_names.nes"
-./target/debug/nasm -c empty --asan tests/variable_names.s 2>tests/out/variable_names.txt
+./target/debug/nasm -c empty --asan tests/variable_names.s -o /dev/null 2>tests/out/variable_names.txt
 diff tests/out/variable_names.txt tests/expected/variable_names.txt
 exit_code=$((exit_code + $?))
 
 echo "test: custom => asan_reserve_constant.nes"
-./target/debug/nasm -c empty --asan tests/asan_reserve_constant.s 2>tests/out/asan_reserve_constant.txt
+./target/debug/nasm -c empty --asan tests/asan_reserve_constant.s -o /dev/null 2>tests/out/asan_reserve_constant.txt
 diff tests/out/asan_reserve_constant.txt tests/expected/asan_reserve_constant.txt
 exit_code=$((exit_code + $?))
 
