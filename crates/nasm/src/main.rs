@@ -150,6 +150,9 @@ fn parse_arguments() -> Args {
         die("you need to specify a source file".to_string());
     }
 
+    // If everything is ok, add the default defines for nasm.
+    res.defines.push((String::from("__NASM__"), 1));
+
     res
 }
 
