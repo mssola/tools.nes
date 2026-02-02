@@ -242,6 +242,7 @@ impl Parser {
                     global: false,
                     source: self.sources[self.current_source].clone(),
                     message: "expecting a number formatted with a leading '$' sign".to_string(),
+                    expanded_from: vec![],
                 })
             }
         }
@@ -257,6 +258,7 @@ impl Parser {
                 global: false,
                 source: self.sources[self.current_source].clone(),
                 message: "expecting a number formatted with a leading '$' sign".to_string(),
+                expanded_from: vec![],
             });
         }
         let Ok(val) = usize::from_str_radix(arg.get(1..).unwrap_or("0000"), 16) else {
@@ -264,6 +266,7 @@ impl Parser {
                 line: self.line,
                 global: false,
                 source: self.sources[self.current_source].clone(),
+                expanded_from: vec![],
                 message: "could not parse asan:reserve number".to_string(),
             });
         };
@@ -272,6 +275,7 @@ impl Parser {
                 line: self.line,
                 global: false,
                 source: self.sources[self.current_source].clone(),
+                expanded_from: vec![],
                 message: "bad asan:reserve number, should be higher than $01".to_string(),
             });
         }
@@ -460,6 +464,7 @@ impl Parser {
                                             line: self.line,
                                             global: false,
                                             source: self.sources[self.current_source].clone(),
+                                            expanded_from: vec![],
                                             message: "you cannot have a relative label inside of an identifier".to_string(),
                                         });
                                     }
@@ -484,6 +489,7 @@ impl Parser {
                                                 line: self.line,
                                                 global: false,
                                                 source: self.sources[self.current_source].clone(),
+                                                expanded_from: vec![],
                                                 message: "you can only jump to a maximum of four relative labels".to_string(),
                                             });
                                         }
@@ -497,6 +503,7 @@ impl Parser {
                                                 line: self.line,
                                                 global: false,
                                                 source: self.sources[self.current_source].clone(),
+                                                expanded_from: vec![],
                                                 message: format!("{msg} relative label can only have '{next}' characters"),
                                             });
                                         }
@@ -801,6 +808,7 @@ impl Parser {
                         line: node.value.line,
                         global: false,
                         message: ".include statement cannot be inside of a code block".to_string(),
+                        expanded_from: vec![],
                         source: self.sources[self.current_source].clone(),
                     }
                     .into());
@@ -963,6 +971,7 @@ impl Parser {
                 line: node.value.line,
                 global: false,
                 source: current_source.clone(),
+                expanded_from: vec![],
                 message: ".include statements expect a file as the argument".to_string(),
             }
             .into());
@@ -980,6 +989,7 @@ impl Parser {
                     line: node.value.line,
                     global: false,
                     source: current_source.clone(),
+                    expanded_from: vec![],
                     message: format!("could not open source file '{file_path}': {e}"),
                 }
                 .into())
@@ -990,6 +1000,7 @@ impl Parser {
                 line: node.value.line,
                 global: false,
                 source: current_source.clone(),
+                expanded_from: vec![],
                 message: format!("could not find out the parent directory for file '{file_path}'"),
             }
             .into());
@@ -1030,6 +1041,7 @@ impl Parser {
                 line: node.value.line,
                 global: false,
                 source: self.sources[self.current_source].clone(),
+                expanded_from: vec![],
                 message: format!(
                     "path has to be written inside of double quotes ('{value}' given instead)",
                 ),
@@ -1443,6 +1455,7 @@ impl Parser {
                         line: self.line,
                         global: false,
                         source: self.sources[self.current_source].clone(),
+                        expanded_from: vec![],
                         message: "bad literal syntax".to_string(),
                     });
                 }
@@ -1645,6 +1658,7 @@ impl Parser {
                     line: self.line,
                     global: false,
                     source: self.sources[self.current_source].clone(),
+                    expanded_from: vec![],
                     message: "numeric literals cannot have white spaces".to_string(),
                 });
             }
@@ -1744,6 +1758,7 @@ impl Parser {
             message: String::from(msg),
             global: false,
             source: self.sources[self.current_source].clone(),
+            expanded_from: vec![],
             line: self.line,
         }
     }

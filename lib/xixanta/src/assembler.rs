@@ -6,8 +6,8 @@ use crate::node::{
 use crate::object::{Bundle, Context, Object, ObjectType};
 use crate::opcodes::{AddressingMode, INSTRUCTIONS};
 use crate::parser::Parser;
-use crate::Error;
 use crate::SourceInfo;
+use crate::{Error, ExpandedFrom};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fs::File;
@@ -57,6 +57,7 @@ struct PendingNode {
     bundle_index: usize,
     node: PNode,
     labels_seen: usize,
+    macro_context: Vec<ExpandedFrom>,
 }
 
 /// Memory range that can be identified by a name.
@@ -135,6 +136,13 @@ struct Assembler<'a> {
 
     // The amount of bytes to reserve for the next variable assignment.
     asan_next_reserve: usize,
+
+    // Stack of macro expansions. That is, every time a macro is expanded
+    // (i.e. via 'bundle_call'), the node that performed the expansion is
+    // stacked here. This is then picked up via structs like 'PendingNode' and
+    // 'Error' so the programmer gets information on all the macro expansions
+    // that happened before reaching a given error.
+    macro_context: Vec<ExpandedFrom>,
 }
 
 /// The result to be given at the end of `assembler::assemble` and
@@ -205,6 +213,7 @@ pub fn assemble(
                     line: 0,
                     message: e,
                     source: source.clone(),
+                    expanded_from: vec![],
                 }],
                 warnings: vec![],
                 mappings: vec![],
@@ -372,6 +381,7 @@ impl<'a> Assembler<'a> {
             asan_enabled: false,
             asan_next_ignore: false,
             asan_next_reserve: 1,
+            macro_context: vec![],
         }
     }
 
@@ -382,6 +392,7 @@ impl<'a> Assembler<'a> {
                 global: true,
                 line: 0,
                 source: self.sources.first().unwrap().clone(),
+                expanded_from: self.macro_context.clone(),
                 message: "empty variable name".to_string(),
             });
         }
@@ -408,6 +419,7 @@ impl<'a> Assembler<'a> {
                 global: true,
                 line: 0,
                 source: self.sources.first().unwrap().clone(),
+                expanded_from: self.macro_context.clone(),
                 message: err,
             })
         } else {
@@ -436,6 +448,7 @@ impl<'a> Assembler<'a> {
                 message,
                 line: node.value.line,
                 global: false,
+                expanded_from: self.macro_context.clone(),
                 source: self.source_for(node),
             });
         }
@@ -469,6 +482,7 @@ impl<'a> Assembler<'a> {
                                 node.value.value
                             ),
                             source: self.source_for(node),
+                            expanded_from: self.macro_context.clone(),
                             global: false,
                         });
                         continue;
@@ -491,6 +505,7 @@ impl<'a> Assembler<'a> {
                                     id.value,
                                 ),
                                 source: self.source_for(node),
+                                expanded_from: self.macro_context.clone(),
                                 global: false,
                             });
                         }
@@ -506,6 +521,7 @@ impl<'a> Assembler<'a> {
                                 .to_string(),
                             line: node.value.line,
                             source: self.source_for(node),
+                            expanded_from: self.macro_context.clone(),
                             global: false,
                         });
                         continue;
@@ -541,6 +557,7 @@ impl<'a> Assembler<'a> {
                                     message: err,
                                     line: node.value.line,
                                     global: false,
+                                    expanded_from: self.macro_context.clone(),
                                     source: self.source_for(node),
                                 });
                             }
@@ -556,6 +573,7 @@ impl<'a> Assembler<'a> {
                             message: format!("{control_type} must be on the global scope"),
                             line: node.value.line,
                             global: false,
+                            expanded_from: self.macro_context.clone(),
                             source: self.source_for(node),
                         });
                         continue;
@@ -590,6 +608,7 @@ impl<'a> Assembler<'a> {
                                     message: "you cannot call '.proc' in this context".to_string(),
                                     line: node.value.line,
                                     global: false,
+                                    expanded_from: self.macro_context.clone(),
                                     source: self.source_for(node),
                                 });
                                 continue;
@@ -614,6 +633,7 @@ impl<'a> Assembler<'a> {
                                     message: "you cannot call '.scope' in this context".to_string(),
                                     line: node.value.line,
                                     source: self.source_for(node),
+                                    expanded_from: self.macro_context.clone(),
                                     global: false,
                                 });
                                 continue;
@@ -637,6 +657,7 @@ impl<'a> Assembler<'a> {
                             message,
                             line: node.value.line,
                             global: false,
+                            expanded_from: self.macro_context.clone(),
                             source: self.source_for(node),
                         });
                     }
@@ -713,6 +734,7 @@ impl<'a> Assembler<'a> {
                     message,
                     line: node.value.line,
                     global: false,
+                    expanded_from: self.macro_context.clone(),
                     source: self.source_for(node),
                 });
             }
@@ -752,6 +774,7 @@ impl<'a> Assembler<'a> {
                             message,
                             line: node.value.line,
                             global: false,
+                            expanded_from: self.macro_context.clone(),
                             source: self.source_for(node),
                         });
                     }
@@ -767,6 +790,7 @@ impl<'a> Assembler<'a> {
                             message: format!("empty .proc '{}'", proc_name.value.value),
                             source: self.source_for(node),
                             global: false,
+                            expanded_from: self.macro_context.clone(),
                         });
                     } else {
                         self.bundle(args)?;
@@ -816,6 +840,7 @@ impl<'a> Assembler<'a> {
                                         message: format!("empty .scope '{}'", scope_name.value),
                                         source: self.source_for(node),
                                         global: false,
+                                        expanded_from: self.macro_context.clone(),
                                     });
                                 } else {
                                     self.bundle(args)?;
@@ -918,6 +943,7 @@ impl<'a> Assembler<'a> {
                         line: 0,
                         message: format!("variable {range} is unused"),
                         source: self.sources[0].clone(),
+                        expanded_from: self.macro_context.clone(),
                         global: true,
                     });
                     continue;
@@ -936,6 +962,7 @@ impl<'a> Assembler<'a> {
                                 line: 0,
                                 global: true,
                                 message: "out of internal RAM".to_string(),
+                                expanded_from: self.macro_context.clone(),
                                 source: self.sources[0].clone(),
                             });
                         }
@@ -948,6 +975,7 @@ impl<'a> Assembler<'a> {
                             line: 0,
                             global: true,
                             message: "out of working RAM".to_string(),
+                            expanded_from: self.macro_context.clone(),
                             source: self.sources[0].clone(),
                         });
                     }
@@ -979,6 +1007,7 @@ impl<'a> Assembler<'a> {
                             line: 0,
                             global: true,
                             message: format!("The variable {range} conflicts with {existing}",),
+                            expanded_from: self.macro_context.clone(),
                             source: self.sources[0].clone(),
                         });
                     }
@@ -1003,6 +1032,7 @@ impl<'a> Assembler<'a> {
                 line: 0,
                 global: true,
                 message: e,
+                expanded_from: self.macro_context.clone(),
                 source: self.sources[0].clone(),
             }]);
         }
@@ -1016,6 +1046,7 @@ impl<'a> Assembler<'a> {
                         line: 0,
                         message: format!("segment '{}' is empty", segment.name),
                         source: self.sources[0].clone(),
+                        expanded_from: self.macro_context.clone(),
                         global: true,
                     });
                 }
@@ -1031,6 +1062,7 @@ impl<'a> Assembler<'a> {
                             mapping.name, mapping.size, mapping.offset,
                         ),
                         source: self.sources[0].clone(),
+                        expanded_from: self.macro_context.clone(),
                         global: false,
                 });
             }
@@ -1061,6 +1093,7 @@ impl<'a> Assembler<'a> {
                 global: false,
                 line: node.value.line,
                 source: self.source_for(node),
+                expanded_from: self.macro_context.clone(),
                 message: val.to_string(),
             }),
             EchoKind::Error => {
@@ -1068,6 +1101,7 @@ impl<'a> Assembler<'a> {
                     global: false,
                     line: node.value.line,
                     source: self.source_for(node),
+                    expanded_from: self.macro_context.clone(),
                     message: val.to_string(),
                 }
                 .into());
@@ -1086,6 +1120,7 @@ impl<'a> Assembler<'a> {
                 "could not find a macro with the name '{}'",
                 node.value.value
             ),
+            expanded_from: self.macro_context.clone(),
             source: self.source_for(node),
             global: false,
         })?;
@@ -1101,6 +1136,7 @@ impl<'a> Assembler<'a> {
                     "wrong number of arguments for '{}': {} required but {} given",
                     node.value.value, macro_args, given_args,
                 ),
+                expanded_from: self.macro_context.clone(),
                 source: self.source_for(node),
                 global: false,
             }
@@ -1135,6 +1171,7 @@ impl<'a> Assembler<'a> {
                         line: node.value.line,
                         message,
                         source: self.source_for(node),
+                        expanded_from: self.macro_context.clone(),
                         global: false,
                     }
                     .into());
@@ -1154,10 +1191,16 @@ impl<'a> Assembler<'a> {
                 line: node.value.line,
                 message: format!("trying to apply empty macro '{}'", node.value.value),
                 source: self.source_for(node),
+                expanded_from: self.macro_context.clone(),
                 global: false,
             });
         } else {
+            self.macro_context.push(ExpandedFrom {
+                line: node.value.line,
+                source: self.source_for(node),
+            });
             self.bundle(inner)?;
+            let _ = self.macro_context.pop();
         }
         Ok(())
     }
@@ -1176,6 +1219,7 @@ impl<'a> Assembler<'a> {
                 bundle_index: current.segments[self.current_segment].bundles.len(),
                 node: node.to_owned(),
                 labels_seen: self.context.labels_seen(),
+                macro_context: self.macro_context.clone(),
             });
         }
         current.segments[self.current_segment].bundles.push(bundle);
@@ -1206,6 +1250,7 @@ impl<'a> Assembler<'a> {
                             message: "invalid identifier".to_string(),
                             line: node.value.line,
                             source: self.source_for(node),
+                            expanded_from: self.macro_context.clone(),
                             global: false,
                         })
                     } else {
@@ -1220,6 +1265,7 @@ impl<'a> Assembler<'a> {
                                 message: err.message,
                                 line: node.value.line,
                                 source: self.source_for(node),
+                                expanded_from: self.macro_context.clone(),
                                 global: false,
                             }),
                         }
@@ -1230,6 +1276,7 @@ impl<'a> Assembler<'a> {
                 message: format!("unexpected '{}' expression type", node.node_type),
                 line: node.value.line,
                 source: self.source_for(node),
+                expanded_from: self.macro_context.clone(),
                 global: false,
             }),
         }
@@ -1293,6 +1340,7 @@ impl<'a> Assembler<'a> {
                         line: node.value.line,
                         global: false,
                         source: self.source_for(node),
+                        expanded_from: self.macro_context.clone(),
                         message: "attempting to divide by zero".to_string(),
                     });
                 }
@@ -1325,6 +1373,7 @@ impl<'a> Assembler<'a> {
                         line: node.value.line,
                         global: false,
                         source: self.source_for(node),
+                        expanded_from: self.macro_context.clone(),
                         message: "shift operator too big".to_string(),
                     });
                 }
@@ -1338,6 +1387,7 @@ impl<'a> Assembler<'a> {
                         line: node.value.line,
                         global: false,
                         source: self.source_for(node),
+                        expanded_from: self.macro_context.clone(),
                         message: "shift operator too big".to_string(),
                     });
                 }
@@ -1377,6 +1427,7 @@ impl<'a> Assembler<'a> {
                 line: node.value.line,
                 global: false,
                 source: self.source_for(node),
+                expanded_from: self.macro_context.clone(),
                 message: "performing the operation would overflow a 16-bit integer".to_string(),
             });
         }
@@ -1422,6 +1473,7 @@ impl<'a> Assembler<'a> {
                         line: node.value.line,
                         message,
                         source: self.source_for(node),
+                        expanded_from: self.macro_context.clone(),
                         global: false,
                     }),
                 }
@@ -1430,6 +1482,7 @@ impl<'a> Assembler<'a> {
                 line: node.value.line,
                 source: self.source_for(node),
                 global: false,
+                expanded_from: self.macro_context.clone(),
                 message: "trying to evaluate a relative reference as a bare value".to_string(),
             }),
         }
@@ -1472,6 +1525,7 @@ impl<'a> Assembler<'a> {
                         ),
                         source: self.source_for(node),
                         line: node.value.line,
+                        expanded_from: self.macro_context.clone(),
                         global: false,
                     });
                 }
@@ -1479,6 +1533,7 @@ impl<'a> Assembler<'a> {
                     message: "expecting a number of 1 to 4 hexadecimal digits".to_string(),
                     line: node.value.line,
                     source: self.source_for(node),
+                    expanded_from: self.macro_context.clone(),
                     global: false,
                 });
             }
@@ -1508,6 +1563,7 @@ impl<'a> Assembler<'a> {
                     message: "missing binary digits to get a full byte".to_string(),
                     line: node.value.line,
                     source: self.source_for(node),
+                    expanded_from: self.macro_context.clone(),
                     global: false,
                 })
             }
@@ -1516,6 +1572,7 @@ impl<'a> Assembler<'a> {
                     message: "too many binary digits for a single byte".to_string(),
                     line: node.value.line,
                     source: self.source_for(node),
+                    expanded_from: self.macro_context.clone(),
                     global: false,
                 })
             }
@@ -1534,6 +1591,7 @@ impl<'a> Assembler<'a> {
                         ),
                         line: node.value.line,
                         source: self.source_for(node),
+                        expanded_from: self.macro_context.clone(),
                         global: false,
                     });
                 }
@@ -1541,6 +1599,7 @@ impl<'a> Assembler<'a> {
                     message: format!("bad binary format for '{string}'"),
                     line: node.value.line,
                     global: false,
+                    expanded_from: self.macro_context.clone(),
                     source: self.source_for(node),
                 });
             }
@@ -1564,6 +1623,7 @@ impl<'a> Assembler<'a> {
                 message: "empty decimal literal".to_string(),
                 line: node.value.line,
                 source: self.source_for(node),
+                expanded_from: self.macro_context.clone(),
                 global: false,
             });
         }
@@ -1577,6 +1637,7 @@ impl<'a> Assembler<'a> {
                     message: "decimal value is too big".to_string(),
                     line: node.value.line,
                     source: self.source_for(node),
+                    expanded_from: self.macro_context.clone(),
                     global: false,
                 });
             }
@@ -1595,6 +1656,7 @@ impl<'a> Assembler<'a> {
                                 ),
                                 source: self.source_for(node),
                                 line: node.value.line,
+                        expanded_from: self.macro_context.clone(),
                                 global: false,
                             });
                         }
@@ -1608,6 +1670,7 @@ impl<'a> Assembler<'a> {
                                     ),
                                     source: self.source_for(node),
                                     line: node.value.line,
+                                    expanded_from: self.macro_context.clone(),
                                     global: false,
                                 });
                             }
@@ -1623,6 +1686,7 @@ impl<'a> Assembler<'a> {
                 message: "decimal value is too big".to_string(),
                 line: node.value.line,
                 source: self.source_for(node),
+                expanded_from: self.macro_context.clone(),
                 global: false,
             });
         }
@@ -1658,6 +1722,7 @@ impl<'a> Assembler<'a> {
                     line: node.value.line,
                     source: self.source_for(node),
                     global: false,
+                    expanded_from: self.macro_context.clone(),
                 });
             }
         } else if val.starts_with('%') {
@@ -1668,6 +1733,7 @@ impl<'a> Assembler<'a> {
                     line: node.value.line,
                     source: self.source_for(node),
                     global: false,
+                    expanded_from: self.macro_context.clone(),
                 });
             }
         } else {
@@ -1696,6 +1762,7 @@ impl<'a> Assembler<'a> {
                             line: source.value.line,
                             source: self.source_for(source),
                             global: false,
+                            expanded_from: self.macro_context.clone(),
                         });
                     }
                     Err(Error {
@@ -1703,6 +1770,7 @@ impl<'a> Assembler<'a> {
                         line: source.value.line,
                         source: self.source_for(source),
                         global: false,
+                        expanded_from: self.macro_context.clone(),
                     })
                 }
             },
@@ -1711,6 +1779,7 @@ impl<'a> Assembler<'a> {
                 line: source.value.line,
                 source: self.source_for(source),
                 global: false,
+                expanded_from: self.macro_context.clone(),
             }),
         }
     }
@@ -1731,6 +1800,7 @@ impl<'a> Assembler<'a> {
                     line: node.value.line,
                     source: self.source_for(node),
                     global: false,
+                    expanded_from: self.macro_context.clone(),
                 }
                 .into());
             }
@@ -1763,6 +1833,7 @@ impl<'a> Assembler<'a> {
                     node.value.value
                 ),
                 source: self.source_for(node),
+                expanded_from: self.macro_context.clone(),
                 global: false,
             }
             .into()),
@@ -1783,6 +1854,7 @@ impl<'a> Assembler<'a> {
                     "path has to be written inside of double quotes ('{value}' given instead)",
                 ),
                 source: self.source_for(node),
+                expanded_from: self.macro_context.clone(),
                 global: false,
             });
         }
@@ -1797,6 +1869,7 @@ impl<'a> Assembler<'a> {
                         line: node.value.line,
                         message: format!("could not move to the directory of '{value}': {e}"),
                         source: self.source_for(node),
+                        expanded_from: self.macro_context.clone(),
                         global: false,
                     });
                 }
@@ -1813,6 +1886,7 @@ impl<'a> Assembler<'a> {
                     global: false,
                     line: node.value.line,
                     source: self.source_for(node),
+                    expanded_from: self.macro_context.clone(),
                     message: format!("could not include binary data: {e}"),
                 })
             }
@@ -1832,6 +1906,7 @@ impl<'a> Assembler<'a> {
                         global: false,
                         line: node.value.line,
                         source: self.source_for(node),
+                        expanded_from: self.macro_context.clone(),
                         message: format!("file '{path}' is too big"),
                     });
                 } else if metadata.len() == 0 {
@@ -1839,6 +1914,7 @@ impl<'a> Assembler<'a> {
                         global: false,
                         line: node.value.line,
                         source: self.source_for(node),
+                        expanded_from: self.macro_context.clone(),
                         message: format!("trying to include an empty file ('{path}')"),
                     });
                 }
@@ -1848,6 +1924,7 @@ impl<'a> Assembler<'a> {
                     global: false,
                     line: node.value.line,
                     source: self.source_for(node),
+                    expanded_from: self.macro_context.clone(),
                     message: format!("could not include binary data: {e}"),
                 })
             }
@@ -1877,6 +1954,7 @@ impl<'a> Assembler<'a> {
                         global: false,
                         line: node.value.line,
                         source: self.source_for(node),
+                        expanded_from: self.macro_context.clone(),
                         message: "pointless .repeat statement".to_string(),
                     }
                     .into());
@@ -1885,6 +1963,7 @@ impl<'a> Assembler<'a> {
                         global: false,
                         line: node.value.line,
                         source: self.source_for(node),
+                        expanded_from: self.macro_context.clone(),
                         message: "the number of iterations has to fit in a single byte".to_string(),
                     }
                     .into());
@@ -1896,6 +1975,7 @@ impl<'a> Assembler<'a> {
                     global: false,
                     line: node.value.line,
                     message: format!("first argument must be an integer, '{first}' found instead"),
+                    expanded_from: self.macro_context.clone(),
                     source: self.source_for(node),
                 }
                 .into())
@@ -1909,6 +1989,7 @@ impl<'a> Assembler<'a> {
                 line: node.value.line,
                 message: "empty .repeat statement".to_string(),
                 source: self.source_for(node),
+                expanded_from: self.macro_context.clone(),
                 global: false,
             });
             return Ok(());
@@ -1937,6 +2018,7 @@ impl<'a> Assembler<'a> {
                         line: node.value.line,
                         message: e,
                         source: self.source_for(node),
+                        expanded_from: self.macro_context.clone(),
                         global: false,
                     }
                     .into());
@@ -1998,6 +2080,7 @@ impl<'a> Assembler<'a> {
                 line: node.value.line,
                 message: "empty body".to_string(),
                 source: self.source_for(node),
+                expanded_from: self.macro_context.clone(),
                 global: false,
             });
         } else if self.stage == Stage::Context {
@@ -2020,6 +2103,7 @@ impl<'a> Assembler<'a> {
                     "cannot handle control statement '{}' as an expression in this context",
                     node.value.value
                 ),
+                expanded_from: self.macro_context.clone(),
                 source: self.source_for(node),
                 global: false,
             }),
@@ -2089,6 +2173,7 @@ impl<'a> Assembler<'a> {
                                     message: "expecting an argument that fits into a byte"
                                         .to_string(),
                                     source: self.source_for(node),
+                                    expanded_from: self.macro_context.clone(),
                                     global: false,
                                 })
                             }
@@ -2111,6 +2196,7 @@ impl<'a> Assembler<'a> {
                         node.value.value.as_str(),
                     ),
                     source: self.source_for(node),
+                    expanded_from: self.macro_context.clone(),
                     global: false,
                 })
             }
@@ -2131,6 +2217,7 @@ impl<'a> Assembler<'a> {
                 global: false,
                 line: node.value.line,
                 source: self.source_for(node),
+                expanded_from: self.macro_context.clone(),
                 message: "you are trying to reserve too much memory".to_string(),
             });
         }
@@ -2140,6 +2227,7 @@ impl<'a> Assembler<'a> {
                 global: false,
                 line: node.value.line,
                 source: self.source_for(node),
+                expanded_from: self.macro_context.clone(),
                 message: "empty .res statement".to_string(),
             });
         } else if iterations == 1 {
@@ -2147,6 +2235,7 @@ impl<'a> Assembler<'a> {
                 global: false,
                 line: node.value.line,
                 source: self.source_for(node),
+                expanded_from: self.macro_context.clone(),
                 message: "pointless .res statement, prefer using .byte".to_string(),
             });
         }
@@ -2161,6 +2250,7 @@ impl<'a> Assembler<'a> {
                         global: false,
                         line: node.value.line,
                         source: self.source_for(node),
+                        expanded_from: self.macro_context.clone(),
                         message: "fill value must fit into a single byte".to_string(),
                     });
                 }
@@ -2193,6 +2283,7 @@ impl<'a> Assembler<'a> {
                 line: node.value.line,
                 message: "unpermitted empty argument".to_string(),
                 source: self.source_for(node),
+                expanded_from: self.macro_context.clone(),
                 global: false,
             });
         }
@@ -2203,6 +2294,7 @@ impl<'a> Assembler<'a> {
                     "declaration has to be written inside of double quotes ('{val}' given instead)",
                 ),
                 source: self.source_for(node),
+                expanded_from: self.macro_context.clone(),
                 global: false,
             });
         }
@@ -2236,6 +2328,7 @@ impl<'a> Assembler<'a> {
                 line: node.value.line,
                 message: "segment name contains bad characters".to_string(),
                 source: self.source_for(node),
+                expanded_from: self.macro_context.clone(),
                 global: false,
             });
         }
@@ -2258,6 +2351,7 @@ impl<'a> Assembler<'a> {
                 line: node.value.line,
                 message: format!("unknown segment '{name}'"),
                 source: self.source_for(node),
+                expanded_from: self.macro_context.clone(),
                 global: false,
             });
         }
@@ -2296,6 +2390,7 @@ impl<'a> Assembler<'a> {
                 line: node.value.line,
                 source: self.source_for(node),
                 global: false,
+                expanded_from: self.macro_context.clone(),
             }),
         }
     }
@@ -2336,6 +2431,7 @@ impl<'a> Assembler<'a> {
                         source: self.source_for(node),
                         line: node.value.line,
                         global: false,
+                        expanded_from: self.macro_context.clone(),
                     });
                 }
             },
@@ -2345,6 +2441,7 @@ impl<'a> Assembler<'a> {
                     line: node.value.line,
                     source: self.source_for(node),
                     global: false,
+                    expanded_from: self.macro_context.clone(),
                 });
             }
         }
@@ -2380,6 +2477,7 @@ impl<'a> Assembler<'a> {
                             line: node.value.line,
                             source: self.source_for(node),
                             global: false,
+                            expanded_from: self.macro_context.clone(),
                         });
                     }
 
@@ -2392,6 +2490,7 @@ impl<'a> Assembler<'a> {
                             line: node.value.line,
                             source: self.source_for(node),
                             global: false,
+                            expanded_from: self.macro_context.clone(),
                         });
                     }
                     self.asan_check_arm(evaluated_node, &val)?;
@@ -2402,6 +2501,7 @@ impl<'a> Assembler<'a> {
                     line: node.value.line,
                     source: self.source_for(node),
                     global: false,
+                    expanded_from: self.macro_context.clone(),
                 })
             }
             None => match left.right.as_ref() {
@@ -2417,6 +2517,7 @@ impl<'a> Assembler<'a> {
                                 line: node.value.line,
                                 source: self.source_for(node),
                                 global: false,
+                                expanded_from: self.macro_context.clone(),
                             });
                         }
                         self.asan_check_arm(evaluated_node, &val)?;
@@ -2427,6 +2528,7 @@ impl<'a> Assembler<'a> {
                         line: node.value.line,
                         source: self.source_for(node),
                         global: false,
+                        expanded_from: self.macro_context.clone(),
                     })
                 }
                 None => {
@@ -2438,6 +2540,7 @@ impl<'a> Assembler<'a> {
                             line: node.value.line,
                             source: self.source_for(node),
                             global: false,
+                            expanded_from: self.macro_context.clone(),
                         });
                     }
                     if !matches!(node.value.value.as_str(), "jmp" | "jsr") {
@@ -2463,6 +2566,7 @@ impl<'a> Assembler<'a> {
                     line: node.value.line,
                     source: self.source_for(node),
                     global: false,
+                    expanded_from: self.macro_context.clone(),
                 });
             }
         }
@@ -2530,6 +2634,7 @@ impl<'a> Assembler<'a> {
                 line: node.value.line,
                 source: self.source_for(node),
                 global: false,
+                expanded_from: self.macro_context.clone(),
             }),
         }
     }
@@ -2575,6 +2680,7 @@ impl<'a> Assembler<'a> {
                             line: left_arm.value.line,
                             source: self.source_for(base),
                             global: false,
+                            expanded_from: self.macro_context.clone(),
                         }),
                     }
                 } else {
@@ -2587,6 +2693,7 @@ impl<'a> Assembler<'a> {
                 line: left_arm.value.line,
                 source: self.source_for(base),
                 global: false,
+                expanded_from: self.macro_context.clone(),
             }),
         }
     }
@@ -2628,6 +2735,7 @@ impl<'a> Assembler<'a> {
                         ),
                         source: self.source_for(node),
                         global: false,
+                        expanded_from: self.macro_context.clone(),
                     });
                 }
                 Ok(())
@@ -2646,6 +2754,7 @@ impl<'a> Assembler<'a> {
                         message: "accessing a memory region without a proper name".to_string(),
                         source: self.source_for(node),
                         global: false,
+                        expanded_from: self.macro_context.clone(),
                     });
                     return Ok(());
                 };
@@ -2671,6 +2780,7 @@ impl<'a> Assembler<'a> {
                                     message: format!("out of bounds memory access for {range}"),
                                     source: self.source_for(node),
                                     global: false,
+                                    expanded_from: self.macro_context.clone(),
                                 });
                             }
                         }
@@ -2685,6 +2795,7 @@ impl<'a> Assembler<'a> {
                     message: "accessing a memory region without using a variable".to_string(),
                     source: self.source_for(node),
                     global: false,
+                    expanded_from: self.macro_context.clone(),
                 });
 
                 Ok(())
@@ -2708,6 +2819,7 @@ impl<'a> Assembler<'a> {
                 message: "you cannot use a negative value for a memory variable".to_string(),
                 source: self.source_for(node),
                 global: false,
+                expanded_from: self.macro_context.clone(),
             });
         }
 
@@ -2727,6 +2839,7 @@ impl<'a> Assembler<'a> {
                     message: format!("you are assigning the zero-page variable {range} to something outside of zero page"),
                     source: self.source_for(node),
                     global: false,
+                        expanded_from: self.macro_context.clone(),
                 });
             }
         } else if bundle.size != 2 {
@@ -2742,6 +2855,7 @@ impl<'a> Assembler<'a> {
                 ),
                 source: self.source_for(node),
                 global: false,
+                expanded_from: self.macro_context.clone(),
             });
         } else if actual_name.starts_with("wr_") {
             let value = bundle.value() as usize;
@@ -2757,6 +2871,7 @@ impl<'a> Assembler<'a> {
                     ),
                     source: self.source_for(node),
                     global: false,
+                    expanded_from: self.macro_context.clone(),
                 });
             }
         }
@@ -2780,6 +2895,7 @@ impl<'a> Assembler<'a> {
                     message: "you cannot branch to this location: it's too far away".to_string(),
                     source: self.source_for(node),
                     global: false,
+                    expanded_from: self.macro_context.clone(),
                 });
             }
             diff.to_le_bytes()[0]
@@ -2791,6 +2907,7 @@ impl<'a> Assembler<'a> {
                     message: "you cannot branch to this location: it's too far away".to_string(),
                     source: self.source_for(node),
                     global: false,
+                    expanded_from: self.macro_context.clone(),
                 });
             }
             diff.to_le_bytes()[0]

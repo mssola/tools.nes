@@ -17,6 +17,20 @@ impl Default for SourceInfo {
     }
 }
 
+/// Contains all the information relevant for a macro expansion. That is,
+/// whenever expanding a macro call, the assembler is expected to create a new
+/// 'ExpandedFrom' object with all the relevant information so a node underneath
+/// can refer to it whenever an error occurred (e.g. 'I detected an error here
+/// but I was coming from an expansion from "there"').
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExpandedFrom {
+    /// The source from which the expansion happened.
+    pub source: SourceInfo,
+
+    /// The line in the 'source' where the macro expansion happened.
+    pub line: usize,
+}
+
 /// Error provides an interface used throughout this crate in which an error
 /// message of type String is located through a line and an associated
 /// SourceInfo. If global is set to true, then `line` does not matter.
@@ -31,6 +45,11 @@ pub struct Error {
 
     /// Information on the file where the error was found.
     pub source: SourceInfo,
+
+    /// Stack of macro expansions before reaching to the error. This is used for
+    /// the 'Display' trait, so the expansion context is rewinded and shown to
+    /// the user.
+    pub expanded_from: Vec<ExpandedFrom>,
 
     /// Human-readable representation of the error. Don't use this field
     /// directly, prefer its `std::fmt::Display` implementation. Hence, calling
@@ -57,13 +76,21 @@ impl std::fmt::Display for Error {
         } else if self.source.name.is_empty() {
             write!(f, "{} (line {})", self.message, self.line + 1)
         } else {
-            write!(
-                f,
+            let mut msg = vec![format!(
                 "{} ({}: line {})",
                 self.message,
                 self.source.name,
                 self.line + 1
-            )
+            )];
+            for ef in &self.expanded_from {
+                msg.push(format!(
+                    "  >> expanded from {}: line {}.",
+                    ef.source.name,
+                    ef.line + 1
+                ));
+            }
+
+            write!(f, "{}", msg.join("\n"))
         }
     }
 }
