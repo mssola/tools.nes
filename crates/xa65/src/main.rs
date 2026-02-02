@@ -260,7 +260,7 @@ fn main() {
 
     // Add stricter flags for 'nasm' if requested.
     if args.strict {
-        cmd.arg("--asan").arg("--write-info");
+        cmd.arg("--asan").arg("--write-info").arg("-Werror");
     }
     if args.stats {
         cmd.arg("--stats");
