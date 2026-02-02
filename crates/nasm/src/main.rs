@@ -84,7 +84,7 @@ fn parse_arguments() -> Args {
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "a" | "--asan" => res.asan = true,
+            "-a" | "--asan" => res.asan = true,
             "-c" | "--config" => match res.config {
                 Some(_) => die("only specify the '-C/--config' flag once".to_string()),
                 None => match args.next() {
