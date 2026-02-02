@@ -71,6 +71,11 @@ echo "test: custom => asan_reserve_constant.nes"
 diff tests/out/asan_reserve_constant.txt tests/expected/asan_reserve_constant.txt
 exit_code=$((exit_code + $?))
 
+echo "test: custom => bad_jal.nes"
+./target/debug/nasm -c empty --asan tests/bad_jal.s -o /dev/null 2>tests/out/bad_jal.txt
+diff tests/out/bad_jal.txt tests/expected/bad_jal.txt
+exit_code=$((exit_code + $?))
+
 ##
 # code.nes
 

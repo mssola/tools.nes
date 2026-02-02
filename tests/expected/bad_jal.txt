@@ -1,0 +1,2 @@
+warning: unconditional jump that points to the next instruction (jal.s: line 2)
+  >> expanded from bad_jal.s: line 13.

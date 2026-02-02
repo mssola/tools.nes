@@ -889,10 +889,49 @@ impl<'a> Assembler<'a> {
                     let current = &self.mappings[pn.mapping].segments[pn.segment];
                     bundle.address = current.bundles[pn.bundle_index].address;
 
+                    // If we are trying to 'jmp'/'jsr' right into the next
+                    // instruction, then warn the programmer about it. This
+                    // looks silly but in practice it might happen inside of a
+                    // .proc where the code layout might not make this as
+                    // obvious as it sounds.
+                    //
+                    // NOTE: this is only done for absolute addressing as the
+                    // indirect case for 'jmp' is harder to follow and just not
+                    // worth it. If programmers do fancy indirect jumps, let
+                    // them shoot themselves in the foot if that's what they
+                    // want.
+                    if (bundle.bytes[0] == 0x4C || bundle.bytes[0] == 0x20)
+                        && bundle.arg() as usize == bundle.next_address()
+                    {
+                        self.warnings.push(Error {
+                            line: pn.node.value.line,
+                            message: String::from(
+                                "unconditional jump that points to the next instruction",
+                            ),
+                            source: self.source_for(&pn.node),
+                            global: false,
+                            expanded_from: pn.macro_context.clone(),
+                        });
+                    }
+
                     if pn.node.is_branch() {
                         bundle.resolved = true;
                         if let Err(e) = self.to_relative_address(&pn.node, &mut bundle) {
                             errors.push(e);
+                        }
+
+                        // Silly mistake coming from using a label directly
+                        // after the current branch instruction.
+                        if bundle.bytes[1] == 0 {
+                            self.warnings.push(Error {
+                                line: pn.node.value.line,
+                                message: String::from(
+                                    "conditional jump that points to the next instruction",
+                                ),
+                                source: self.source_for(&pn.node),
+                                expanded_from: pn.macro_context.clone(),
+                                global: false,
+                            });
                         }
                     }
 
@@ -4064,6 +4103,43 @@ JAL procedure
         // rts
         assert_eq!(res[1].size, 1);
         assert_eq!(res[1].bytes[0], 0x60);
+    }
+
+    #[test]
+    fn jump_to_next() {
+        let res = just_assemble(
+            r#"
+.proc foo
+  jmp bar
+.endproc
+
+.proc bar
+  jsr another
+.endproc
+
+.proc another
+  lda #0
+  beq @next
+@next:
+  rts
+.endproc
+"#,
+        );
+
+        assert_eq!(res.warnings.len(), 3);
+        // NOTE: +3 lines for the implicit header.
+        assert_eq!(
+            res.warnings[0].to_string(),
+            "unconditional jump that points to the next instruction (line 6)"
+        );
+        assert_eq!(
+            res.warnings[1].to_string(),
+            "unconditional jump that points to the next instruction (line 10)"
+        );
+        assert_eq!(
+            res.warnings[2].to_string(),
+            "conditional jump that points to the next instruction (line 15)"
+        );
     }
 
     // Control statements

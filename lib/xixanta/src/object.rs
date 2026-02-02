@@ -98,6 +98,18 @@ impl Bundle {
             ])
         }
     }
+
+    /// Considering that the first element of the 'bytes' property is the
+    /// instruction identifier, returns the two last bytes as if they were a
+    /// 16-bit value.
+    pub fn arg(&self) -> u16 {
+        self.bytes[1] as u16 + ((self.bytes[2] as u16) << 8)
+    }
+
+    /// Returns the address to the next instruction after this bundle.
+    pub fn next_address(&self) -> usize {
+        self.address + self.size as usize
+    }
 }
 
 /// The type of object being referenced, which is either a value as-is, or an
