@@ -1,0 +1,4 @@
+error: statement does not fall through (bad_fallthrough.s: line 11)
+error: statement does not fall through (bad_fallthrough.s: line 14)
+error: statement does not fall through (bad_fallthrough.s: line 15)
+error: statement does not fall through (bad_fallthrough.s: line 27)

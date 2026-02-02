@@ -76,6 +76,18 @@ echo "test: custom => bad_jal.nes"
 diff tests/out/bad_jal.txt tests/expected/bad_jal.txt
 exit_code=$((exit_code + $?))
 
+echo "test: custom => bad_fallthrough.nes"
+./target/debug/nasm -c empty --asan tests/bad_fallthrough.s -o /dev/null 2>tests/out/bad_fallthrough.txt
+diff tests/out/bad_fallthrough.txt tests/expected/bad_fallthrough.txt
+exit_code=$((exit_code + $?))
+
+echo "test: custom => fallthrough.nes"
+./target/debug/nasm -c empty --asan tests/fallthrough.s -o tests/out/fallthrough.nes 2>tests/out/fallthrough.txt
+diff tests/out/fallthrough.txt tests/expected/fallthrough.txt
+exit_code=$((exit_code + $?))
+diff tests/out/fallthrough.nes tests/expected/fallthrough.nes
+exit_code=$((exit_code + $?))
+
 ##
 # code.nes
 

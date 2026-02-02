@@ -1999,6 +1999,16 @@ pub static CONTROL_FUNCTIONS: LazyLock<HashMap<String, Control>> = LazyLock::new
             only_string: true,
         },
     );
+    functions.insert(
+        String::from(".fallthrough"),
+        Control {
+            control_type: ControlType::Fallthrough,
+            has_identifier: Some(false),
+            required_args: Some((0, 0)),
+            touches_context: false,
+            only_string: false,
+        },
+    );
 
     functions
 });

@@ -30,7 +30,7 @@ enum LiteralMode {
 
 /// The different stages that the assembler goes through and which are relevant
 /// for the process.
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 enum Stage {
     /// The context is still building up (i.e. we don't have all the variable
     /// values, labels and their addresses yet).
@@ -883,6 +883,23 @@ impl<'a> Assembler<'a> {
             self.labels_seen = pn.labels_seen;
             self.context.force_context_switch(&pn.context);
 
+            // .fallthrough is handled here, whenever we already know addresses,
+            // sizes, etc. If this is the case, this is not a real node that can
+            // be bundled, but perform its check and move into the next
+            // iteration.
+            //
+            // NOTE: this has to happen with a context switch, otherwise the
+            // name resolution won't be accurate.
+            if matches!(
+                pn.node.node_type,
+                NodeType::Control(ControlType::Fallthrough)
+            ) {
+                if let Err(e) = self.fallthrough(&pn) {
+                    errors.push(e);
+                }
+                continue;
+            }
+
             self.literal_mode = None;
             match self.evaluate_node(&pn.node) {
                 Ok(mut bundle) => {
@@ -947,6 +964,59 @@ impl<'a> Assembler<'a> {
         } else {
             Err(errors)
         }
+    }
+
+    fn fallthrough(&mut self, pn: &PendingNode) -> Result<(), Error> {
+        // If we are not in 'crunch' mode, then it's a bug.
+        assert_eq!(self.stage, Stage::Crunching);
+
+        let node = pn.node.left.as_ref().unwrap();
+
+        // If there was no "argument", then skip things altogether. The
+        // programmer opted for an explicit fallthrough without further checks.
+        if node.value.is_empty() {
+            return Ok(());
+        }
+
+        // If there is an argument, it has to be a valid address identifier.
+        if let Err(message) = node.value.is_valid_identifier(false) {
+            return Err(Error {
+                line: pn.node.value.line,
+                message,
+                source: self.source_for(&pn.node),
+                expanded_from: pn.macro_context.clone(),
+                global: false,
+            });
+        }
+
+        // The check looks scarier than it is. We first grab the target address
+        // by evaluating the identifier as a variable. This should just gives as
+        // the address as is by calling .value(). The effective address is taken
+        // from the 'bundle_index' from the PendingNode, as it was pushed while
+        // pointing to the "next" bundle. Hence, we just fetch that bundle and
+        // get its address.
+        let target_address = self.evaluate_variable(node)?.value() as usize;
+        let current = &self.mappings[pn.mapping].segments[pn.segment];
+        let Some(effective) = current.bundles.get(pn.bundle_index) else {
+            return Err(Error {
+                line: pn.node.value.line,
+                message: String::from("statement does not fall through"),
+                source: self.source_for(&pn.node),
+                expanded_from: pn.macro_context.clone(),
+                global: false,
+            });
+        };
+
+        if effective.address != target_address {
+            return Err(Error {
+                line: pn.node.value.line,
+                message: String::from("statement does not fall through"),
+                source: self.source_for(&pn.node),
+                expanded_from: pn.macro_context.clone(),
+                global: false,
+            });
+        }
+        Ok(())
     }
 
     fn asan(&mut self, memory: &mut MemoryResult) -> Result<(), Vec<Error>> {
@@ -1865,6 +1935,21 @@ impl<'a> Assembler<'a> {
             NodeType::Control(ControlType::EndIf) => Ok(()),
             NodeType::Control(ControlType::IncludeSource) => Ok(()),
             NodeType::Control(ControlType::Echo(_)) => Ok(()),
+            NodeType::Control(ControlType::Fallthrough) => {
+                // We don't do much other than pushing a fake PendingNode with a
+                // 'bundle_index' value that will point to the next node.
+                let current = &mut self.mappings[self.current_mapping];
+                self.pending.push(PendingNode {
+                    mapping: self.current_mapping,
+                    segment: self.current_segment,
+                    context: self.context.name().to_string(),
+                    bundle_index: current.segments[self.current_segment].bundles.len(),
+                    node: node.to_owned(),
+                    labels_seen: self.context.labels_seen(),
+                    macro_context: self.macro_context.clone(),
+                });
+                Ok(())
+            }
             _ => Err(Error {
                 line: node.value.line,
                 message: format!(

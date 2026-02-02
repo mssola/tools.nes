@@ -166,6 +166,7 @@ pub enum ControlType {
     EndIf,
     Defined,
     Echo(EchoKind),
+    Fallthrough,
 }
 
 impl fmt::Display for ControlType {
@@ -201,6 +202,7 @@ impl fmt::Display for ControlType {
                 EchoKind::Warning => write!(f, ".warning"),
                 EchoKind::Error => write!(f, ".error"),
             },
+            ControlType::Fallthrough => write!(f, ".fallthrough"),
         }
     }
 }
