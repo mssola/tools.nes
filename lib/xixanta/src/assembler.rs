@@ -855,7 +855,20 @@ impl<'a> Assembler<'a> {
                         errors.append(&mut ers);
                     }
                 }
-
+                NodeType::Fallthrough => {
+                    // We don't do much other than pushing a fake PendingNode with a
+                    // 'bundle_index' value that will point to the next node.
+                    let current = &mut self.mappings[self.current_mapping];
+                    self.pending.push(PendingNode {
+                        mapping: self.current_mapping,
+                        segment: self.current_segment,
+                        context: self.context.name().to_string(),
+                        bundle_index: current.segments[self.current_segment].bundles.len(),
+                        node: node.to_owned(),
+                        labels_seen: self.context.labels_seen(),
+                        macro_context: self.macro_context.clone(),
+                    });
+                }
                 _ => {}
             }
 
@@ -890,10 +903,7 @@ impl<'a> Assembler<'a> {
             //
             // NOTE: this has to happen with a context switch, otherwise the
             // name resolution won't be accurate.
-            if matches!(
-                pn.node.node_type,
-                NodeType::Control(ControlType::Fallthrough)
-            ) {
+            if matches!(pn.node.node_type, NodeType::Fallthrough) {
                 if let Err(e) = self.fallthrough(&pn) {
                     errors.push(e);
                 }
@@ -970,16 +980,14 @@ impl<'a> Assembler<'a> {
         // If we are not in 'crunch' mode, then it's a bug.
         assert_eq!(self.stage, Stage::Crunching);
 
-        let node = pn.node.left.as_ref().unwrap();
-
         // If there was no "argument", then skip things altogether. The
         // programmer opted for an explicit fallthrough without further checks.
-        if node.value.is_empty() {
+        if pn.node.value.is_empty() {
             return Ok(());
         }
 
         // If there is an argument, it has to be a valid address identifier.
-        if let Err(message) = node.value.is_valid_identifier(false) {
+        if let Err(message) = pn.node.value.is_valid_identifier(false) {
             return Err(Error {
                 line: pn.node.value.line,
                 message,
@@ -995,7 +1003,7 @@ impl<'a> Assembler<'a> {
         // from the 'bundle_index' from the PendingNode, as it was pushed while
         // pointing to the "next" bundle. Hence, we just fetch that bundle and
         // get its address.
-        let target_address = self.evaluate_variable(node)?.value() as usize;
+        let target_address = self.evaluate_variable(&pn.node)?.value() as usize;
         let current = &self.mappings[pn.mapping].segments[pn.segment];
         let Some(effective) = current.bundles.get(pn.bundle_index) else {
             return Err(Error {
@@ -1935,21 +1943,6 @@ impl<'a> Assembler<'a> {
             NodeType::Control(ControlType::EndIf) => Ok(()),
             NodeType::Control(ControlType::IncludeSource) => Ok(()),
             NodeType::Control(ControlType::Echo(_)) => Ok(()),
-            NodeType::Control(ControlType::Fallthrough) => {
-                // We don't do much other than pushing a fake PendingNode with a
-                // 'bundle_index' value that will point to the next node.
-                let current = &mut self.mappings[self.current_mapping];
-                self.pending.push(PendingNode {
-                    mapping: self.current_mapping,
-                    segment: self.current_segment,
-                    context: self.context.name().to_string(),
-                    bundle_index: current.segments[self.current_segment].bundles.len(),
-                    node: node.to_owned(),
-                    labels_seen: self.context.labels_seen(),
-                    macro_context: self.macro_context.clone(),
-                });
-                Ok(())
-            }
             _ => Err(Error {
                 line: node.value.line,
                 message: format!(

@@ -8,14 +8,14 @@
 
 .proc foo
     lda #0
-    .fallthrough bar
+    __fallthrough__ bar
 .endproc
 
-.fallthrough bar
+__fallthrough__ bar
 
 .proc bar
     lda #0
-    .fallthrough other
+    __fallthrough__ other
 .endproc
 
 .proc other

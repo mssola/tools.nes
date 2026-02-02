@@ -766,9 +766,12 @@ impl Parser {
     // Parse statements which are neither an instruction nor an assignment. This
     // includes stuff like control statements or macro calls.
     fn parse_other(&mut self, line: &str, id: PString) -> Result<(), Vec<Error>> {
-        // This is either a control statement (i.e. starts with '.') or a macro call.
+        // This is either a control statement (i.e. starts with '.'), a
+        // __fallthrough__, or a macro call.
         let node = if id.value.starts_with('.') {
             self.parse_control(id, line, 0)?
+        } else if id.value == "__fallthrough__" {
+            self.parse_fallthrough(line)?
         } else {
             let args = self.parse_arguments(line, 0)?;
             PNode {
@@ -1638,6 +1641,29 @@ impl Parser {
             left,
             right: None,
             args: if args.is_empty() { None } else { Some(args) },
+            source: self.current_source,
+        })
+    }
+
+    // Parse a fallthrough statement.
+    fn parse_fallthrough(&mut self, line: &str) -> Result<PNode, Error> {
+        // Skip whitespaces and fetch the identifier.
+        self.skip_whitespace(line);
+        let identifier = self.parse_identifier(line, false)?.0;
+
+        // If there was something else other than the identifier, it's a parsing
+        // error.
+        let rest = line.get(self.offset..).unwrap_or("").trim();
+        if !rest.is_empty() {
+            return Err(self.parser_error("too many arguments for __fallthrough__"));
+        }
+
+        Ok(PNode {
+            node_type: NodeType::Fallthrough,
+            value: identifier,
+            left: None,
+            right: None,
+            args: None,
             source: self.current_source,
         })
     }

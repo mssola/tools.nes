@@ -166,7 +166,6 @@ pub enum ControlType {
     EndIf,
     Defined,
     Echo(EchoKind),
-    Fallthrough,
 }
 
 impl fmt::Display for ControlType {
@@ -202,7 +201,6 @@ impl fmt::Display for ControlType {
                 EchoKind::Warning => write!(f, ".warning"),
                 EchoKind::Error => write!(f, ".error"),
             },
-            ControlType::Fallthrough => write!(f, ".fallthrough"),
         }
     }
 }
@@ -319,6 +317,9 @@ pub enum NodeType {
 
     /// A comment which is relevant for the current session.
     Comment(CommentType),
+
+    /// Fallthrough pseudo-instruction.
+    Fallthrough,
 }
 
 impl fmt::Display for NodeType {
@@ -333,6 +334,7 @@ impl fmt::Display for NodeType {
             NodeType::Literal => write!(f, "literal"),
             NodeType::Label => write!(f, "label"),
             NodeType::Call => write!(f, "call"),
+            NodeType::Fallthrough => write!(f, "fallthrough"),
             NodeType::Operation(op) => match op {
                 OperationType::Add => write!(f, "addition"),
                 OperationType::Sub => write!(f, "subtraction"),
