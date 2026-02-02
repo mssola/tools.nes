@@ -32,6 +32,7 @@ fn print_help() {
     println!("  -D <NAME>(=VALUE)\tDefine an 8-bit variable on the global scope (default: 1)");
     println!("  -h, --help\t\tPrint this message.");
     println!("  -o, --out <FILE>\tFile path where the output should be located after execution.");
+    println!("  --prelude\t\tPrint the 'prelude' file; a file that can be used for defining default implementations for nasm-only features.");
     println!("  -s, --stats\t\tPrint the statistics on the final layout of segments and memory.");
     println!("  --stdout\t\tPrint the output binary to the standard output.");
     println!("  -v, --version\t\tPrint the version of this program.");
@@ -39,6 +40,22 @@ fn print_help() {
         "  -w, --write-info\tWrite debug/analysis information into a special '.nasm' directory."
     );
     println!("  -Werror\t\tWarnings should be treated as errors.");
+    std::process::exit(0);
+}
+
+// Print the 'prelude' file, which is a file that provides default
+// implementations for nasm-only control statements. These implementations do
+// not strive to make things complete in all ways, but at least with this
+// another compiler will produce the same binary as nasm.
+fn print_prelude() {
+    println!(
+        r#";; The __fallthrough__ special statement allows developers to explicitly tell
+;; the assembler that a "fall through" situation does not happen by mistake.
+.macro __fallthrough__ arg
+  ;; NOTE: nothing to do :)
+.endmacro"#
+    );
+
     std::process::exit(0);
 }
 
@@ -99,6 +116,7 @@ fn parse_arguments() -> Args {
                 None => die("you need to provide a value for the '-D' flag".to_string()),
             },
             "-h" | "--help" => print_help(),
+            "--prelude" => print_prelude(),
             "-o" | "--out" => match res.out {
                 Some(_) => die("only specify the '-o/--out' flag once".to_string()),
                 None => {
