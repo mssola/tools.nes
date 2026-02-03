@@ -588,12 +588,25 @@ impl<'a> Assembler<'a> {
                             // illegal definitions.
                             self.macros_seen += 1;
 
-                            // Insert a reference to this node so it can be
-                            // unrolled whenever we have to perform a macro
-                            // call.
-                            self.macros
-                                .entry(node.left.as_ref().unwrap().value.value.clone())
-                                .or_insert(node);
+                            let name = &node.left.as_ref().unwrap().value;
+                            if let Err(e) = name.is_valid_identifier(false) {
+                                errors.push(Error {
+                                    message: format!(
+                                        "'{}' is not a valid macro name: {e}",
+                                        name.value
+                                    ),
+                                    line: node.value.line,
+                                    global: false,
+                                    expanded_from: self.macro_context.clone(),
+                                    source: self.source_for(node),
+                                });
+                                continue;
+                            } else {
+                                // Insert a reference to this node so it can be
+                                // unrolled whenever we have to perform a macro
+                                // call.
+                                self.macros.entry(name.value.clone()).or_insert(node);
+                            }
                         }
                         ControlType::EndMacro => {
                             if self.macros_seen > 0 {
@@ -616,7 +629,19 @@ impl<'a> Assembler<'a> {
 
                             self.procs_seen += 1;
                             let proc_name = &node.left.as_ref().unwrap();
-                            if let Err(err) = self.define_variable(proc_name) {
+                            if let Err(err) = proc_name.value.is_valid_identifier(false) {
+                                errors.push(Error {
+                                    message: format!(
+                                        "'{}' is not a valid proc name: {err}",
+                                        proc_name.value.value,
+                                    ),
+                                    line: node.value.line,
+                                    global: false,
+                                    expanded_from: self.macro_context.clone(),
+                                    source: self.source_for(node),
+                                });
+                                continue;
+                            } else if let Err(err) = self.define_variable(proc_name) {
                                 errors.push(err);
                             }
                         }
@@ -635,6 +660,20 @@ impl<'a> Assembler<'a> {
                                     source: self.source_for(node),
                                     expanded_from: self.macro_context.clone(),
                                     global: false,
+                                });
+                                continue;
+                            }
+                            let scope_name = &node.left.as_ref().unwrap();
+                            if let Err(err) = scope_name.value.is_valid_identifier(false) {
+                                errors.push(Error {
+                                    message: format!(
+                                        "'{}' is not a valid scope name: {err}",
+                                        scope_name.value.value,
+                                    ),
+                                    line: node.value.line,
+                                    global: false,
+                                    expanded_from: self.macro_context.clone(),
+                                    source: self.source_for(node),
                                 });
                                 continue;
                             }
@@ -4755,6 +4794,18 @@ MACRO Var1
         assert_eq!(res[0].bytes[0], 0xEA);
         assert_eq!(res[0].bytes[1], 0x00);
         assert_eq!(res[0].bytes[2], 0x00);
+    }
+
+    #[test]
+    fn bad_macro_name() {
+        assert_error(
+            r#".macro __fallthrough__ arg
+    .endmacro
+    "#,
+            1,
+            false,
+            "'__fallthrough__' is not a valid macro name: cannot use reserved name '__fallthrough__'",
+        );
     }
 
     #[test]

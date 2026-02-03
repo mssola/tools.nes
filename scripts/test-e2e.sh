@@ -88,6 +88,13 @@ exit_code=$((exit_code + $?))
 diff tests/out/fallthrough.nes tests/expected/fallthrough.nes
 exit_code=$((exit_code + $?))
 
+echo "test: custom => avoid_bad_macro.nes"
+./target/debug/nasm -c empty --asan tests/avoid_bad_macro.s -o tests/out/avoid_bad_macro.nes 2>tests/out/avoid_bad_macro.txt
+diff tests/out/avoid_bad_macro.txt tests/expected/avoid_bad_macro.txt
+exit_code=$((exit_code + $?))
+diff tests/out/avoid_bad_macro.nes tests/expected/avoid_bad_macro.nes
+exit_code=$((exit_code + $?))
+
 ##
 # code.nes
 
