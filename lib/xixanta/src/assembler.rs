@@ -1057,7 +1057,10 @@ impl<'a> Assembler<'a> {
         if effective.address != target_address {
             return Err(Error {
                 line: pn.node.value.line,
-                message: String::from("statement does not fall through"),
+                message: format!(
+                    "statement expects to progress on '{}' (${:04X}), but the next address is ${:04X}",
+                    pn.node.value.value, target_address, effective.address,
+                ),
                 source: self.source_for(&pn.node),
                 expanded_from: pn.macro_context.clone(),
                 global: false,

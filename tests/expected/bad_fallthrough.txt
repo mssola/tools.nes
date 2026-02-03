@@ -1,4 +1,4 @@
-error: statement does not fall through (bad_fallthrough.s: line 11)
-error: statement does not fall through (bad_fallthrough.s: line 14)
-error: statement does not fall through (bad_fallthrough.s: line 15)
+error: statement expects to progress on 'bar' ($8004), but the next address is $8002 (bad_fallthrough.s: line 11)
+error: statement expects to progress on 'bar' ($8004), but the next address is $8002 (bad_fallthrough.s: line 14)
+error: statement expects to progress on 'other' ($8006), but the next address is $8002 (bad_fallthrough.s: line 15)
 error: statement does not fall through (bad_fallthrough.s: line 27)
