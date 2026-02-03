@@ -51,9 +51,11 @@ fn print_prelude() {
     println!(
         r#";; The __fallthrough__ special statement allows developers to explicitly tell
 ;; the assembler that a "fall through" situation does not happen by mistake.
-.macro __fallthrough__ arg
-  ;; NOTE: nothing to do :)
-.endmacro"#
+.ifndef __NASM__
+  .macro __fallthrough__ arg
+    ;; NOTE: nothing to do :)
+  .endmacro
+.endif"#
     );
 
     std::process::exit(0);
