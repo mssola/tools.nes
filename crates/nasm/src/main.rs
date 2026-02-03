@@ -29,7 +29,9 @@ fn print_help() {
     println!("Options:");
     println!("  -a, --asan\t\tEnable the Address Sanitizer.");
     println!("  -c, --config <FILE>\tLinker configuration to be used, whether an identifier or a file path.");
-    println!("  -D <NAME>(=VALUE)\tDefine an 8-bit variable on the global scope (default: 1)");
+    println!(
+        "  -D <NAME>(=VALUE)\tDefine an 8-bit variable on the global scope ('VALUE' defaults to '1')"
+    );
     println!("  -h, --help\t\tPrint this message.");
     println!("  -o, --out <FILE>\tFile path where the output should be located after execution.");
     println!("  --prelude\t\tPrint the 'prelude' file; a file that can be used for defining default implementations for nasm-only features.");
