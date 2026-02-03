@@ -40,7 +40,10 @@ impl PString {
         }
 
         // You cannot assign into a name which is reserved.
-        if matches!(self.value.to_lowercase().as_str(), "x" | "y" | "a") {
+        if matches!(
+            self.value.to_lowercase().as_str(),
+            "x" | "y" | "a" | "__fallthrough__"
+        ) {
             return Err(format!("cannot use reserved name '{}'", self.value));
         }
 
