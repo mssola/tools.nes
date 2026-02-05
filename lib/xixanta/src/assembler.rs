@@ -1448,6 +1448,9 @@ impl<'a> Assembler<'a> {
         node: &PNode,
         operation_type: &OperationType,
     ) -> Result<Bundle, Error> {
+        // We first evaluate the node on the right, as unary operations will
+        // only have a right node but not a left one. Moreover, this 'right'
+        // object will be the one that will be updated so it can be returned.
         let mut right = self.evaluate_node(node.right.as_ref().unwrap())?;
         let rval = right.value();
 
@@ -1456,17 +1459,22 @@ impl<'a> Assembler<'a> {
         // node. Hence, reset it here to avoid problems.
         self.literal_mode = None;
 
-        let res: isize = match operation_type {
+        // Now perform the operation by using the right arm and the left one if
+        // needed. If there was indeed a left value computed underneath, then
+        // return it in the 'other' option. Otherwise 'res' contains the
+        // arithmetic value, which might be bananas if the operation was done
+        // between at least one unresolved value (see more on that below).
+        let (res, other): (isize, Option<Bundle>) = match operation_type {
             OperationType::UnaryPositive => {
                 right.negative = false;
-                rval.abs()
+                (rval.abs(), None)
             }
             OperationType::UnaryNegative => {
                 right.negative = true;
-                rval.neg()
+                (rval.neg(), None)
             }
-            OperationType::LogicalNot => (rval == 0) as isize,
-            OperationType::BitwiseNot => !rval,
+            OperationType::LogicalNot => ((rval == 0) as isize, None),
+            OperationType::BitwiseNot => (!rval, None),
             OperationType::LoByte => {
                 let r = (rval as u16).to_le_bytes();
                 right.bytes[0] = r[0];
@@ -1482,16 +1490,16 @@ impl<'a> Assembler<'a> {
                 return Ok(right);
             }
             OperationType::Add => {
-                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
-                lval + rval
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?;
+                (lval.value() + rval, Some(lval))
             }
             OperationType::Sub => {
-                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
-                lval - rval
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?;
+                (lval.value() - rval, Some(lval))
             }
             OperationType::Mul => {
-                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
-                lval * rval
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?;
+                (lval.value() * rval, Some(lval))
             }
             OperationType::Div => {
                 if rval == 0 {
@@ -1503,28 +1511,28 @@ impl<'a> Assembler<'a> {
                         message: "attempting to divide by zero".to_string(),
                     });
                 }
-                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
-                lval / rval
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?;
+                (lval.value() / rval, Some(lval))
             }
             OperationType::LogicalAnd => {
-                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
-                ((lval != 0) && (rval != 0)) as isize
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?;
+                (((lval.value() != 0) && (rval != 0)) as isize, Some(lval))
             }
             OperationType::And => {
-                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
-                lval & rval
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?;
+                (lval.value() & rval, Some(lval))
             }
             OperationType::LogicalOr => {
-                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
-                ((lval != 0) || (rval != 0)) as isize
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?;
+                (((lval.value() != 0) || (rval != 0)) as isize, Some(lval))
             }
             OperationType::Or => {
-                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
-                lval | rval
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?;
+                (lval.value() | rval, Some(lval))
             }
             OperationType::Xor => {
-                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
-                lval ^ rval
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?;
+                (lval.value() ^ rval, Some(lval))
             }
             OperationType::Lshift => {
                 if rval as usize > 16 {
@@ -1537,8 +1545,8 @@ impl<'a> Assembler<'a> {
                     });
                 }
 
-                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
-                lval << rval
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?;
+                (lval.value() << rval, Some(lval))
             }
             OperationType::Rshift => {
                 if rval as usize > 16 {
@@ -1551,37 +1559,66 @@ impl<'a> Assembler<'a> {
                     });
                 }
 
-                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
-                lval >> rval
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?;
+                (lval.value() >> rval, Some(lval))
             }
             OperationType::Equal => {
-                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
-                (lval == rval) as isize
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?;
+                ((lval.value() == rval) as isize, Some(lval))
             }
             OperationType::NotEqual => {
-                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
-                (lval != rval) as isize
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?;
+                ((lval.value() != rval) as isize, Some(lval))
             }
             OperationType::Less => {
-                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
-                (lval < rval) as isize
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?;
+                ((lval.value() < rval) as isize, Some(lval))
             }
             OperationType::LessEqual => {
-                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
-                (lval <= rval) as isize
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?;
+                ((lval.value() <= rval) as isize, Some(lval))
             }
             OperationType::Greater => {
-                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
-                (lval > rval) as isize
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?;
+                ((lval.value() > rval) as isize, Some(lval))
             }
             OperationType::GreaterEqual => {
-                let lval = self.evaluate_node(node.left.as_ref().unwrap())?.value();
-                (lval >= rval) as isize
+                let lval = self.evaluate_node(node.left.as_ref().unwrap())?;
+                ((lval.value() >= rval) as isize, Some(lval))
             }
         };
 
-        // Prevent overflows.
-        if res > i16::MAX.into() || res < i16::MIN.into() {
+        // There are some corrections to be performed into the 'right' bundle if
+        // there was another bundle involved in the operation.
+        if let Some(o) = other {
+            // Only mark this bundle as resolved if both sides of the operation
+            // were resolved values.
+            right.resolved = right.resolved && o.resolved;
+
+            // If the size is different, then pick the larger one (e.g. '$2000 +
+            // 1' is the same as '1 + $2000', which have a size of '2').
+            if right.size < o.size {
+                right.size = o.size;
+            }
+        }
+
+        // Now, regardless of what we did whenever an 'other' object was
+        // involved, we can do some final adjustments on the size of the Bundle
+        // to be returned if the value is finally resolved. This is done by hand
+        // as in some edge cases the size might be wrong just because one of the
+        // sides or both of the operation might do funky things to their sizes
+        // (e.g. '300 - 260' where both arms have values larger than a byte but
+        // the end result should be one byte).
+        if right.resolved {
+            if res > 0x00FF {
+                right.size = 2;
+            } else {
+                right.size = 1;
+            }
+        }
+
+        // Prevent overflows, but only if the value is known for sure.
+        if right.resolved && (res > i16::MAX.into() || res < i16::MIN.into()) {
             return Err(Error {
                 line: node.value.line,
                 global: false,
@@ -1591,18 +1628,11 @@ impl<'a> Assembler<'a> {
             });
         }
 
-        // Set the computes bytes to right since that's the node in common
-        // across all operations and return it.
+        // And, regardless of the size, we will set the bytes of the Bundle as
+        // if it was a 16-bit value in little-endian format.
         let byte_result = (res as u16).to_le_bytes();
         right.bytes[0] = byte_result[0];
         right.bytes[1] = byte_result[1];
-
-        // If the operation makes the end result bigger than what 1 byte can fit
-        // (or it already was bigger before this operation), then we have to
-        // assume that this is a 16-bit value.
-        if res > 0x00FF {
-            right.size = 3;
-        }
 
         Ok(right)
     }
@@ -2541,7 +2571,24 @@ impl<'a> Assembler<'a> {
                     // And return the computed bundle.
                     Ok(bundle)
                 } else {
-                    Ok(value.bundle)
+                    // In most cases returning the fetched bundle would just be
+                    // fine, but if it's not resolved then the caller might not
+                    // be able to make assumptions on the end size, which is
+                    // important because we might be at a state of
+                    // 'Stage::Bundling' and we _must_ know the sizes of each
+                    // instruction as addresses are being computed along the
+                    // way. Hence, we might not know the value right now if it's
+                    // not resolved yet, but if it's an address (which is known
+                    // when defining the variable at a state of
+                    // 'Stage::Context'), then we definitely know the size and
+                    // the caller can make this assumption (which might
+                    // determine a ZeroPageX or an IndirectX instruction, with a
+                    // byte in size of difference).
+                    let mut bundle = value.bundle;
+                    if matches!(value.object_type, ObjectType::Address) {
+                        bundle.size = 2;
+                    }
+                    Ok(bundle)
                 }
             }
             Err(e) => Err(Error {
@@ -3917,6 +3964,24 @@ sta m_var + 1
         assert_eq!(res[1].bytes[2], 0x02);
     }
 
+    #[test]
+    fn load_arithmetic_constant() {
+        let res = just_bundles(
+            r#"
+VAL1 = 300
+lda #(VAL1 - VAL2)
+VAL2 = 260
+    "#,
+        );
+
+        assert_eq!(res.len(), 1);
+
+        assert_eq!(res[0].size, 2);
+        assert_eq!(res[0].bytes[0], 0xA9);
+        assert_eq!(res[0].bytes[1], 40);
+        assert_eq!(res[0].bytes[2], 0x00);
+    }
+
     // Labels & branching
 
     #[test]
@@ -4134,6 +4199,26 @@ sta m_var + 1
 
         assert_instruction("ldx #0", &res[0].bytes);
         assert_instruction("lda $8005, x", &res[1].bytes);
+        assert_eq!(&res[2].bytes, &[0x0F, 0x00, 0x00]);
+        assert_eq!(&res[3].bytes, &[0x12, 0x00, 0x00]);
+        assert_eq!(&res[4].bytes, &[0x22, 0x00, 0x00]);
+        assert_eq!(&res[5].bytes, &[0x32, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn label_in_instruction_addressing_with_arithmetics() {
+        let res = just_bundles(
+            r#"
+      ldx #0
+    @load_palettes_loop:
+      lda palettes + 1, x
+    palettes:
+      .byte $0F, $12, $22, $32
+    "#,
+        );
+
+        assert_instruction("ldx #0", &res[0].bytes);
+        assert_instruction("lda $8006, x", &res[1].bytes);
         assert_eq!(&res[2].bytes, &[0x0F, 0x00, 0x00]);
         assert_eq!(&res[3].bytes, &[0x12, 0x00, 0x00]);
         assert_eq!(&res[4].bytes, &[0x22, 0x00, 0x00]);
