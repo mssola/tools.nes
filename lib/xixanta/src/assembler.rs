@@ -2948,13 +2948,26 @@ impl<'a> Assembler<'a> {
             }
             NodeType::Operation(OperationType::Add) | NodeType::Operation(OperationType::Sub) => {
                 // Get the name of the variable involved.
-                let left_name = &node.left.as_ref().unwrap().value.value;
-                let right_name = &node.left.as_ref().unwrap().value.value;
-                let name = if is_asan_friendly_name(left_name) {
+                let left_name = &node.left.as_ref().unwrap().value;
+                let right_name = &node.left.as_ref().unwrap().value;
+                let name = if is_asan_friendly_name(&left_name.value) {
                     node.left.as_ref().unwrap()
-                } else if is_asan_friendly_name(right_name) {
+                } else if is_asan_friendly_name(&right_name.value) {
                     node.right.as_ref().unwrap()
                 } else {
+                    // If everything failed but because it was an address
+                    // (e.g. 'lda palettes + 1, x'), then return early.
+                    if let Ok(var) = self.context.get_variable(left_name, &self.mappings) {
+                        if matches!(var.object_type, ObjectType::Address) {
+                            return Ok(());
+                        }
+                    }
+                    if let Ok(var) = self.context.get_variable(right_name, &self.mappings) {
+                        if matches!(var.object_type, ObjectType::Address) {
+                            return Ok(());
+                        }
+                    }
+
                     self.warnings.push(Error {
                         line: node.value.line,
                         message: "accessing a memory region without a proper name".to_string(),

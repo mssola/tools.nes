@@ -32,9 +32,10 @@ lda zp_used - 1
 
 ldx #0
 lda palettes, x
+lda palettes + 1, x
 
 palettes:
-    .byte $0F
+    .byte $0F, $FF
 
 lda $200                        ; asan:ignore
 lda $200
