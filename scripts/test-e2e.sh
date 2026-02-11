@@ -95,6 +95,13 @@ exit_code=$((exit_code + $?))
 diff tests/out/avoid_bad_macro.nes tests/expected/avoid_bad_macro.nes
 exit_code=$((exit_code + $?))
 
+echo "test: custom => indirect.nes"
+./target/debug/nasm -c empty --asan tests/indirect.s -o tests/out/indirect.nes 2>tests/out/indirect.txt
+diff tests/out/indirect.txt tests/expected/indirect.txt
+exit_code=$((exit_code + $?))
+diff tests/out/indirect.nes tests/expected/indirect.nes
+exit_code=$((exit_code + $?))
+
 ##
 # code.nes
 

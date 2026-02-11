@@ -2739,16 +2739,17 @@ impl<'a> Assembler<'a> {
                 }
                 None => {
                     let evaluated_node = left.left.as_ref().unwrap();
-                    let val = self.evaluate_node(evaluated_node)?;
-                    if val.size != 2 {
-                        return Err(Error {
-                            message: "expecting a full 16-bit address".to_string(),
-                            line: node.value.line,
-                            source: self.source_for(node),
-                            global: false,
-                            expanded_from: self.macro_context.clone(),
-                        });
-                    }
+                    let mut val = self.evaluate_node(evaluated_node)?;
+
+                    // If this is a valid pure indirect addressing, then we know
+                    // for sure we are in a 'jmp' instruction. In this case, if
+                    // a zero-page address was being used, expand it to an
+                    // absolute address. We do this unconditionally just to be
+                    // sure, just as like we set the high byte of the address to
+                    // $00 just to sanitize things.
+                    val.size = 3;
+                    val.bytes[2] = 0x00;
+
                     self.asan_check_arm(evaluated_node, &val)?;
                     Ok((AddressingMode::Indirect, val))
                 }
@@ -3677,7 +3678,6 @@ cpx #(4 * var2)"#,
             false,
             "only the Y index is allowed on indirect Y addressing",
         );
-        assert_error("jmp ($20)", 1, false, "expecting a full 16-bit address");
         assert_error("adc $20, z", 1, false, "can only use X and Y as indices");
         assert_error(
             "adc ($2000)",
@@ -3829,6 +3829,7 @@ cpx #(4 * var2)"#,
 
         assert_instruction("jmp $2002", &[0x4C, 0x02, 0x20]);
         assert_instruction("jmp ($2002)", &[0x6C, 0x02, 0x20]);
+        assert_instruction("jmp ($20)", &[0x6C, 0x20, 0x00]);
     }
 
     #[test]
