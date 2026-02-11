@@ -2749,9 +2749,7 @@ impl<'a> Assembler<'a> {
                             expanded_from: self.macro_context.clone(),
                         });
                     }
-                    if !matches!(node.value.value.as_str(), "jmp" | "jsr") {
-                        self.asan_check_arm(evaluated_node, &val)?;
-                    }
+                    self.asan_check_arm(evaluated_node, &val)?;
                     Ok((AddressingMode::Indirect, val))
                 }
             },

@@ -1,5 +1,6 @@
 warning: accessing a memory region without using a variable (bare_accesses.s: line 22)
 warning: accessing a memory region without a proper name ('whatever') (bare_accesses.s: line 23)
 warning: accessing a memory region without using a variable (bare_accesses.s: line 41)
+warning: accessing a memory region without using a variable (bare_accesses.s: line 44)
 error: out of bounds memory access for 'zp_used' ($00-$01) (bare_accesses.s: line 27)
 error: out of bounds memory access for 'zp_used' ($00-$01) (bare_accesses.s: line 28)
