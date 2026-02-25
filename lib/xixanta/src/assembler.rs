@@ -1845,7 +1845,7 @@ impl<'a> Assembler<'a> {
                                 ),
                                 source: self.source_for(node),
                                 line: node.value.line,
-                        expanded_from: self.macro_context.clone(),
+                                expanded_from: self.macro_context.clone(),
                                 global: false,
                             });
                         }
