@@ -1582,14 +1582,9 @@ impl Parser {
         let control = match CONTROL_FUNCTIONS.get(&id.value.to_lowercase()) {
             Some(control) => control,
             None => {
-                return Ok(PNode {
-                    node_type: NodeType::Value,
-                    value: id,
-                    left: None,
-                    right: None,
-                    args: None,
-                    source: self.current_source,
-                });
+                return Err(
+                    self.parser_error(format!("unknown control statement '{}'", id.value).as_str())
+                );
             }
         };
 
@@ -3319,15 +3314,19 @@ inc $20
     #[test]
     fn parse_unknown_control() {
         let mut parser = Parser::default();
-        let err = parser
+        let mut err = parser
             .parse(".".as_bytes(), &SourceInfo::default())
             .unwrap_err();
         assert_eq!(err.first().unwrap().message, "empty identifier");
 
         parser = Parser::default();
-        assert!(parser
+        err = parser
             .parse(".whatever".as_bytes(), &SourceInfo::default())
-            .is_ok());
+            .unwrap_err();
+        assert_eq!(
+            err.first().unwrap().message,
+            "unknown control statement '.whatever'"
+        );
     }
 
     // Macro calls.
