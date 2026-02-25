@@ -4,7 +4,7 @@ use crate::opcodes::CONTROL_FUNCTIONS;
 use std::collections::HashMap;
 
 /// The name of the global context as used internally.
-const GLOBAL_CONTEXT: &str = "Global";
+const GLOBAL_CONTEXT: &str = "__internal_nasm_global_scope";
 
 /// A Bundle represents a set of bytes that can be encoded as binary data.
 #[derive(Debug, Default, Clone, Eq, Ord, PartialEq, PartialOrd)]
