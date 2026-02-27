@@ -78,7 +78,7 @@ nasm-specific code. See below.
 #### The `__fallthrough__` pseudo-instruction
 
 It's a [well-known
-optimizaion](https://www.nesdev.org/wiki/6502_assembly_optimisations) to avoid
+optimization](https://www.nesdev.org/wiki/6502_assembly_optimisations) to avoid
 `jsr` + `rts` chains, and that's why programmers usually change `jsr` with `jmp`
 in cases such as this:
 
