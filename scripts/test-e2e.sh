@@ -102,6 +102,13 @@ exit_code=$((exit_code + $?))
 diff tests/out/indirect.nes tests/expected/indirect.nes
 exit_code=$((exit_code + $?))
 
+echo "test: custom => delayed_macro_arguments.nes"
+./target/debug/nasm -c empty --asan tests/delayed_macro_arguments.s -o tests/out/delayed_macro_arguments.nes 2>tests/out/delayed_macro_arguments.txt
+diff tests/out/delayed_macro_arguments.txt tests/expected/delayed_macro_arguments.txt
+exit_code=$((exit_code + $?))
+diff tests/out/delayed_macro_arguments.nes tests/expected/delayed_macro_arguments.nes
+exit_code=$((exit_code + $?))
+
 ##
 # code.nes
 

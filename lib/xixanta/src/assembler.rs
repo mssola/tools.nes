@@ -58,6 +58,15 @@ struct PendingNode {
     node: PNode,
     labels_seen: usize,
     macro_context: Vec<ExpandedFrom>,
+    pending_defines: Option<Vec<PendingDefine>>,
+}
+
+/// A definition that is pending to be re-created whenever we crunch for
+/// PendingNode's.
+#[derive(Clone, Debug)]
+struct PendingDefine {
+    id: PString,
+    obj: Object,
 }
 
 /// Memory range that can be identified by a name.
@@ -143,6 +152,10 @@ struct Assembler<'a> {
     // 'Error' so the programmer gets information on all the macro expansions
     // that happened before reaching a given error.
     macro_context: Vec<ExpandedFrom>,
+
+    // Stack of pending definitions. The last element from this list is the list
+    // to be set to the next PendingNode push.
+    pending_defines: Vec<Vec<PendingDefine>>,
 }
 
 /// The result to be given at the end of `assembler::assemble` and
@@ -382,6 +395,7 @@ impl<'a> Assembler<'a> {
             asan_next_ignore: false,
             asan_next_reserve: 1,
             macro_context: vec![],
+            pending_defines: vec![],
         }
     }
 
@@ -906,6 +920,7 @@ impl<'a> Assembler<'a> {
                         node: node.to_owned(),
                         labels_seen: self.context.labels_seen(),
                         macro_context: self.macro_context.clone(),
+                        pending_defines: self.pending_defines.last().cloned(),
                     });
                 }
                 _ => {}
@@ -947,6 +962,14 @@ impl<'a> Assembler<'a> {
                     errors.push(e);
                 }
                 continue;
+            }
+
+            // Re-create the definitions for this context which only made sense
+            // locally. These are basically arguments from a macro call.
+            if let Some(pd) = &pn.pending_defines {
+                for d in pd {
+                    let _ = self.context.set_variable(&d.id, &d.obj, true);
+                }
             }
 
             self.literal_mode = None;
@@ -1302,6 +1325,12 @@ impl<'a> Assembler<'a> {
             .into());
         }
 
+        // All arguments are going to be added here as well so the inner block
+        // can take it as a list of PendingDefine's. This way we can re-create
+        // the values for the arguments used for this bundle call without having
+        // to go over the full bundle call.
+        let mut defines = vec![];
+
         // If there are arguments defined by the macro, set their values now.
         if given_args > 0 {
             let mut margs = mcr.args.as_ref().unwrap().iter();
@@ -1322,10 +1351,8 @@ impl<'a> Assembler<'a> {
                 // Note that we overwrite the variable value from previous
                 // calls, just in case a macro is applied multiple times and we
                 // need to get the latest value.
-                if let Err(message) =
-                    self.context
-                        .set_variable(&margs.next().unwrap().value, &obj, true)
-                {
+                let id = &margs.next().unwrap().value;
+                if let Err(message) = self.context.set_variable(id, &obj, true) {
                     return Err(Error {
                         line: node.value.line,
                         message,
@@ -1335,6 +1362,10 @@ impl<'a> Assembler<'a> {
                     }
                     .into());
                 }
+                defines.push(PendingDefine {
+                    id: id.clone(),
+                    obj,
+                });
             }
         }
 
@@ -1358,7 +1389,9 @@ impl<'a> Assembler<'a> {
                 line: node.value.line,
                 source: self.source_for(node),
             });
+            self.pending_defines.push(defines);
             self.bundle(inner)?;
+            self.pending_defines.pop();
             let _ = self.macro_context.pop();
         }
         Ok(())
@@ -1379,6 +1412,7 @@ impl<'a> Assembler<'a> {
                 node: node.to_owned(),
                 labels_seen: self.context.labels_seen(),
                 macro_context: self.macro_context.clone(),
+                pending_defines: self.pending_defines.last().cloned(),
             });
         }
         current.segments[self.current_segment].bundles.push(bundle);
