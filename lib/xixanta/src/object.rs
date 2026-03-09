@@ -398,6 +398,12 @@ impl Context {
         // Clear the context stack as we will set it manually.
         self.stack.truncate(0);
 
+        // If the given name turns out to be just the global one, skip the push
+        // for the stack.
+        if name == GLOBAL_CONTEXT {
+            return;
+        }
+
         // Forcing a context switch is not as simple as pushing the given name,
         // but we have to make sure that the whole scope hierarchy is laid out
         // so the code that fetches variables continues to work (e.g. if
