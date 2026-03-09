@@ -119,6 +119,7 @@ impl Bundle {
 pub enum ObjectType {
     Address,
     Value,
+    Argument,
 }
 
 /// Bundle and metadata which is stored on the context table for a given
@@ -241,7 +242,7 @@ impl Context {
         match self.map.get_mut(scope_name) {
             Some(scope) => match scope.get_mut(var_name) {
                 Some(var) => match var.object_type {
-                    ObjectType::Value => {
+                    ObjectType::Value | ObjectType::Argument => {
                         var.accessed += 1;
                         Ok(var.clone())
                     }

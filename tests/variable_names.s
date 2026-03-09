@@ -23,3 +23,16 @@ lda m_good
 lda wr_bad
 lda wr_good
 lda wr_out
+
+.macro INC_MOVEMENT_X ADDR
+    .ifdef PAL
+        lda ADDR, x
+        clc
+        adc Enemies::zp_movement_arg
+        sta ADDR, x
+    .else
+        inc ADDR, x
+    .endif
+.endmacro
+
+INC_MOVEMENT_X zp_good + 1

@@ -1313,7 +1313,7 @@ impl<'a> Assembler<'a> {
                     node: Some(arg.clone()),
                     mapping: self.current_mapping,
                     segment: self.current_segment,
-                    object_type: ObjectType::Value,
+                    object_type: ObjectType::Argument,
                     asan_ignore: false,
                     asan_reserve: 1,
                     accessed: 0,
@@ -2926,7 +2926,7 @@ impl<'a> Assembler<'a> {
                     // let it be (e.g. 'lda palettes, x'; where 'palettes' is a
                     // legitimate name even if not 'is_asan_friendly_name').
                     if let Ok(var) = self.context.get_variable(&node.value, &self.mappings) {
-                        if matches!(var.object_type, ObjectType::Address) {
+                        if matches!(var.object_type, ObjectType::Address | ObjectType::Argument) {
                             return Ok(());
                         }
                     }
@@ -2957,12 +2957,12 @@ impl<'a> Assembler<'a> {
                     // If everything failed but because it was an address
                     // (e.g. 'lda palettes + 1, x'), then return early.
                     if let Ok(var) = self.context.get_variable(left_name, &self.mappings) {
-                        if matches!(var.object_type, ObjectType::Address) {
+                        if matches!(var.object_type, ObjectType::Address | ObjectType::Argument) {
                             return Ok(());
                         }
                     }
                     if let Ok(var) = self.context.get_variable(right_name, &self.mappings) {
-                        if matches!(var.object_type, ObjectType::Address) {
+                        if matches!(var.object_type, ObjectType::Address | ObjectType::Argument) {
                             return Ok(());
                         }
                     }
