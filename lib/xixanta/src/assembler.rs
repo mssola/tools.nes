@@ -146,6 +146,9 @@ struct Assembler<'a> {
     // The amount of bytes to reserve for the next variable assignment.
     asan_next_reserve: usize,
 
+    // The memory range as defined by an 'asan:stack' statement.
+    asan_stack_definition: Option<MemoryRange>,
+
     // Stack of macro expansions. That is, every time a macro is expanded
     // (i.e. via 'bundle_call'), the node that performed the expansion is
     // stacked here. This is then picked up via structs like 'PendingNode' and
@@ -305,6 +308,27 @@ pub fn assemble_with_mapping(
         };
     }
 
+    // We have enough information for asan:stack after evaluating the
+    // context. So, if asan is enabled, account for it now, otherwise push a
+    // warning.
+    if asm.asan_enabled {
+        match asm.asan_stack_definition {
+            Some(ref mr) => {
+                memory.memory_ranges.push(mr.clone());
+                memory.total_internal_ram += mr.range.len();
+            }
+            None => {
+                asm.warnings.push(Error {
+                    line: 0,
+                    message: "you have not defined a range for 'asan:stack'".to_string(),
+                    source: source.clone(),
+                    global: true,
+                    expanded_from: vec![],
+                });
+            }
+        }
+    }
+
     // Convert the relevant nodes into binary bundles which can be used by
     // the caller. This is done for most nodes, even if some of them will
     // have to be marked as pending, since they depend on knowing the exact
@@ -394,6 +418,7 @@ impl<'a> Assembler<'a> {
             asan_enabled: false,
             asan_next_ignore: false,
             asan_next_reserve: 1,
+            asan_stack_definition: None,
             macro_context: vec![],
             pending_defines: vec![],
         }
@@ -521,6 +546,28 @@ impl<'a> Assembler<'a> {
                                 source: self.source_for(node),
                                 expanded_from: self.macro_context.clone(),
                                 global: false,
+                            });
+                        }
+                    }
+                }
+                NodeType::Comment(CommentType::AsanStack(range)) => {
+                    match self.asan_stack_definition {
+                        Some(_) => {
+                            if self.asan_stack_definition.is_some() {
+                                errors.push(Error {
+                                    message: "you have already defined a value for 'asan:stack'"
+                                        .to_string(),
+                                    line: node.value.line,
+                                    source: self.source_for(node),
+                                    expanded_from: self.macro_context.clone(),
+                                    global: false,
+                                });
+                            }
+                        }
+                        None => {
+                            self.asan_stack_definition = Some(MemoryRange {
+                                range: range.clone(),
+                                name: "<stack>".to_string(),
                             });
                         }
                     }
@@ -3615,6 +3662,75 @@ mod tests {
         assert_eq!(pos.bytes[0], 0xA2);
         assert_eq!(pos.bytes[1], 0x02);
         assert_eq!(pos.bytes[2], 0x00);
+    }
+
+    #[test]
+    fn asan_no_stack() {
+        let line = "nop";
+        let real_line = minimal_header().to_string() + line;
+
+        let res = assemble_with_mapping(
+            real_line.as_bytes(),
+            empty(),
+            &[],
+            &SourceInfo::default(),
+            true,
+        );
+
+        assert_eq!(res.warnings.len(), 1);
+        assert_eq!(
+            res.warnings[0].to_string(),
+            "you have not defined a range for 'asan:stack'"
+        );
+    }
+
+    #[test]
+    fn asan_dup_stack() {
+        let line = r#";; asan:stack $00-$FF
+;; asan:stack $00-$FF
+"#;
+
+        let real_line = minimal_header().to_string() + line;
+
+        let res = assemble_with_mapping(
+            real_line.as_bytes(),
+            empty(),
+            &[],
+            &SourceInfo::default(),
+            true,
+        );
+
+        assert_eq!(res.errors.len(), 1);
+
+        // NOTE: 3 lines for the "minimal header" being prepended.
+        assert_eq!(
+            res.errors[0].to_string(),
+            "you have already defined a value for 'asan:stack' (line 5)"
+        );
+    }
+
+    #[test]
+    fn asan_stack() {
+        let line = "nop ;; asan:stack $00-$FF";
+        let real_line = minimal_header().to_string() + line;
+
+        let res = assemble_with_mapping(
+            real_line.as_bytes(),
+            empty(),
+            &[],
+            &SourceInfo::default(),
+            true,
+        );
+
+        assert_eq!(res.errors.len(), 0);
+        assert_eq!(res.warnings.len(), 0);
+        assert_eq!(res.memory.memory_ranges.len(), 1);
+
+        let mr = res.memory.memory_ranges.first().unwrap();
+        assert_eq!(mr.range, (0x100..0x200));
+        assert_eq!(mr.name, "<stack>".to_string());
+
+        assert_eq!(res.memory.total_internal_ram, 0x100);
     }
 
     #[test]

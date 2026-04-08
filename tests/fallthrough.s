@@ -21,3 +21,5 @@ __fallthrough__ bar
 .proc other
     rts
 .endproc
+
+;;; asan:stack full

@@ -25,3 +25,5 @@ __fallthrough__ other
 .endproc
 
 __fallthrough__ other
+
+;;; asan:stack full

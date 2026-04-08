@@ -201,6 +201,39 @@ impl Parser {
                     source: self.current_source,
                 });
             }
+            "asan:stack" => {
+                // Skip whitespaces.
+                for c in line.get(offset..).unwrap_or("").chars() {
+                    if c != ';' && !c.is_whitespace() {
+                        break;
+                    }
+                    offset += 1;
+                }
+
+                // Fetch the argument.
+                let mut arg = String::from("");
+                for c in line.get(offset..).unwrap_or("").chars() {
+                    if c.is_whitespace() {
+                        break;
+                    }
+                    arg.push(c);
+                }
+
+                let node_type = self.asan_stack_from(arg)?;
+                self.nodes.last_mut().unwrap().push(PNode {
+                    node_type,
+                    value: PString {
+                        value: cmd,
+                        line: self.line,
+                        start,
+                        end: offset - 1,
+                    },
+                    left: None,
+                    right: None,
+                    args: None,
+                    source: self.current_source,
+                });
+            }
             "asan:ignore" => {
                 self.nodes.last_mut().unwrap().push(PNode {
                     node_type: NodeType::Comment(CommentType::AsanIgnore),
@@ -241,10 +274,109 @@ impl Parser {
                     line: self.line,
                     global: false,
                     source: self.sources[self.current_source].clone(),
-                    message: "expecting a number formatted with a leading '$' sign".to_string(),
+                    message: "'asan:reserve' expects a number formatted with a leading '$' sign"
+                        .to_string(),
                     expanded_from: vec![],
                 })
             }
+        }
+    }
+
+    // Returns the NodeType that can be filled with the given asan:stack
+    // argument which is assumed to be a memory range from the $0100 page.
+    fn asan_stack_from(&mut self, arg: String) -> Result<NodeType, Error> {
+        // Maybe it's the "full" shorthand. If that's the case return early.
+        if arg.to_lowercase() == "full" {
+            return Ok(NodeType::Comment(CommentType::AsanStack(0x100..0x200)));
+        }
+
+        // Validate that the first address is in hexadecimal format.
+        if !arg.starts_with('$') {
+            return Err(Error {
+                line: self.line,
+                global: false,
+                source: self.sources[self.current_source].clone(),
+                message: "'asan:stack' expects a number formatted with a leading '$' sign"
+                    .to_string(),
+                expanded_from: vec![],
+            });
+        }
+
+        // Ensure that it's a range of addresses and that the second address is
+        // in hexadecimal format.
+        let Some(sep) = arg.find('-') else {
+            return Err(Error {
+                line: self.line,
+                global: false,
+                source: self.sources[self.current_source].clone(),
+                message: "'asan:stack' expects a memory range".to_string(),
+                expanded_from: vec![],
+            });
+        };
+        let Some(next) = arg.get(sep..).unwrap_or("$0000").find('$') else {
+            return Err(Error {
+                line: self.line,
+                global: false,
+                source: self.sources[self.current_source].clone(),
+                message: "'asan:stack' expects a number formatted with a leading '$' sign"
+                    .to_string(),
+                expanded_from: vec![],
+            });
+        };
+
+        // Now we can extract the proper hexadecimal values from it.
+        let Ok(mut first) = usize::from_str_radix(arg.get(1..sep).unwrap_or("0000"), 16) else {
+            return Err(Error {
+                line: self.line,
+                global: false,
+                source: self.sources[self.current_source].clone(),
+                expanded_from: vec![],
+                message: "could not parse 'asan:stack' number".to_string(),
+            });
+        };
+        let Ok(mut second) = usize::from_str_radix(arg.get(sep + next + 1..).unwrap_or("0000"), 16)
+        else {
+            return Err(Error {
+                line: self.line,
+                global: false,
+                source: self.sources[self.current_source].clone(),
+                expanded_from: vec![],
+                message: "could not parse 'asan:stack' number".to_string(),
+            });
+        };
+
+        // If the given addresses are below what a byte can contain, assume that
+        // page $1xx was implicit.
+        if first <= u8::MAX.into() && second <= u8::MAX.into() {
+            first += 0x100;
+            second += 0x100;
+        }
+
+        // Validate that we are on the $0100 page.
+        if !(0x100..0x200).contains(&first) || !(0x100..0x200).contains(&second) {
+            return Err(Error {
+                line: self.line,
+                global: false,
+                source: self.sources[self.current_source].clone(),
+                expanded_from: vec![],
+                message: "the stack must be on the $0100 page".to_string(),
+            });
+        }
+
+        // Since the stack grows to lower addresses, we allow the programmer to
+        // put the memory range in any order they see fit.
+        if first > second {
+            Ok(NodeType::Comment(CommentType::AsanStack(second..first + 1)))
+        } else if first < second {
+            Ok(NodeType::Comment(CommentType::AsanStack(first..second + 1)))
+        } else {
+            Err(Error {
+                line: self.line,
+                global: false,
+                source: self.sources[self.current_source].clone(),
+                expanded_from: vec![],
+                message: "bad 'asan:stack' range".to_string(),
+            })
         }
     }
 
@@ -257,7 +389,8 @@ impl Parser {
                 line: self.line,
                 global: false,
                 source: self.sources[self.current_source].clone(),
-                message: "expecting a number formatted with a leading '$' sign".to_string(),
+                message: "'asan:reserve' expects a number formatted with a leading '$' sign"
+                    .to_string(),
                 expanded_from: vec![],
             });
         }
@@ -267,7 +400,7 @@ impl Parser {
                 global: false,
                 source: self.sources[self.current_source].clone(),
                 expanded_from: vec![],
-                message: "could not parse asan:reserve number".to_string(),
+                message: "could not parse 'asan:reserve' number".to_string(),
             });
         };
         if val < 2 {
@@ -276,7 +409,7 @@ impl Parser {
                 global: false,
                 source: self.sources[self.current_source].clone(),
                 expanded_from: vec![],
-                message: "bad asan:reserve number, should be higher than $01".to_string(),
+                message: "bad 'asan:reserve' number, should be higher than $01".to_string(),
             });
         }
 
@@ -3495,15 +3628,84 @@ VAR3 = $200 ;; asan:reserve $100
 
         assert_eq!(
             errors.first().unwrap().message,
-            "expecting a number formatted with a leading '$' sign"
+            "'asan:reserve' expects a number formatted with a leading '$' sign"
         );
         assert_eq!(
             errors.get(1).unwrap().message,
-            "bad asan:reserve number, should be higher than $01"
+            "bad 'asan:reserve' number, should be higher than $01"
         );
         assert_eq!(
             errors.get(2).unwrap().message,
-            "bad asan:reserve number, should be higher than $01"
+            "bad 'asan:reserve' number, should be higher than $01"
         );
+    }
+
+    #[test]
+    fn parse_comment_asan_stack() {
+        let code = r#";; asan:stack full
+;; asan:stack $00-$FF
+;; asan:stack $100-$1FF
+"#;
+        let mut parser = Parser::default();
+        assert!(parser
+            .parse(code.as_bytes(), &SourceInfo::default())
+            .is_ok());
+
+        let nodes = parser.nodes();
+        assert_eq!(nodes.len(), 3);
+
+        assert_node(
+            nodes.first().unwrap(),
+            NodeType::Comment(CommentType::AsanStack(256..512)),
+            code,
+            "asan:stack",
+        );
+        assert_node(
+            nodes.get(1).unwrap(),
+            NodeType::Comment(CommentType::AsanStack(256..512)),
+            code,
+            "asan:stack",
+        );
+        assert_node(
+            nodes.get(2).unwrap(),
+            NodeType::Comment(CommentType::AsanStack(256..512)),
+            code,
+            "asan:stack",
+        );
+    }
+
+    #[test]
+    fn parse_bad_asan_stack() {
+        let code = r#";; asan:stack 02
+;; asan:stack $00
+;; asan:stack $01-02
+;; asan:stack $0200-$02FF
+;; asan:stack $00-$00
+"#;
+
+        let mut parser = Parser::default();
+        let res = parser.parse(code.as_bytes(), &SourceInfo::default());
+
+        assert!(res.is_err());
+        let errors = res.unwrap_err();
+        assert_eq!(errors.len(), 5);
+
+        assert_eq!(
+            errors.first().unwrap().message,
+            "'asan:stack' expects a number formatted with a leading '$' sign"
+        );
+        assert_eq!(
+            errors.get(1).unwrap().message,
+            "'asan:stack' expects a memory range"
+        );
+        assert_eq!(
+            errors.get(2).unwrap().message,
+            "'asan:stack' expects a number formatted with a leading '$' sign"
+        );
+        assert_eq!(
+            errors.get(3).unwrap().message,
+            "the stack must be on the $0100 page"
+        );
+        assert_eq!(errors.get(4).unwrap().message, "bad 'asan:stack' range");
     }
 }

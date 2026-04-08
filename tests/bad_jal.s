@@ -16,3 +16,5 @@
 .proc bar
     rts
 .endproc
+
+;;; asan:stack full

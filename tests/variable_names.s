@@ -36,3 +36,5 @@ lda wr_out
 .endmacro
 
 INC_MOVEMENT_X zp_good + 1
+
+;;; asan:stack full

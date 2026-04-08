@@ -47,3 +47,5 @@
         rts
     .endproc
 .endscope
+
+;;; asan:stack full

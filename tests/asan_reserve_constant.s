@@ -18,3 +18,5 @@ lda zp_var
 lda zp_another
 lda zp_yet_another
 lda zp_and_yet
+
+;;; asan:stack full

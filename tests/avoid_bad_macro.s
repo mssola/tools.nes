@@ -14,3 +14,5 @@
 .endif
 
 lda #1
+
+;;; asan:stack full

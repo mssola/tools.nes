@@ -16,3 +16,5 @@ zp_yet     = $04
 lda zp_used
 lda (zp_more), y
 lda #.lobyte(zp_yet)
+
+;;; asan:stack full

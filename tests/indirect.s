@@ -16,3 +16,5 @@ jmp (zp_something)
 
 lala:
     rts
+
+;;; asan:stack full

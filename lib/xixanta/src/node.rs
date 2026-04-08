@@ -1,4 +1,5 @@
 use std::fmt;
+use std::ops::Range;
 
 /// Returns true if this String follows the naming
 /// conventions as expected by the address sanitizer.
@@ -264,6 +265,7 @@ pub enum OperationType {
 pub enum CommentType {
     AsanReserveIdentifier(PString),
     AsanReserve(usize),
+    AsanStack(Range<usize>),
     AsanIgnore,
 }
 
@@ -366,6 +368,7 @@ impl fmt::Display for NodeType {
             NodeType::Comment(ct) => match ct {
                 CommentType::AsanReserveIdentifier(_) => write!(f, ";; asan:reserve"),
                 CommentType::AsanReserve(_) => write!(f, ";; asan:reserve"),
+                CommentType::AsanStack(_) => write!(f, ";; asan:stack"),
                 CommentType::AsanIgnore => write!(f, ";; asan:ignore"),
             },
         }
