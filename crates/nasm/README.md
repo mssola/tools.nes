@@ -301,6 +301,29 @@ lda zp_variable + 2   ; bad: arithmetics that would point to out of bounds.
 lda zp_variable - 1   ; bad: same as before but wrapping around.
 ```
 
+Last but not least, what if we want to reserve some space which is not exactly
+assigned to a variable? This happens basically with the stack, and for this you
+can use the following statement:
+
+```asm
+;; asan:stack $0100-$01FF
+```
+
+Only one of these statements is allowed for a project. You can explicitely
+indicate that we are on the `$0100` page as above, or you can especify just a
+byte:
+
+```asm
+;; asan:stack $00-$FF
+```
+
+The above will implicitely assume we are on the `$0100` page. But, for this
+simple case, a shorthand is given when you want to use the whole page:
+
+```asm
+;; asan:stack full
+```
+
 With all of this, `nasm` will be able to tell how much memory you've been using
 so far, and if you add the `--write-info` option, you will also know how this
 memory is laid out by reading the `.nasm/memory.txt` file. Couple that with the
