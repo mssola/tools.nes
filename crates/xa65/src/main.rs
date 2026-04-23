@@ -28,9 +28,7 @@ fn print_help() {
     println!("  -b, --bin <PROGRAM>\tAlternative to the binary for 'nasm'.");
     println!("  -C, --config <FILE>\tLinker configuration to be used, whether an identifier or a file path.");
     println!("  -h, --help\t\tPrint this message.");
-    println!(
-        "  -n, --no-errors\t\tError out if the output differ or 'nasm' has produced an error."
-    );
+    println!("  -n, --no-errors\tError out if the output differ or 'nasm' has produced an error.");
     println!("  -s, --strict\t\tBe more strict on 'nasm' by adding the address-sanitizer and writing debug/analysis information.");
     println!("  --stats\t\tPrint statistics to the standard output.");
     println!("  -o, --out <FILE>\tFile path where the output should be located after execution.");
