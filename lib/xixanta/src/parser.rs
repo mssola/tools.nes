@@ -1194,6 +1194,12 @@ impl Parser {
         // Skip any possible whitespace before the optional opening paren.
         self.skip_whitespace(line);
 
+        // If arguments are wrapped in a parenthesis, and the look ahead index
+        // is larger than zero, then the following code will temporarily
+        // subtract it. This is in a similar fashion as what we do in
+        // extract_paren_expression().
+        let mut la_subtracted = false;
+
         // Scope the end of the argument list. If the arguments are enclosed on
         // parenthesis, take that into account, otherwise we will parse until
         // the end of the cleaned line.
@@ -1202,6 +1208,14 @@ impl Parser {
             // We have a parenthesis. Skip it.
             self.next();
             self.skip_whitespace(line);
+
+            // Arguments are in a parenthesis and we were looking
+            // ahead. Temporarily decrease the index and change 'la_subtracted'
+            // so we increase it back at the end.
+            if self.look_ahead_index > 0 {
+                self.look_ahead_index -= 1;
+                la_subtracted = true;
+            }
 
             // If there is a parenthesis it might be either that the command
             // enclosed its arguments into parenthesis, or that the first
@@ -1280,6 +1294,12 @@ impl Parser {
             } else {
                 break;
             }
+        }
+
+        // Was the look ahead index subtracted temporarily? If so now it's time
+        // to increase it again.
+        if la_subtracted {
+            self.look_ahead_index += 1;
         }
 
         Ok(args)

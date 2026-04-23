@@ -4630,6 +4630,19 @@ JAL procedure
     }
 
     #[test]
+    fn lobyte_with_arithmetic() {
+        let res = just_bundles(
+            r#"lda #.lobyte(@address - 1)
+@address:
+nop
+    "#,
+        );
+
+        assert_eq!(res[0].bytes[0], 0xA9);
+        assert_eq!(res[0].bytes[1], 0x01);
+    }
+
+    #[test]
     fn warnings_on_empty_proc_scope_macro() {
         let res = just_assemble(
             r#".proc Proc
