@@ -1860,6 +1860,26 @@ pub static CONTROL_FUNCTIONS: LazyLock<HashMap<String, Control>> = LazyLock::new
         },
     );
     functions.insert(
+        String::from(".max"),
+        Control {
+            control_type: ControlType::Max,
+            has_identifier: None,
+            required_args: None,
+            touches_context: false,
+            only_string: false,
+        },
+    );
+    functions.insert(
+        String::from(".min"),
+        Control {
+            control_type: ControlType::Min,
+            has_identifier: None,
+            required_args: None,
+            touches_context: false,
+            only_string: false,
+        },
+    );
+    functions.insert(
         String::from(".incbin"),
         Control {
             control_type: ControlType::IncBin,

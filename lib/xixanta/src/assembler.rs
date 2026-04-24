@@ -2391,6 +2391,8 @@ impl<'a> Assembler<'a> {
             NodeType::Control(ControlType::Lobyte) => self.evaluate_byte(node, false),
             NodeType::Control(ControlType::Defined) => self.evaluate_defined(node),
             NodeType::Control(ControlType::Version) => self.evaluate_version(node),
+            NodeType::Control(ControlType::Max) => self.evaluate_max(node),
+            NodeType::Control(ControlType::Min) => self.evaluate_min(node),
             _ => Err(Error {
                 line: node.value.line,
                 message: format!(
@@ -2402,6 +2404,47 @@ impl<'a> Assembler<'a> {
                 global: false,
             }),
         }
+    }
+
+    // Evaluate the args from 'node' and return the bundle from the node which
+    // contains the maximum value.
+    fn evaluate_max(&mut self, node: &PNode) -> Result<Bundle, Error> {
+        let Some(args) = &node.args else {
+            return Ok(Bundle::default());
+        };
+
+        let mut max = Bundle::default();
+        for arg in args {
+            self.literal_mode = None;
+            let bundle = self.evaluate_node(arg)?;
+
+            if bundle.value() > max.value() {
+                max = bundle.clone();
+            }
+        }
+        Ok(max)
+    }
+
+    // Evaluate the args from 'node' and return the bundle from the node which
+    // contains the minimum value.
+    fn evaluate_min(&mut self, node: &PNode) -> Result<Bundle, Error> {
+        let Some(args) = &node.args else {
+            return Ok(Bundle::default());
+        };
+
+        let mut min = Bundle::default();
+        min.bytes[0] = 0xFF;
+        min.bytes[1] = 0xFF;
+
+        for arg in args {
+            self.literal_mode = None;
+            let bundle = self.evaluate_node(arg)?;
+
+            if bundle.value() < min.value() {
+                min = bundle.clone();
+            }
+        }
+        Ok(min)
     }
 
     fn evaluate_byte(&mut self, node: &PNode, high: bool) -> Result<Bundle, Error> {
@@ -4727,6 +4770,30 @@ nop
 
         assert_eq!(res[0].bytes[0], 0xA9);
         assert_eq!(res[0].bytes[1], 0x01);
+    }
+
+    #[test]
+    fn min_max() {
+        let res = just_bundles(
+            r#"
+one = 1
+two = 2
+
+lda #.min(one, two, three)
+lda #.max(one, two, three)
+
+three = 3
+    "#,
+        );
+
+        assert_eq!(res.len(), 2);
+        let instrs: Vec<[u8; 2]> = vec![[0xA9, 0x01], [0xA9, 0x03]];
+
+        for i in 0..instrs.len() {
+            assert_eq!(res[i].size, 2);
+            assert_eq!(res[i].bytes[0], instrs[i][0]);
+            assert_eq!(res[i].bytes[1], instrs[i][1]);
+        }
     }
 
     #[test]
