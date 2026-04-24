@@ -170,6 +170,7 @@ pub enum ControlType {
     EndIf,
     Defined,
     Echo(EchoKind),
+    Version,
 }
 
 impl fmt::Display for ControlType {
@@ -200,6 +201,7 @@ impl fmt::Display for ControlType {
             ControlType::Else => write!(f, ".else"),
             ControlType::EndIf => write!(f, ".endif"),
             ControlType::Defined => write!(f, ".defined"),
+            ControlType::Version => write!(f, ".version"),
             ControlType::Echo(t) => match t {
                 EchoKind::Info => write!(f, ".info"),
                 EchoKind::Warning => write!(f, ".warning"),

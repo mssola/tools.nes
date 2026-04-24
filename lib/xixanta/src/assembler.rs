@@ -2385,6 +2385,7 @@ impl<'a> Assembler<'a> {
             NodeType::Control(ControlType::Hibyte) => self.evaluate_byte(node, true),
             NodeType::Control(ControlType::Lobyte) => self.evaluate_byte(node, false),
             NodeType::Control(ControlType::Defined) => self.evaluate_defined(node),
+            NodeType::Control(ControlType::Version) => self.evaluate_version(node),
             _ => Err(Error {
                 line: node.value.line,
                 message: format!(
@@ -2419,6 +2420,38 @@ impl<'a> Assembler<'a> {
         bundle.size = 1;
 
         Ok(bundle)
+    }
+
+    // Returns a bundle which is just the version from this library.
+    fn evaluate_version(&mut self, node: &PNode) -> Result<Bundle, Error> {
+        let Ok(major) = env!("CARGO_PKG_VERSION_MAJOR").parse::<u8>() else {
+            return Err(Error {
+                line: node.value.line,
+                message: "bad version number".to_string(),
+                source: self.source_for(node),
+                expanded_from: self.macro_context.clone(),
+                global: false,
+            });
+        };
+        let Ok(minor) = env!("CARGO_PKG_VERSION_MINOR").parse::<u8>() else {
+            return Err(Error {
+                line: node.value.line,
+                message: "bad version number".to_string(),
+                source: self.source_for(node),
+                expanded_from: self.macro_context.clone(),
+                global: false,
+            });
+        };
+
+        Ok(Bundle {
+            bytes: [minor, major, 0x00],
+            size: 2,
+            address: 0,
+            cycles: 0,
+            affected_on_page: false,
+            resolved: true,
+            negative: false,
+        })
     }
 
     // Returns a bundle containing a boolean value on whether the symbol

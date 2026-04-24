@@ -1670,6 +1670,16 @@ pub static CONTROL_FUNCTIONS: LazyLock<HashMap<String, Control>> = LazyLock::new
     let mut functions = HashMap::new();
 
     functions.insert(
+        String::from(".version"),
+        Control {
+            control_type: ControlType::Version,
+            has_identifier: None,
+            required_args: Some((0, 0)),
+            touches_context: false,
+            only_string: false,
+        },
+    );
+    functions.insert(
         String::from(".hibyte"),
         Control {
             control_type: ControlType::Hibyte,
