@@ -2097,9 +2097,14 @@ impl<'a> Assembler<'a> {
         // Otherwise, check the function that could act as a statement that
         // produces bundles.
         match node.node_type {
-            NodeType::Control(ControlType::Byte) => Ok(self.push_evaluated_arguments(node, 1)?),
+            NodeType::Control(ControlType::Byte) => {
+                Ok(self.push_evaluated_arguments(node, 1, true)?)
+            }
             NodeType::Control(ControlType::Addr) | NodeType::Control(ControlType::Word) => {
-                Ok(self.push_evaluated_arguments(node, 2)?)
+                Ok(self.push_evaluated_arguments(node, 2, true)?)
+            }
+            NodeType::Control(ControlType::BigEndianWord) => {
+                Ok(self.push_evaluated_arguments(node, 2, false)?)
             }
             NodeType::Control(ControlType::ReserveMemory) => Ok(self.reserve_memory(node)?),
             NodeType::Control(ControlType::Asciiz) => Ok(self.push_ascii_string(node)?),
@@ -2472,7 +2477,18 @@ impl<'a> Assembler<'a> {
         }
     }
 
-    fn push_evaluated_arguments(&mut self, node: &PNode, nbytes: u8) -> Result<(), Error> {
+    // Iterate through the arguments of 'node' and push the bundle that can be
+    // evaluated from each argument. The caller expects this bundle to span
+    // exactly 'nbytes' bytes, and if that is not met then zeroes should be
+    // added. Last but not least, set 'little_endian' to true if you want the
+    // bundle to be expressed in little endian format, or false if we should go
+    // for big endian (i.e. an explicit '.be' is being used).
+    fn push_evaluated_arguments(
+        &mut self,
+        node: &PNode,
+        nbytes: u8,
+        little_endian: bool,
+    ) -> Result<(), Error> {
         match &node.args {
             Some(args) => {
                 for arg in args {
@@ -2500,12 +2516,21 @@ impl<'a> Assembler<'a> {
                             }
                             2 => {
                                 bundle.size = 2;
-                                bundle.bytes[1] = 0x00;
+                                if little_endian {
+                                    bundle.bytes[1] = 0x00;
+                                }
                                 bundle.bytes[2] = 0x00;
                             }
                             _ => panic!("bad argument when evaluating arguments"),
                         }
                     }
+
+                    // If this was supposed to be a big endian word, swap the
+                    // bytes we've got before pushing the bundle.
+                    if !little_endian {
+                        bundle.bytes.swap(1, 0);
+                    }
+
                     self.push_bundle(bundle, arg)?;
                 }
             }
@@ -4572,10 +4597,11 @@ JAL procedure
 
     .byte #Vars::Variable
     .dw $2001, $02
+    .be $2001, $02
     "#,
         );
 
-        assert_eq!(res.len(), 3);
+        assert_eq!(res.len(), 5);
 
         // .byte
         assert_eq!(res[0].bytes[0], 0x04);
@@ -4591,6 +4617,16 @@ JAL procedure
         assert_eq!(res[2].bytes[0], 0x02);
         assert_eq!(res[2].bytes[1], 0x00);
         assert_eq!(res[2].size, 2);
+
+        // First .be argument.
+        assert_eq!(res[3].bytes[0], 0x20);
+        assert_eq!(res[3].bytes[1], 0x01);
+        assert_eq!(res[3].size, 2);
+
+        // Second .be argument.
+        assert_eq!(res[4].bytes[0], 0x00);
+        assert_eq!(res[4].bytes[1], 0x02);
+        assert_eq!(res[4].size, 2);
     }
 
     #[test]

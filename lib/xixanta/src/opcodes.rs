@@ -1830,6 +1830,36 @@ pub static CONTROL_FUNCTIONS: LazyLock<HashMap<String, Control>> = LazyLock::new
         },
     );
     functions.insert(
+        String::from(".dbyt"),
+        Control {
+            control_type: ControlType::BigEndianWord,
+            has_identifier: None,
+            required_args: None,
+            touches_context: false,
+            only_string: false,
+        },
+    );
+    functions.insert(
+        String::from(".be"),
+        Control {
+            control_type: ControlType::BigEndianWord,
+            has_identifier: None,
+            required_args: None,
+            touches_context: false,
+            only_string: false,
+        },
+    );
+    functions.insert(
+        String::from(".bigendian"),
+        Control {
+            control_type: ControlType::BigEndianWord,
+            has_identifier: None,
+            required_args: None,
+            touches_context: false,
+            only_string: false,
+        },
+    );
+    functions.insert(
         String::from(".incbin"),
         Control {
             control_type: ControlType::IncBin,
