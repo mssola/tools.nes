@@ -1114,7 +1114,7 @@ impl<'a> Assembler<'a> {
         }
 
         // If there is an argument, it has to be a valid address identifier.
-        if let Err(message) = pn.node.value.is_valid_identifier(false) {
+        if let Err(message) = pn.node.value.is_valid_identifier(true) {
             return Err(Error {
                 line: pn.node.value.line,
                 message,

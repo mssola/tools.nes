@@ -22,4 +22,14 @@ __fallthrough__ bar
     rts
 .endproc
 
+.scope Scope
+    .proc foo
+        __fallthrough__ Scope::bar
+    .endproc
+
+    .proc bar
+        rts
+    .endproc
+.endscope
+
 ;;; asan:stack full
