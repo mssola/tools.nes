@@ -997,10 +997,10 @@ impl<'a> Assembler<'a> {
             self.labels_seen = pn.labels_seen;
             self.context.force_context_switch(&pn.context);
 
-            // .fallthrough is handled here, whenever we already know addresses,
-            // sizes, etc. If this is the case, this is not a real node that can
-            // be bundled, but perform its check and move into the next
-            // iteration.
+            // __fallthrough__ is handled here, whenever we already know
+            // addresses, sizes, etc. If this is the case, this is not a real
+            // node that can be bundled, but perform its check and move into the
+            // next iteration.
             //
             // NOTE: this has to happen with a context switch, otherwise the
             // name resolution won't be accurate.
