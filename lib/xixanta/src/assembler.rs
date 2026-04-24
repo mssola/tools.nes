@@ -1015,7 +1015,29 @@ impl<'a> Assembler<'a> {
             // locally. These are basically arguments from a macro call.
             if let Some(pd) = &pn.pending_defines {
                 for d in pd {
-                    let _ = self.context.set_variable(&d.id, &d.obj, true);
+                    // Does this definition have a node attach to it? If so,
+                    // then evaluate it again but with all the gained context we
+                    // have at this stage. This way we will resolve the proper
+                    // value for it even if it involved an arithmetical
+                    // operation with an address we couldn't resolve before this
+                    // stage.
+                    let _ = match &d.obj.node {
+                        Some(n) => {
+                            // Yes! We have to evaluate this node again.
+                            self.literal_mode = None;
+                            let o = self.evaluate_node(n)?;
+
+                            // Re-create the bundle to be passed from this
+                            // object member, and set it as the variable's
+                            // value.
+                            let mut dobj = d.obj.clone();
+                            dobj.bundle = o;
+                            self.context.set_variable(&d.id, &dobj, true)
+                        }
+                        // No attached node, we can proceed by setting the
+                        // variable as is.
+                        None => self.context.set_variable(&d.id, &d.obj, true),
+                    };
                 }
             }
 
@@ -5177,6 +5199,29 @@ MACRO Var1
         assert_eq!(res[3].size, 2);
         assert_eq!(res[3].bytes[0], 0xF0);
         assert_eq!(res[3].bytes[1], 0xFC);
+    }
+
+    #[test]
+    fn arithmetic_on_macro_arg() {
+        let res = just_bundles(
+            r#"
+.macro MC ADDR
+    adc ADDR, y
+.endmacro
+
+MC things + 1
+
+things:
+    .byte $00, $01
+    "#,
+        );
+
+        assert_eq!(res.len(), 3);
+
+        assert_eq!(res[0].size, 3);
+        assert_eq!(res[0].bytes[0], 0x79);
+        assert_eq!(res[0].bytes[1], 0x04);
+        assert_eq!(res[0].bytes[2], 0x80);
     }
 
     // .repeat
