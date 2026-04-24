@@ -4,3 +4,6 @@
 [submodule "tests/code.nes"]
 	path = tests/code.nes
 	url = git@github.com:mssola/code.nes
+[submodule "tests/jetpac.nes"]
+	path = tests/jetpac.nes
+	url = https://github.com/mssola/jetpac.nes

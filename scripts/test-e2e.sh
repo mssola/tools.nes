@@ -192,6 +192,26 @@ $AS65 --no-errors -b ./target/debug/nasm -C tests/cfg/nrom65.cfg -o /dev/null te
 exit_code=$((exit_code + $?))
 
 ##
+# jetpac.nes
+
+echo "test: jetpac.nes"
+
+# Re-generate the config/generated.s file, which is usually built on a 'make
+# build-*' target.
+rm -f tests/jetpac.nes/config/generated.s
+echo "HZ = 60" >> tests/jetpac.nes/config/generated.s
+echo "LEVEL = 0" >> tests/jetpac.nes/config/generated.s
+
+# NOTE: we use '--stats' as otherwise the 'segments.txt' file would be removed
+# from the jetpac.nes repository, and the submodule would then be marked with
+# "-dirty".
+$AS65 --no-errors --strict --stats -b ./target/debug/nasm -C tests/jetpac.nes/config/nrom.cfg -o /dev/null tests/jetpac.nes/src/jetpac.s 1>/dev/null
+
+# Remove the generated.s file to avoid git from thinking we have modified the
+# project in any meaningful way.
+rm -f tests/jetpac.nes/config/generated.s
+
+##
 # Done!
 
 exit $exit_code
