@@ -104,11 +104,10 @@ fn fetch_memory_definition(line: &str, line_num: usize) -> Result<RawMapping, St
 
                 match key.trim() {
                     "file" => res.ignore = val != "%O",
-                    "fill" => {
-                        if res.fill.is_none() {
+                    "fill"
+                        if res.fill.is_none() => {
                             res.fill = Some(String::from(""));
                         }
-                    }
                     "fillval" => res.fill = Some(val.to_string()),
                     "start" => res.start = val.to_string(),
                     "size" => res.size = val.to_string(),

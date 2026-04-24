@@ -669,11 +669,10 @@ impl<'a> Assembler<'a> {
                                 self.macros.entry(name.value.clone()).or_insert(node);
                             }
                         }
-                        ControlType::EndMacro => {
-                            if self.macros_seen > 0 {
+                        ControlType::EndMacro
+                            if self.macros_seen > 0 => {
                                 self.macros_seen -= 1;
                             }
-                        }
                         // Same as NodeType::Label.
                         ControlType::StartProc => {
                             if self.macros_seen > 0 || self.procs_seen > 0 || self.repeats_seen > 0
@@ -706,12 +705,11 @@ impl<'a> Assembler<'a> {
                                 errors.push(err);
                             }
                         }
-                        ControlType::EndProc => {
+                        ControlType::EndProc
                             // Same case as with macros.
-                            if self.procs_seen > 0 {
+                            if self.procs_seen > 0 => {
                                 self.procs_seen -= 1;
                             }
-                        }
                         ControlType::StartScope => {
                             if self.macros_seen > 0 || self.procs_seen > 0 || self.repeats_seen > 0
                             {
@@ -742,11 +740,10 @@ impl<'a> Assembler<'a> {
                         ControlType::StartRepeat => {
                             self.repeats_seen += 1;
                         }
-                        ControlType::EndRepeat => {
-                            if self.repeats_seen > 0 {
+                        ControlType::EndRepeat
+                            if self.repeats_seen > 0 => {
                                 self.repeats_seen -= 1;
                             }
-                        }
                         _ => {}
                     }
 
@@ -923,7 +920,7 @@ impl<'a> Assembler<'a> {
                         ControlType::StartRepeat => {
                             self.evaluate_repeat_statement(node)?;
                         }
-                        ControlType::StartScope => {
+                        ControlType::StartScope
                             // If this is the start of a .scope statement, then go
                             // inside of its body too if it exists (note that its
                             // existence might not be guaranteed if the parser gave an
@@ -931,7 +928,7 @@ impl<'a> Assembler<'a> {
                             // .proc's in its specialized branch, and we don't want to
                             // do it for macros as they will be evaluated on a per call
                             // basis.
-                            if node.right.as_ref().is_some() {
+                            if node.right.as_ref().is_some() => {
                                 let scope_name = &node.left.as_ref().unwrap().value;
                                 let args = &node.right.as_ref().unwrap().args.as_ref().unwrap();
                                 if args.is_empty() {
@@ -946,7 +943,6 @@ impl<'a> Assembler<'a> {
                                     self.bundle(args)?;
                                 }
                             }
-                        }
                         _ => {}
                     }
                 }

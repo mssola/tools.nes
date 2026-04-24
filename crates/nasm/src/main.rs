@@ -216,7 +216,7 @@ fn save_memory_stats(source: &SourceInfo, memory: &mut MemoryResult, has_working
     };
 
     let ranges = &mut memory.memory_ranges;
-    ranges.sort_by(|a, b| a.range.start.cmp(&b.range.start));
+    ranges.sort_by_key(|a| a.range.start);
 
     for mr in ranges {
         if mr.range.start + 1 == mr.range.end {

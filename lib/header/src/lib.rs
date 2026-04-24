@@ -285,25 +285,23 @@ fn parse_nametable(byte: Option<&u8>, mapper: &Mapper) -> NameTableArrangement {
         | Mapper::Mmc3Nec
         | Mapper::Mmc3Sharp
         | Mapper::Mmc3T9552
-        | Mapper::Mmc3c => {
+        | Mapper::Mmc3c
             // MMC3 chips can mean a 4-screen nametable arrangement if
             // the "alternative nametable layout" bit is set.
-            if (b & 0x08) == 0x08 {
+            if (b & 0x08) == 0x08 => {
                 return NameTableArrangement::FourScreen;
             }
-        }
-        Mapper::Unrom512 => {
+        Mapper::Unrom512
             // In UNROM 512 chips, if the "alternative nametable layout"
             // bit is set, then it depends on the "nametable
             // arrangement" bit to decide whether it's a 1-screen or
             // 4-screen layout.
-            if (b & 0x08) == 0x08 {
+            if (b & 0x08) == 0x08 => {
                 if b & 0x1 == 0 {
                     return NameTableArrangement::OneScreen;
                 }
                 return NameTableArrangement::FourScreen;
             }
-        }
         _ => {}
     }
 
