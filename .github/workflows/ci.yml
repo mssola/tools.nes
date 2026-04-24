@@ -14,7 +14,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Ensure latest Rust stable
         run: |
@@ -30,7 +30,7 @@ jobs:
   e2e-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: 'recursive'
           fetch-depth: 0
@@ -52,7 +52,7 @@ jobs:
   fuzz_parser:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Update rust toolchain to nightly
         run: |
@@ -73,7 +73,7 @@ jobs:
   fuzz_assembler:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Update rust toolchain to nightly
         run: |
@@ -94,7 +94,7 @@ jobs:
   fuzz_header:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Update rust toolchain to nightly
         run: |
