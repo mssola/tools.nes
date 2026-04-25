@@ -1,3 +1,17 @@
+`nasm` is an assembler specifically tailored for the Famicom/NES. Because of
+this, it does not try to replace other assemblers available out there which
+cover all 6502 platforms and derivatives. The only goal is to have an assembler
+that is suitable for NES/Famicom development.
+
+As such, only features available for this platform have been implemented. All in
+all, `nasm` is an assembler that makes a lot of assumptions on the target
+platform, its memory layout, and how developers have to write their code. You
+can read more about this down below.
+
+Last but not least, `nasm` makes an effort at being flexible and as informative
+to programmers as possible. Hence, error messages try to be concise, clear, and
+pointing exactly where each error happened.
+
 ## Usage
 
 The most basic way to use this assembler is by running:
