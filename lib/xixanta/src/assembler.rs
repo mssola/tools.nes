@@ -3,7 +3,7 @@ use crate::node::{
     is_asan_friendly_name, CommentType, ControlType, EchoKind, NodeType, OperationType, PNode,
     PString,
 };
-use crate::object::{Bundle, Context, Object, ObjectType};
+use crate::object::{Bundle, Context, Object, ObjectType, GLOBAL_CONTEXT};
 use crate::opcodes::{AddressingMode, INSTRUCTIONS};
 use crate::parser::Parser;
 use crate::SourceInfo;
@@ -1160,7 +1160,7 @@ impl<'a> Assembler<'a> {
     fn asan(&mut self, memory: &mut MemoryResult) -> Result<(), Vec<Error>> {
         let mut errors = vec![];
 
-        for (_context, map) in self.context.map.iter() {
+        for (context_name, map) in self.context.map.iter() {
             for (name, bundle) in map {
                 // Ignore this bundle if the user explicitely told us to do so.
                 if bundle.asan_ignore {
@@ -1177,7 +1177,11 @@ impl<'a> Assembler<'a> {
                 let val = bundle.bundle.value() as usize;
                 let range = MemoryRange {
                     range: (val..val + bundle.asan_reserve),
-                    name: name.clone(),
+                    name: if context_name == GLOBAL_CONTEXT {
+                        name.clone()
+                    } else {
+                        format!("{context_name}::{name}")
+                    },
                 };
 
                 // Check if this variable was ever accessed and warn about
