@@ -68,6 +68,15 @@ important. Hence, the following code is valid in `nasm`, but not in `ca65`:
 Variable = $00
 ```
 
+### Exit code
+
+The exit status code from `nasm` is the amount of errors that were
+detected. Hence, if the exit status code is 0, then everything is fine,
+otherwise you will get a count of errors.
+
+Note that warnings that were turned into errors via the `-Werror` flag will also
+be accounted.
+
 ### Interfaces specific to `nasm`
 
 In contrast to `ca65`, there are some nasm-specific features. First of all,
