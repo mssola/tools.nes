@@ -415,11 +415,9 @@ fn main() {
             };
 
             for b in res.bundles {
-                for i in 0..b.size {
-                    if let Err(e) = output.write_all(&[b.bytes[i as usize]]) {
-                        eprintln!("error: could not write result in '{output_name}': {e}");
-                        std::process::exit(1);
-                    }
+                if let Err(e) = output.write_all(&b.bytes[..b.size as usize]) {
+                    eprintln!("error: could not write result in '{output_name}': {e}");
+                    std::process::exit(1);
                 }
             }
         }
