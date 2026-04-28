@@ -6,6 +6,8 @@
 
 .segment "CODE"
 
+__fallthrough__ foo
+
 .proc foo
     lda #0
     __fallthrough__ bar
@@ -20,6 +22,7 @@ __fallthrough__ bar
 
 .proc other
     rts
+    __fallthrough__ Scope::foo
 .endproc
 
 .scope Scope

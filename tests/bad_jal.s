@@ -17,4 +17,6 @@
     rts
 .endproc
 
+jsr foo
+
 ;;; asan:stack full

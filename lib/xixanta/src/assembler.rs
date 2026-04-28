@@ -466,21 +466,17 @@ impl<'a> Assembler<'a> {
         }
     }
 
-    // Define a new variable by taking the given `id`. This variable will only
-    // be created if `id` is not empty. The function will error out if the given
-    // name is already taken.
-    fn define_variable(&mut self, node: &PNode) -> Result<(), Error> {
+    // Define a new variable by taking the value on 'node'. This variable will
+    // be of type 'object_type' and will only be created if 'id' is not
+    // empty. The function will error out if the given name is already taken.
+    fn define_variable(&mut self, node: &PNode, object_type: ObjectType) -> Result<(), Error> {
         if node.value.is_empty() {
             return Ok(());
         }
 
         if let Err(message) = self.context.set_variable(
             &node.value,
-            &Object::new(
-                self.current_mapping,
-                self.current_segment,
-                ObjectType::Address,
-            ),
+            &Object::new(self.current_mapping, self.current_segment, object_type),
             false,
         ) {
             return Err(Error {
@@ -526,7 +522,7 @@ impl<'a> Assembler<'a> {
                         });
                         continue;
                     }
-                    if let Err(err) = self.define_variable(node) {
+                    if let Err(err) = self.define_variable(node, ObjectType::Address) {
                         errors.push(err);
                     }
                 }
@@ -701,7 +697,7 @@ impl<'a> Assembler<'a> {
                                     source: self.source_for(node),
                                 });
                                 continue;
-                            } else if let Err(err) = self.define_variable(proc_name) {
+                            } else if let Err(err) = self.define_variable(proc_name, ObjectType::Proc) {
                                 errors.push(err);
                             }
                         }
@@ -799,11 +795,16 @@ impl<'a> Assembler<'a> {
         }
     }
 
-    // Apply the current segment offset to the label identified by `id` unless
-    // it's empty (i.e. anonymous label). In either case, the computed label
-    // will be pushed into the context's list of known labels with the current
-    // segment offset.
-    fn apply_segment_offset_to_label(&mut self, node: &PNode) -> Result<(), Error> {
+    // Apply the current segment offset to the label identified by the given
+    // 'node' and taking 'object_type' as its type, unless the node value is
+    // empty (i.e. anonymous label). In either case, the computed label will be
+    // pushed into the context's list of known labels with the current segment
+    // offset.
+    fn apply_segment_offset_to_label(
+        &mut self,
+        node: &PNode,
+        object_type: ObjectType,
+    ) -> Result<(), Error> {
         let segment = &self.mappings[self.current_mapping].segments[self.current_segment];
         let value = segment.offset.to_le_bytes();
         let object = Object {
@@ -819,7 +820,7 @@ impl<'a> Assembler<'a> {
             node: None,
             mapping: self.current_mapping,
             segment: self.current_segment,
-            object_type: ObjectType::Address,
+            object_type,
             asan_ignore: false,
             asan_reserve: 1,
             accessed: 0,
@@ -854,7 +855,7 @@ impl<'a> Assembler<'a> {
                 // of the offset, the effective address will only be available
                 // after calling `Context::get_variable`
                 NodeType::Label => {
-                    if let Err(e) = self.apply_segment_offset_to_label(node) {
+                    if let Err(e) = self.apply_segment_offset_to_label(node, ObjectType::Address) {
                         errors.push(e);
                     }
                 }
@@ -863,7 +864,8 @@ impl<'a> Assembler<'a> {
                 // then open up its inner context.
                 NodeType::Control(ControlType::StartProc) => {
                     let proc_name = &node.left.as_ref().unwrap();
-                    if let Err(e) = self.apply_segment_offset_to_label(proc_name) {
+                    if let Err(e) = self.apply_segment_offset_to_label(proc_name, ObjectType::Proc)
+                    {
                         errors.push(e);
                     }
                     if let Err(message) = self.context.change_context(node) {
@@ -1168,7 +1170,7 @@ impl<'a> Assembler<'a> {
                 }
 
                 // If it doesn't have the proper prefix, skip as well.
-                if !is_asan_friendly_name(name) {
+                if !is_asan_friendly_name(name) && !matches!(bundle.object_type, ObjectType::Proc) {
                     continue;
                 }
                 let actual_name = name.split("::").last().unwrap_or("");
@@ -1184,19 +1186,44 @@ impl<'a> Assembler<'a> {
                     },
                 };
 
-                // Check if this variable was ever accessed and warn about
-                // it. Even if later it conflicts with another memory range, the
-                // fact that it's not used is not a danger and hence a conflict
-                // does not have to be reported. Hence, skip after issueing the
-                // warning.
+                // Check if this variable/proc was ever accessed.
                 if bundle.accessed == 0 {
-                    self.warnings.push(Error {
-                        line: 0,
-                        message: format!("variable {range} is unused"),
-                        source: self.sources[0].clone(),
-                        expanded_from: self.macro_context.clone(),
-                        global: true,
-                    });
+                    // If this was a .proc definition then we have dead code
+                    // which is a really crappy situation.
+                    if matches!(bundle.object_type, ObjectType::Proc) {
+                        let full_name = if context_name == GLOBAL_CONTEXT {
+                            name.clone()
+                        } else {
+                            format!("{context_name}::{name}")
+                        };
+
+                        errors.push(Error {
+                            line: 0,
+                            message: format!("proc '{full_name}' is unused"),
+                            source: self.sources[0].clone(),
+                            expanded_from: self.macro_context.clone(),
+                            global: true,
+                        });
+                    } else {
+                        // If this was a variable, then warn about it. Even if
+                        // later it conflicts with another memory range, the
+                        // fact that it's not used is not a danger and hence a
+                        // conflict does not have to be reported. Hence, skip
+                        // after issueing the warning.
+                        self.warnings.push(Error {
+                            line: 0,
+                            message: format!("variable {range} is unused"),
+                            source: self.sources[0].clone(),
+                            expanded_from: self.macro_context.clone(),
+                            global: true,
+                        });
+                    }
+                    continue;
+                }
+
+                // We have done everything there was for proc's. Go to the next
+                // iteration if that was the case.
+                if matches!(bundle.object_type, ObjectType::Proc) {
                     continue;
                 }
 
@@ -2798,7 +2825,7 @@ impl<'a> Assembler<'a> {
                     // determine a ZeroPageX or an IndirectX instruction, with a
                     // byte in size of difference).
                     let mut bundle = value.bundle;
-                    if matches!(value.object_type, ObjectType::Address) {
+                    if matches!(value.object_type, ObjectType::Address | ObjectType::Proc) {
                         bundle.size = 2;
                     }
                     Ok(bundle)
@@ -3135,11 +3162,14 @@ impl<'a> Assembler<'a> {
             NodeType::Value => {
                 let name = &node.value.value;
                 if !is_asan_friendly_name(name) {
-                    // If it's referencing an actual ObjectType::Address, then
-                    // let it be (e.g. 'lda palettes, x'; where 'palettes' is a
-                    // legitimate name even if not 'is_asan_friendly_name').
+                    // If it's referencing an actual address, then let it be
+                    // (e.g. 'lda palettes, x'; where 'palettes' is a legitimate
+                    // name even if not 'is_asan_friendly_name').
                     if let Ok(var) = self.context.get_variable(&node.value, &self.mappings) {
-                        if matches!(var.object_type, ObjectType::Address | ObjectType::Argument) {
+                        if matches!(
+                            var.object_type,
+                            ObjectType::Address | ObjectType::Argument | ObjectType::Proc
+                        ) {
                             return Ok(());
                         }
                     }
@@ -3170,12 +3200,18 @@ impl<'a> Assembler<'a> {
                     // If everything failed but because it was an address
                     // (e.g. 'lda palettes + 1, x'), then return early.
                     if let Ok(var) = self.context.get_variable(left_name, &self.mappings) {
-                        if matches!(var.object_type, ObjectType::Address | ObjectType::Argument) {
+                        if matches!(
+                            var.object_type,
+                            ObjectType::Address | ObjectType::Argument | ObjectType::Proc
+                        ) {
                             return Ok(());
                         }
                     }
                     if let Ok(var) = self.context.get_variable(right_name, &self.mappings) {
-                        if matches!(var.object_type, ObjectType::Address | ObjectType::Argument) {
+                        if matches!(
+                            var.object_type,
+                            ObjectType::Address | ObjectType::Argument | ObjectType::Proc
+                        ) {
                             return Ok(());
                         }
                     }

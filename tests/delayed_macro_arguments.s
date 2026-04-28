@@ -38,6 +38,8 @@
     inx
 .endmacro
 
+__fallthrough__ Explosions::init
+
 .scope Explosions
     .proc init
     @loop:

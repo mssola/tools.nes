@@ -118,8 +118,20 @@ impl Bundle {
 #[derive(Debug, Clone)]
 pub enum ObjectType {
     Address,
+    Proc,
     Value,
     Argument,
+}
+
+impl std::fmt::Display for ObjectType {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            ObjectType::Address => write!(f, "raw address"),
+            ObjectType::Proc => write!(f, "proc"),
+            ObjectType::Value => write!(f, "variable"),
+            ObjectType::Argument => write!(f, "macro argument"),
+        }
+    }
 }
 
 /// Bundle and metadata which is stored on the context table for a given
@@ -214,7 +226,7 @@ impl Context {
     /// Returns the value of the object represented by the given `id`. Note that
     /// this `id` can be scoped or not, and this function will try to pick the
     /// variable from the right scope. The value itself will be resolved if the
-    /// type is ObjectType::Address.
+    /// type is ObjectType::Address or ObjectType::Proc.
     pub fn get_variable(&mut self, id: &PString, mappings: &[Mapping]) -> Result<Object, String> {
         // First of all, figure out the name of the scope and the real name of
         // the variable. If this was not scoped at all (None case when trying to
@@ -242,11 +254,21 @@ impl Context {
         match self.map.get_mut(scope_name) {
             Some(scope) => match scope.get_mut(var_name) {
                 Some(var) => match var.object_type {
+                    // If it's a value or an argument, then we just account for
+                    // the number of times it was accessed and return it as is.
                     ObjectType::Value | ObjectType::Argument => {
                         var.accessed += 1;
                         Ok(var.clone())
                     }
+                    // If it's a raw address, then we return the resolved value.
                     ObjectType::Address => {
+                        let var_to_resolve = var.clone();
+                        Ok(self.resolve_label(mappings, &var_to_resolve)?)
+                    }
+                    // If it's a .proc, then we account for the number of times
+                    // it was accessed, and we return the resolved value.
+                    ObjectType::Proc => {
+                        var.accessed += 1;
                         let var_to_resolve = var.clone();
                         Ok(self.resolve_label(mappings, &var_to_resolve)?)
                     }
@@ -290,9 +312,13 @@ impl Context {
     /// address.
     ///
     /// NOTE: this function asserts that the given `object` is of type
-    /// ObjectType::Address, otherwise it doesn't make sense to call it.
+    /// ObjectType::Address or ObjectType::Proc, otherwise it doesn't make sense
+    /// to call it.
     pub fn resolve_label(&self, mappings: &[Mapping], object: &Object) -> Result<Object, String> {
-        assert!(matches!(object.object_type, ObjectType::Address));
+        assert!(matches!(
+            object.object_type,
+            ObjectType::Address | ObjectType::Proc
+        ));
 
         let mut ret = object.clone();
 
