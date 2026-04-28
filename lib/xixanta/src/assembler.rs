@@ -1301,7 +1301,16 @@ impl<'a> Assembler<'a> {
                         global: true,
                     });
                 }
-                res.append(&mut segment.bundles);
+
+                // The cheapest thing to do would be to call append(), but that
+                // would remove all the elements from 'segment.bundles' and
+                // that's not what we want in case the user wants to then
+                // retrieve the bundles for each specific segment (e.g. the
+                // '--split-segments' option on nasm). Hence, just go and copy
+                // everything. Even if that's theoretically expensive it
+                // shouldn't be that big of a deal considering the amount of
+                // data we are moving here in the end.
+                res.extend_from_slice(&segment.bundles);
             }
 
             let mut diff = mapping.size as isize - mapping.offset as isize;

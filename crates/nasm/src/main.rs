@@ -1,6 +1,6 @@
 use header::Header;
 use std::fs::{create_dir, File};
-use std::io::{self, Write};
+use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use xixanta::assembler::{assemble, MemoryResult};
 use xixanta::mapping::Mapping;
@@ -17,6 +17,7 @@ struct Args {
     werror: bool,
     stdout: bool,
     stats: bool,
+    split: bool,
     defines: Vec<(String, u8)>,
     asan: bool,
     info: bool,
@@ -36,6 +37,7 @@ fn print_help() {
     println!("  -o, --out <FILE>\tFile path where the output should be located after execution.");
     println!("  --prelude\t\tPrint the 'prelude' file; a file that can be used for defining default implementations for nasm-only features.");
     println!("  -s, --stats\t\tPrint the statistics on the final layout of segments and memory.");
+    println!("  --split-segments\tSave each segment into a different file named {{SEGMENT}}.out");
     println!("  --stdout\t\tPrint the output binary to the standard output.");
     println!("  -v, --version\t\tPrint the version of this program.");
     println!(
@@ -137,6 +139,7 @@ fn parse_arguments() -> Args {
             },
             "-s" | "--stats" => res.stats = true,
             "-w" | "--write-info" => res.info = true,
+            "--split-segments" => res.split = true,
             "--stdout" => match res.out {
                 Some(_) => die("you cannot mix '-o/--out' and '--stdout'".to_string()),
                 None => {
@@ -307,6 +310,8 @@ fn main() {
     // Select the output stream.
     let (mut output, output_name): (Box<dyn Write>, &str) = if args.stdout {
         (Box::new(io::stdout()), "<stdout>")
+    } else if args.split {
+        (Box::new(io::stdout()), "<segments>")
     } else {
         let name = args.out.unwrap_or(String::from("out.nes"));
         match File::create(&name) {
@@ -345,42 +350,76 @@ fn main() {
 
     let mut has_working_ram = false;
 
-    // Deliver the bundles unless the header is borked.
     if error_count == 0 {
-        // Fetch the header first.
-        let mut temptative_header = vec![];
-        for b in &res.bundles {
-            for i in 0..b.size {
-                temptative_header.push(b.bytes[i as usize]);
-            }
-            if temptative_header.len() >= 0x10 {
-                break;
-            }
-        }
+        // And now deliver the bundles. This can be done with 'split', in which
+        // case we have to deliver the segments into different files, or with
+        // the regular output in which everything will be dumped into 'output'.
+        if args.split {
+            for mapping in &res.mappings {
+                for segment in &mapping.segments {
+                    let name = &segment.name;
+                    let path = format!("{name}.out");
 
-        // Validate the resulting header.
-        match Header::try_from(temptative_header.as_slice()) {
-            Ok(header) => {
-                if res.accessing_working_ram && !header.has_persistent_memory {
-                    die(
-                        "requires Working RAM but the ROM header does not advertise it".to_string(),
-                    );
+                    // Open the file and truncate it if it already exists.
+                    let file = match File::create(&path) {
+                        Ok(f) => f,
+                        Err(e) => {
+                            eprintln!("error: could not create '{path}': {e}");
+                            std::process::exit(1);
+                        }
+                    };
+
+                    // And write the contents for this segment/file with
+                    // buffering.
+                    let mut writer = BufWriter::new(file);
+                    for b in &segment.bundles {
+                        if let Err(e) = writer.write_all(&b.bytes[..b.size as usize]) {
+                            eprintln!("error: could not write to '{path}': {e}");
+                            std::process::exit(1);
+                        }
+                    }
+                    if let Err(e) = writer.flush() {
+                        eprintln!("error: could not write to '{path}': {e}");
+                        std::process::exit(1);
+                    }
                 }
-                has_working_ram = header.has_persistent_memory;
             }
-            Err(e) => {
-                die(format!(
-                    "output would produce a malformed NES/Famicom ROM: {e}"
-                ));
+        } else {
+            // Fetch the header first.
+            let mut temptative_header = vec![];
+            for b in &res.bundles {
+                for i in 0..b.size {
+                    temptative_header.push(b.bytes[i as usize]);
+                }
+                if temptative_header.len() >= 0x10 {
+                    break;
+                }
             }
-        };
 
-        // And now deliver the bundles.
-        for b in res.bundles {
-            for i in 0..b.size {
-                if let Err(e) = output.write_all(&[b.bytes[i as usize]]) {
-                    eprintln!("error: could not write result in '{output_name}': {e}");
-                    std::process::exit(1);
+            // Validate the header before delivering the final ROM..
+            match Header::try_from(temptative_header.as_slice()) {
+                Ok(header) => {
+                    if res.accessing_working_ram && !header.has_persistent_memory {
+                        die(
+                            "requires Working RAM but the ROM header does not advertise it"
+                                .to_string(),
+                        );
+                    }
+                    has_working_ram = header.has_persistent_memory;
+                }
+                Err(e) => {
+                    die(format!(
+                        "output would produce a malformed NES/Famicom ROM: {e}"
+                    ));
+                }
+            };
+
+            for b in res.bundles {
+                for i in 0..b.size {
+                    if let Err(e) = output.write_all(&[b.bytes[i as usize]]) {
+                        eprintln!("error: could not write result in '{output_name}': {e}");
+                        std::process::exit(1);
+                    }
                 }
             }
         }
