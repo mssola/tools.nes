@@ -308,14 +308,14 @@ fn main() {
     };
 
     // Select the output stream.
-    let (mut output, output_name): (Box<dyn Write>, &str) = if args.stdout {
-        (Box::new(io::stdout()), "<stdout>")
+    let (mut output, output_name): (BufWriter<Box<dyn Write>>, &str) = if args.stdout {
+        (BufWriter::new(Box::new(io::stdout())), "<stdout>")
     } else if args.split {
-        (Box::new(io::stdout()), "<segments>")
+        (BufWriter::new(Box::new(io::stdout())), "<segments>")
     } else {
         let name = args.out.unwrap_or(String::from("out.nes"));
         match File::create(&name) {
-            Ok(f) => (Box::new(f), args.file.as_str()),
+            Ok(f) => (BufWriter::new(Box::new(f)), args.file.as_str()),
             Err(_) => {
                 die(format!("could not create file '{name}'"));
                 return;
@@ -417,6 +417,10 @@ fn main() {
             for b in res.bundles {
                 if let Err(e) = output.write_all(&b.bytes[..b.size as usize]) {
                     eprintln!("error: could not write result in '{output_name}': {e}");
+                    std::process::exit(1);
+                }
+                if let Err(e) = output.flush() {
+                    eprintln!("error: could not write to '{output_name}': {e}");
                     std::process::exit(1);
                 }
             }
