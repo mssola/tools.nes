@@ -334,7 +334,8 @@ fn main() {
     );
 
     // Print warnings and errors first, while also computing the amount of them
-    // that exists.
+    // that exists. If some errors are detected, exit early with the number of
+    // errors as the exit code.
     for warning in res.warnings {
         if args.werror {
             eprintln!("error: {warning}");
@@ -347,114 +348,111 @@ fn main() {
         eprintln!("error: {error}");
         error_count += 1;
     }
+    if error_count > 0 {
+        std::process::exit(error_count);
+    }
 
     let mut has_working_ram = false;
 
-    if error_count == 0 {
-        // And now deliver the bundles. This can be done with 'split', in which
-        // case we have to deliver the segments into different files, or with
-        // the regular output in which everything will be dumped into 'output'.
-        if args.split {
-            for mapping in &res.mappings {
-                for segment in &mapping.segments {
-                    let name = &segment.name;
-                    let path = format!("{name}.out");
+    // And now deliver the bundles. This can be done with 'split', in which
+    // case we have to deliver the segments into different files, or with
+    // the regular output in which everything will be dumped into 'output'.
+    if args.split {
+        for mapping in &res.mappings {
+            for segment in &mapping.segments {
+                let name = &segment.name;
+                let path = format!("{name}.out");
 
-                    // Open the file and truncate it if it already exists.
-                    let file = match File::create(&path) {
-                        Ok(f) => f,
-                        Err(e) => {
-                            eprintln!("error: could not create '{path}': {e}");
-                            std::process::exit(1);
-                        }
-                    };
-
-                    // And write the contents for this segment/file with
-                    // buffering.
-                    let mut writer = BufWriter::new(file);
-                    for b in &segment.bundles {
-                        if let Err(e) = writer.write_all(&b.bytes[..b.size as usize]) {
-                            eprintln!("error: could not write to '{path}': {e}");
-                            std::process::exit(1);
-                        }
+                // Open the file and truncate it if it already exists.
+                let file = match File::create(&path) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        eprintln!("error: could not create '{path}': {e}");
+                        std::process::exit(1);
                     }
-                    if let Err(e) = writer.flush() {
+                };
+
+                // And write the contents for this segment/file with
+                // buffering.
+                let mut writer = BufWriter::new(file);
+                for b in &segment.bundles {
+                    if let Err(e) = writer.write_all(&b.bytes[..b.size as usize]) {
                         eprintln!("error: could not write to '{path}': {e}");
                         std::process::exit(1);
                     }
                 }
-            }
-        } else {
-            // Fetch the header first.
-            let mut temptative_header = vec![];
-            for b in &res.bundles {
-                for i in 0..b.size {
-                    temptative_header.push(b.bytes[i as usize]);
-                }
-                if temptative_header.len() >= 0x10 {
-                    break;
-                }
-            }
-
-            // Validate the header before delivering the final ROM..
-            match Header::try_from(temptative_header.as_slice()) {
-                Ok(header) => {
-                    if res.accessing_working_ram && !header.has_persistent_memory {
-                        die(
-                            "requires Working RAM but the ROM header does not advertise it"
-                                .to_string(),
-                        );
-                    }
-                    has_working_ram = header.has_persistent_memory;
-                }
-                Err(e) => {
-                    die(format!(
-                        "output would produce a malformed NES/Famicom ROM: {e}"
-                    ));
-                }
-            };
-
-            for b in res.bundles {
-                if let Err(e) = output.write_all(&b.bytes[..b.size as usize]) {
-                    eprintln!("error: could not write result in '{output_name}': {e}");
-                    std::process::exit(1);
-                }
-                if let Err(e) = output.flush() {
-                    eprintln!("error: could not write to '{output_name}': {e}");
+                if let Err(e) = writer.flush() {
+                    eprintln!("error: could not write to '{path}': {e}");
                     std::process::exit(1);
                 }
             }
         }
-
-        // Print segment statistics.
-        if args.stats {
-            if args.info {
-                let Ok(file) =
-                    File::create(get_directory_from_source(&source).join("segments.txt"))
-                else {
-                    return die("could not write segments.txt file".to_string());
-                };
-                print_segments_stats(Box::new(file), &res.mappings);
+    } else {
+        // Fetch the header first.
+        let mut temptative_header = vec![];
+        for b in &res.bundles {
+            for i in 0..b.size {
+                temptative_header.push(b.bytes[i as usize]);
             }
-
-            println!("== Statistics ==\n");
-            println!("=> Amount of space on each segment (in bytes):\n");
-
-            print_segments_stats(Box::new(io::stdout()), &res.mappings);
+            if temptative_header.len() >= 0x10 {
+                break;
+            }
         }
 
-        // Print memory statistics.
-        if args.asan {
-            let mut memory = res.memory;
-            if args.info {
-                save_memory_stats(&source, &mut memory, has_working_ram);
+        // Validate the header before delivering the final ROM..
+        match Header::try_from(temptative_header.as_slice()) {
+            Ok(header) => {
+                if res.accessing_working_ram && !header.has_persistent_memory {
+                    die(
+                        "requires Working RAM but the ROM header does not advertise it".to_string(),
+                    );
+                }
+                has_working_ram = header.has_persistent_memory;
             }
-            if args.stats {
-                println!("\n=> Amount of memory used (in bytes):\n");
-                print_memory_summary(Box::new(io::stdout()), &memory, has_working_ram);
+            Err(e) => {
+                die(format!(
+                    "output would produce a malformed NES/Famicom ROM: {e}"
+                ));
+            }
+        };
+
+        for b in res.bundles {
+            if let Err(e) = output.write_all(&b.bytes[..b.size as usize]) {
+                eprintln!("error: could not write result in '{output_name}': {e}");
+                std::process::exit(1);
+            }
+            if let Err(e) = output.flush() {
+                eprintln!("error: could not write to '{output_name}': {e}");
+                std::process::exit(1);
             }
         }
     }
 
-    std::process::exit(error_count);
+    // Print segment statistics.
+    if args.stats {
+        if args.info {
+            let Ok(file) = File::create(get_directory_from_source(&source).join("segments.txt"))
+            else {
+                return die("could not write segments.txt file".to_string());
+            };
+            print_segments_stats(Box::new(file), &res.mappings);
+        }
+
+        println!("== Statistics ==\n");
+        println!("=> Amount of space on each segment (in bytes):\n");
+
+        print_segments_stats(Box::new(io::stdout()), &res.mappings);
+    }
+
+    // Print memory statistics.
+    if args.asan {
+        let mut memory = res.memory;
+        if args.info {
+            save_memory_stats(&source, &mut memory, has_working_ram);
+        }
+        if args.stats {
+            println!("\n=> Amount of memory used (in bytes):\n");
+            print_memory_summary(Box::new(io::stdout()), &memory, has_working_ram);
+        }
+    }
 }
