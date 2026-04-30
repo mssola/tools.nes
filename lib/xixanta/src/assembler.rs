@@ -1183,8 +1183,11 @@ impl<'a> Assembler<'a> {
                     format!("{context_name}::{name}")
                 };
 
-                // Check if this variable/proc was ever accessed.
-                if !self.allow_unused && bundle.accessed == 0 {
+                // Check if this variable/proc was ever accessed. This check is
+                // performed unless the user explicitely told us not to do it
+                // (e.g. nasm's '--allow-unused' flag), or the magic
+                // 'asan:ignore' comment is given.
+                if !self.allow_unused && !bundle.asan_ignore && bundle.accessed == 0 {
                     // If this was a .proc definition then we are certain that
                     // this is dead code, which is a really crappy situation.
                     if matches!(bundle.object_type, ObjectType::Proc) {
