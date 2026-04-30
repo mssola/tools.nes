@@ -19,7 +19,12 @@ if [ ! -d code.nes ]; then
 fi
 
 if [ ! -d aoc2023.nes ]; then
-    echo "(error) You need 'aoc2023.nes' for end-to-end tests."
+    echo "(error) you need 'aoc2023.nes' for end-to-end tests."
+    exit 1
+fi
+
+if [ ! -d jetpac.nes ]; then
+    echo "(error) you need 'jetpac.nes' for end-to-end tests."
     exit 1
 fi
 
