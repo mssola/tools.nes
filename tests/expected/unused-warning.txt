@@ -1,1 +1,3 @@
-warning: variable 'zp_unused' ($00) is unused (unused.s)
+warning: macro argument 'UNUSED_ARG' is unused (unused.s)
+warning: macro 'UNUSED_MACRO' is unused (unused.s)
+warning: variable 'zp_unused' is unused (unused.s)
