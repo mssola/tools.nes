@@ -260,14 +260,10 @@ impl Context {
                         var.accessed += 1;
                         Ok(var.clone())
                     }
-                    // If it's a raw address, then we return the resolved value.
-                    ObjectType::Address => {
-                        let var_to_resolve = var.clone();
-                        Ok(self.resolve_label(mappings, &var_to_resolve)?)
-                    }
-                    // If it's a .proc, then we account for the number of times
-                    // it was accessed, and we return the resolved value.
-                    ObjectType::Proc => {
+                    // If it's a .proc or a raw address, then we account for the
+                    // number of times it was accessed, and we return the
+                    // resolved value.
+                    ObjectType::Address | ObjectType::Proc => {
                         var.accessed += 1;
                         let var_to_resolve = var.clone();
                         Ok(self.resolve_label(mappings, &var_to_resolve)?)

@@ -357,17 +357,17 @@ pub fn assemble_with_mapping(
         };
     }
 
-    if asm.asan_enabled {
-        if let Err(errors) = asm.asan(&mut memory) {
-            return AssemblerResult {
-                bundles: vec![],
-                errors,
-                warnings: asm.warnings,
-                mappings: asm.mappings,
-                accessing_working_ram: asm.accessing_working_ram,
-                memory,
-            };
-        }
+    // Before filling in the holes with fill(), let's check what we have
+    // processed so far.
+    if let Err(errors) = asm.check(&mut memory) {
+        return AssemblerResult {
+            bundles: vec![],
+            errors,
+            warnings: asm.warnings,
+            mappings: asm.mappings,
+            accessing_working_ram: asm.accessing_working_ram,
+            memory,
+        };
     }
 
     // Return back to the original directory for this session. This is important
@@ -448,9 +448,10 @@ impl<'a> Assembler<'a> {
             mapping: self.current_mapping,
             segment: self.current_segment,
             object_type: ObjectType::Value,
-            asan_ignore: false,
+            // NOTE: we fake that is being accessed so the ASAN doesn't complain.
+            asan_ignore: true,
             asan_reserve: 1,
-            accessed: 0,
+            accessed: 1,
         };
 
         if let Err(err) = self.context.set_variable(&var_name, &var_value, false) {
@@ -1159,44 +1160,26 @@ impl<'a> Assembler<'a> {
         Ok(())
     }
 
-    fn asan(&mut self, memory: &mut MemoryResult) -> Result<(), Vec<Error>> {
+    // Perform different checks on the bundles we have produced so far, and
+    // update the 'memory' if possible (i.e. ASAN is enabled).
+    fn check(&mut self, memory: &mut MemoryResult) -> Result<(), Vec<Error>> {
         let mut errors = vec![];
 
         for (context_name, map) in self.context.map.iter() {
             for (name, bundle) in map {
-                // Ignore this bundle if the user explicitely told us to do so.
-                if bundle.asan_ignore {
-                    continue;
-                }
-
-                // If it doesn't have the proper prefix, skip as well.
-                if !is_asan_friendly_name(name) && !matches!(bundle.object_type, ObjectType::Proc) {
-                    continue;
-                }
-                let actual_name = name.split("::").last().unwrap_or("");
-
-                // Build up the memory range object for this bundle.
-                let val = bundle.bundle.value() as usize;
-                let range = MemoryRange {
-                    range: (val..val + bundle.asan_reserve),
-                    name: if context_name == GLOBAL_CONTEXT {
-                        name.clone()
-                    } else {
-                        format!("{context_name}::{name}")
-                    },
+                // Get the full name of this bundle, and skip it if it's an
+                // internal thingie.
+                let full_name = if context_name == GLOBAL_CONTEXT {
+                    name.clone()
+                } else {
+                    format!("{context_name}::{name}")
                 };
 
                 // Check if this variable/proc was ever accessed.
                 if bundle.accessed == 0 {
-                    // If this was a .proc definition then we have dead code
-                    // which is a really crappy situation.
+                    // If this was a .proc definition then we are certain that
+                    // this is dead code, which is a really crappy situation.
                     if matches!(bundle.object_type, ObjectType::Proc) {
-                        let full_name = if context_name == GLOBAL_CONTEXT {
-                            name.clone()
-                        } else {
-                            format!("{context_name}::{name}")
-                        };
-
                         errors.push(Error {
                             line: 0,
                             message: format!("proc '{full_name}' is unused"),
@@ -1205,14 +1188,12 @@ impl<'a> Assembler<'a> {
                             global: true,
                         });
                     } else {
-                        // If this was a variable, then warn about it. Even if
-                        // later it conflicts with another memory range, the
-                        // fact that it's not used is not a danger and hence a
-                        // conflict does not have to be reported. Hence, skip
-                        // after issueing the warning.
+                        // Otherwise, we cannot exactly pin down whether this is
+                        // harmless or not. Hence, just issue a warning and let
+                        // the programmer decide on this.
                         self.warnings.push(Error {
                             line: 0,
-                            message: format!("variable {range} is unused"),
+                            message: format!("{} '{full_name}' is unused", bundle.object_type),
                             source: self.sources[0].clone(),
                             expanded_from: self.macro_context.clone(),
                             global: true,
@@ -1221,73 +1202,93 @@ impl<'a> Assembler<'a> {
                     continue;
                 }
 
-                // We have done everything there was for proc's. Go to the next
-                // iteration if that was the case.
-                if matches!(bundle.object_type, ObjectType::Proc) {
+                // If this is not a value, then go to the next iteration.
+                if !matches!(bundle.object_type, ObjectType::Value) {
                     continue;
                 }
 
-                // Increase the counters for memory usage on either RAM slot and
-                // check for bounds.
-                if actual_name.starts_with("zp_") || actual_name.starts_with("m_") {
-                    // Avoid considering references to PPU/APU addresses as
-                    // reserved memory.
-                    if range.range.start < 0x2000 {
-                        memory.total_internal_ram += bundle.asan_reserve;
+                // We have a value at hand. If the address sanitizer is enabled
+                // and the current value is not explicitely set to ignore it, we
+                // should perform an extra check. That being said, we also skip
+                // this check if we detect the name to not be friendly to ASAN.
+                if self.asan_enabled && !bundle.asan_ignore && is_asan_friendly_name(name) {
+                    let actual_name = name.split("::").last().unwrap_or("");
 
-                        if memory.total_internal_ram > 0x800 {
+                    // Build up the memory range object for this bundle.
+                    let val = bundle.bundle.value() as usize;
+                    let range = MemoryRange {
+                        range: (val..val + bundle.asan_reserve),
+                        name: if context_name == GLOBAL_CONTEXT {
+                            name.clone()
+                        } else {
+                            format!("{context_name}::{name}")
+                        },
+                    };
+
+                    // Increase the counters for memory usage on either RAM slot and
+                    // check for bounds.
+                    if actual_name.starts_with("zp_") || actual_name.starts_with("m_") {
+                        // Avoid considering references to PPU/APU addresses as
+                        // reserved memory.
+                        if range.range.start < 0x2000 {
+                            memory.total_internal_ram += bundle.asan_reserve;
+
+                            if memory.total_internal_ram > 0x800 {
+                                errors.push(Error {
+                                    line: 0,
+                                    global: true,
+                                    message: "out of internal RAM".to_string(),
+                                    expanded_from: self.macro_context.clone(),
+                                    source: self.sources[0].clone(),
+                                });
+                            }
+                        }
+                    } else if actual_name.starts_with("wr_") {
+                        memory.total_working_ram += bundle.asan_reserve;
+
+                        if memory.total_working_ram > 0x2000 {
                             errors.push(Error {
                                 line: 0,
                                 global: true,
-                                message: "out of internal RAM".to_string(),
+                                message: "out of working RAM".to_string(),
                                 expanded_from: self.macro_context.clone(),
                                 source: self.sources[0].clone(),
                             });
                         }
                     }
-                } else if actual_name.starts_with("wr_") {
-                    memory.total_working_ram += bundle.asan_reserve;
 
-                    if memory.total_working_ram > 0x2000 {
-                        errors.push(Error {
-                            line: 0,
-                            global: true,
-                            message: "out of working RAM".to_string(),
-                            expanded_from: self.macro_context.clone(),
-                            source: self.sources[0].clone(),
-                        });
-                    }
+                    memory.memory_ranges.push(range);
                 }
-
-                memory.memory_ranges.push(range);
             }
 
-            // Now that we have all the available memory ranges that are in the
-            // scope of the address sanitizer, we can check on whether either of
-            // them conflicts with another one. This has to be done in this
-            // second iteration because `memory.memory_ranges` needed to be
-            // filled with valid candidates first. This could potentially be
-            // optimized later on, but so far I haven't seen any big performance
-            // hints because of this (and, hey, going through the address
-            // sanitizer is already a penalty hit compared to a regular run).
-            for (i, range) in memory.memory_ranges.iter().enumerate() {
-                for (j, existing) in memory.memory_ranges.iter().enumerate() {
-                    if i == j {
-                        continue;
-                    }
+            if self.asan_enabled {
+                // Now that we have all the available memory ranges that are in the
+                // scope of the address sanitizer, we can check on whether either of
+                // them conflicts with another one. This has to be done in this
+                // second iteration because `memory.memory_ranges` needed to be
+                // filled with valid candidates first. This could potentially be
+                // optimized later on, but so far I haven't seen any big performance
+                // hints because of this (and, hey, going through the address
+                // sanitizer is already a penalty hit compared to a regular run).
+                for (i, range) in memory.memory_ranges.iter().enumerate() {
+                    for (j, existing) in memory.memory_ranges.iter().enumerate() {
+                        if i == j {
+                            continue;
+                        }
 
-                    if (range.range.start >= existing.range.start
-                        && range.range.start < existing.range.end)
-                        || (range.range.end > existing.range.start
-                            && range.range.end < existing.range.end)
-                    {
-                        errors.push(Error {
-                            line: 0,
-                            global: true,
-                            message: format!("The variable {range} conflicts with {existing}",),
-                            expanded_from: self.macro_context.clone(),
-                            source: self.sources[0].clone(),
-                        });
+                        if (range.range.start >= existing.range.start
+                            && range.range.start < existing.range.end)
+                            || (range.range.end > existing.range.start
+                                && range.range.end < existing.range.end)
+                        {
+                            errors.push(Error {
+                                line: 0,
+                                global: true,
+                                message: format!("The variable {range} conflicts with {existing}",),
+                                expanded_from: self.macro_context.clone(),
+                                source: self.sources[0].clone(),
+                            });
+                        }
                     }
                 }
             }
@@ -3665,6 +3666,8 @@ mod tests {
     foo:
       rts
 
+    __fallthrough__ inner
+
     .proc inner
         jsr foo
     .endproc
@@ -4862,7 +4865,7 @@ three = 3
         );
 
         let warnings = res.warnings;
-        assert_eq!(warnings.len(), 4);
+        assert_eq!(warnings.len(), 3);
 
         assert_eq!(warnings[0].to_string(), "empty .proc 'Proc' (line 4)");
         assert_eq!(warnings[1].to_string(), "empty .scope 'Scope' (line 7)");
@@ -4870,7 +4873,6 @@ three = 3
             warnings[2].to_string(),
             "trying to apply empty macro 'MACRO' (line 13)"
         );
-        assert_eq!(warnings[3].to_string(), "segment 'CODE' is empty");
     }
 
     #[test]
@@ -5247,6 +5249,8 @@ MACRO Var1
             r#".macro MACRO
     nop
     .endmacro
+
+    __fallthrough__ Foo
 
     .proc Foo
       MACRO
