@@ -21,6 +21,7 @@ struct Args {
     defines: Vec<(String, u8)>,
     asan: bool,
     info: bool,
+    allow_unused: bool,
 }
 
 // Print the help message and quit.
@@ -29,6 +30,7 @@ fn print_help() {
     println!("usage: nasm [OPTIONS] <FILE>\n");
     println!("Options:");
     println!("  -a, --asan\t\tEnable the Address Sanitizer.");
+    println!("  --allow-unused\t\tAllow unused .proc's or unreferenced objects.");
     println!("  -c, --config <FILE>\tLinker configuration to be used, whether an identifier or a file path.");
     println!(
         "  -D <NAME>(=VALUE)\tDefine an 8-bit variable on the global scope ('VALUE' defaults to '1')"
@@ -108,6 +110,7 @@ fn parse_arguments() -> Args {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-a" | "--asan" => res.asan = true,
+            "--allow-unused" => res.allow_unused = true,
             "-c" | "--config" => match res.config {
                 Some(_) => die("only specify the '-C/--config' flag once".to_string()),
                 None => match args.next() {
@@ -330,6 +333,7 @@ fn main() {
         args.config.unwrap_or("nrom".to_string()).as_str(),
         &args.defines,
         &source,
+        args.allow_unused,
         args.asan,
     );
 

@@ -18,6 +18,7 @@ struct Args {
     no_errors: bool,
     strict: bool,
     stats: bool,
+    allow_unused: bool,
 }
 
 // Print the help message and quit.
@@ -25,6 +26,7 @@ fn print_help() {
     println!("Bridge between 'nasm' and 'ca65'.\n");
     println!("usage: xa65 [OPTIONS] <FILE>\n");
     println!("Options:");
+    println!("  --allow-unused\tPass the '--allow-unused' flag to 'nasm'.");
     println!("  -b, --bin <PROGRAM>\tAlternative to the binary for 'nasm'.");
     println!("  -C, --config <FILE>\tLinker configuration to be used, whether an identifier or a file path.");
     println!("  -h, --help\t\tPrint this message.");
@@ -48,6 +50,7 @@ fn parse_arguments() -> Args {
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "--allow-unused" => res.allow_unused = true,
             "-b" | "--bin" => match res.bin {
                 Some(_) => die("only specify the '-b/--bin' flag once".to_string()),
                 None => match args.next() {
@@ -262,6 +265,9 @@ fn main() {
     }
     if args.stats {
         cmd.arg("--stats");
+    }
+    if args.allow_unused {
+        cmd.arg("--allow-unused");
     }
 
     // Actually run the command.

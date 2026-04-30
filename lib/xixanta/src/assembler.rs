@@ -136,6 +136,10 @@ struct Assembler<'a> {
     // (0x6000-0x7FFF).
     accessing_working_ram: bool,
 
+    // Allow unused .proc's or unreferenced objects on the final binary. In
+    // other words, don't look for unreferenced bundles at the 'check' stage.
+    allow_unused: bool,
+
     // Whether the Address Sanitizer is enabled or not.
     asan_enabled: bool,
 
@@ -217,6 +221,7 @@ pub fn assemble(
     mapping: &str,
     defines: &[(String, u8)],
     source: &SourceInfo,
+    allow_unused: bool,
     asan: bool,
 ) -> AssemblerResult {
     let config = match get_mapping_configuration(mapping) {
@@ -239,7 +244,7 @@ pub fn assemble(
         }
     };
 
-    assemble_with_mapping(reader, config, defines, source, asan)
+    assemble_with_mapping(reader, config, defines, source, allow_unused, asan)
 }
 
 /// Read the contents from the `reader` as a source file and produce a list of
@@ -253,6 +258,7 @@ pub fn assemble_with_mapping(
     mapping: Vec<Mapping>,
     defines: &[(String, u8)],
     source: &SourceInfo,
+    allow_unused: bool,
     asan: bool,
 ) -> AssemblerResult {
     // Save the original current working directory in case it changes after a
@@ -262,6 +268,7 @@ pub fn assemble_with_mapping(
     let mut asm = Assembler::new(mapping);
     let mut memory = MemoryResult::default();
     asm.asan_enabled = asan;
+    asm.allow_unused = allow_unused;
 
     // First of all, parse the input so we get a list of nodes we can work
     // with.
@@ -415,6 +422,7 @@ impl<'a> Assembler<'a> {
             warnings: vec![],
             sources: vec![],
             accessing_working_ram: false,
+            allow_unused: false,
             asan_enabled: false,
             asan_next_ignore: false,
             asan_next_reserve: 1,
@@ -1176,7 +1184,7 @@ impl<'a> Assembler<'a> {
                 };
 
                 // Check if this variable/proc was ever accessed.
-                if bundle.accessed == 0 {
+                if !self.allow_unused && bundle.accessed == 0 {
                     // If this was a .proc definition then we are certain that
                     // this is dead code, which is a really crappy situation.
                     if matches!(bundle.object_type, ObjectType::Proc) {
@@ -3455,6 +3463,7 @@ mod tests {
             &[],
             &SourceInfo::default(),
             false,
+            false,
         )
     }
 
@@ -3845,6 +3854,7 @@ mod tests {
             empty(),
             &[],
             &SourceInfo::default(),
+            false,
             true,
         );
 
@@ -3868,6 +3878,7 @@ mod tests {
             empty(),
             &[],
             &SourceInfo::default(),
+            false,
             true,
         );
 
@@ -3890,6 +3901,7 @@ mod tests {
             empty(),
             &[],
             &SourceInfo::default(),
+            false,
             true,
         );
 
@@ -3914,6 +3926,7 @@ mod tests {
             empty(),
             &[],
             &SourceInfo::default(),
+            false,
             true,
         );
 
@@ -5552,6 +5565,7 @@ lda #Variable
             &[],
             &SourceInfo::default(),
             false,
+            false,
         );
 
         assert_eq!(res.bundles.len(), 0x11);
@@ -5594,6 +5608,7 @@ lda #Variable
             one_two().to_vec(),
             &[],
             &SourceInfo::default(),
+            false,
             false,
         );
 
@@ -5670,6 +5685,7 @@ lda #Variable
             &[],
             &SourceInfo::default(),
             false,
+            false,
         );
 
         let bundles = &res.bundles[0x12..]; // Ignoring HEADER + first two ONE
@@ -5718,6 +5734,7 @@ lda #Variable
             one_two().to_vec(),
             &[],
             &SourceInfo::default(),
+            false,
             false,
         );
 
@@ -5775,6 +5792,7 @@ lda #Variable
             &[],
             &SourceInfo::default(),
             false,
+            false,
         );
 
         let bundles = &res.bundles[0x10..];
@@ -5802,6 +5820,7 @@ lda #Variable
             one_two().to_vec(),
             &[],
             &SourceInfo::default(),
+            false,
             false,
         );
 
