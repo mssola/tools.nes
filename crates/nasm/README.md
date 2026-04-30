@@ -246,6 +246,29 @@ fit in a byte. Hence, you could have a code like follows:
 If you compile the code with `-D PAL=1`, then the first branch will be taken
 instead of the second one.
 
+### Unused code
+
+This assembler will also issue a warning whenever it finds unreferenced
+variables or labels. Hence, if you have something like:
+
+```asm
+foo:
+    rts
+
+;; code that never references 'foo'.
+```
+
+Then you will get:
+
+```
+warning: raw address 'foo' is unused (unused.s)
+```
+
+In the case for subroutines defined via `.proc`, this warning will actually be
+an error, as `nasm` can rightly identify that this is dead code.
+
+This check can be skipped by providing the `--allow-unused` flag on nasm.
+
 ## Address sanitizer
 
 This assembler comes with a set of tools that builds up an "address
