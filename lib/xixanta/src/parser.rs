@@ -234,7 +234,7 @@ impl Parser {
                     source: self.current_source,
                 });
             }
-            "asan:ignore" => {
+            "check:ignore" | "asan:ignore" => {
                 self.nodes.last_mut().unwrap().push(PNode {
                     node_type: NodeType::Comment(CommentType::AsanIgnore),
                     value: PString {
