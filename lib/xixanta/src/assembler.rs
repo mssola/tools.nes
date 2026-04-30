@@ -114,6 +114,15 @@ struct Assembler<'a> {
     pending: Vec<PendingNode>,
     labels_seen: usize,
 
+    // List of macro names being used throughout the code. It will be filled at
+    // at the 'context' stage, and then removed whenever bundle_call() uses the
+    // given macro. In the end, the check() stage should rely on this vector for
+    // unused macros.
+    //
+    // NOTE: we could've also worked with the 'macros' member, but that would've
+    // made it more complex with the lifetime argument and all of that.
+    macro_names: Vec<String>,
+
     // Number of macro statements seen on a given iteration. Note that the
     // parser guarantees that macros are defined well (no unclosed macros nor
     // too many .endmacro's).
@@ -411,6 +420,7 @@ impl<'a> Assembler<'a> {
             literal_mode: None,
             stage: Stage::Context,
             macros: HashMap::new(),
+            macro_names: vec![],
             mappings,
             current_mapping: 0,
             current_segment: 0,
@@ -672,6 +682,7 @@ impl<'a> Assembler<'a> {
                                 // unrolled whenever we have to perform a macro
                                 // call.
                                 self.macros.entry(name.value.clone()).or_insert(node);
+                                self.macro_names.push(name.value.clone());
                             }
                         }
                         ControlType::EndMacro
@@ -1305,6 +1316,20 @@ impl<'a> Assembler<'a> {
             }
         }
 
+        // And last but not least, let's perform the check for macros, unless
+        // stated otherwise.
+        if !self.allow_unused {
+            for m in &self.macro_names {
+                self.warnings.push(Error {
+                    line: 0,
+                    message: format!("macro '{m}' is unused"),
+                    source: self.sources[0].clone(),
+                    expanded_from: self.macro_context.clone(),
+                    global: true,
+                });
+            }
+        }
+
         if errors.is_empty() {
             Ok(())
         } else {
@@ -1423,6 +1448,14 @@ impl<'a> Assembler<'a> {
             source: self.source_for(node),
             global: false,
         })?;
+
+        // If the macro had not been referenced yet, remove it from the vector
+        // of pending macros.
+        if !self.allow_unused {
+            if let Some(pos) = self.macro_names.iter().position(|x| x == &node.value.value) {
+                self.macro_names.swap_remove(pos);
+            }
+        }
 
         // Detect missmatches between the number of arguments provided and the
         // ones defined by the macro.
