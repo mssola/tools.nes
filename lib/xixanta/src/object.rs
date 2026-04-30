@@ -126,7 +126,7 @@ pub enum ObjectType {
 impl std::fmt::Display for ObjectType {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            ObjectType::Address => write!(f, "raw address"),
+            ObjectType::Address => write!(f, "label"),
             ObjectType::Proc => write!(f, "proc"),
             ObjectType::Value => write!(f, "variable"),
             ObjectType::Argument => write!(f, "macro argument"),
@@ -260,7 +260,7 @@ impl Context {
                         var.accessed += 1;
                         Ok(var.clone())
                     }
-                    // If it's a .proc or a raw address, then we account for the
+                    // If it's a .proc or a label, then we account for the
                     // number of times it was accessed, and we return the
                     // resolved value.
                     ObjectType::Address | ObjectType::Proc => {

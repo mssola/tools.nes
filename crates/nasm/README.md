@@ -261,7 +261,7 @@ foo:
 Then you will get:
 
 ```
-warning: raw address 'foo' is unused (unused.s)
+warning: label 'foo' is unused (unused.s)
 ```
 
 In the case for subroutines defined via `.proc`, this warning will actually be
