@@ -30,7 +30,7 @@ fn print_help() {
     println!("usage: nasm [OPTIONS] <FILE>\n");
     println!("Options:");
     println!("  -a, --asan\t\tEnable the Address Sanitizer.");
-    println!("  --allow-unused\t\tAllow unused .proc's or unreferenced objects.");
+    println!("  --allow-unused\tAllow unused .proc's or unreferenced objects.");
     println!("  -c, --config <FILE>\tLinker configuration to be used, whether an identifier or a file path.");
     println!(
         "  -D <NAME>(=VALUE)\tDefine an 8-bit variable on the global scope ('VALUE' defaults to '1')"
