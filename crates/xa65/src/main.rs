@@ -31,9 +31,9 @@ fn print_help() {
     println!("  -C, --config <FILE>\tLinker configuration to be used, whether an identifier or a file path.");
     println!("  -h, --help\t\tPrint this message.");
     println!("  -n, --no-errors\tError out if the output differ or 'nasm' has produced an error.");
+    println!("  -o, --out <FILE>\tFile path where the output should be located after execution.");
     println!("  -s, --strict\t\tBe more strict on 'nasm' by adding the address-sanitizer and writing debug/analysis information.");
     println!("  --stats\t\tPrint statistics to the standard output.");
-    println!("  -o, --out <FILE>\tFile path where the output should be located after execution.");
     println!("  --target nes\t\tUsed for compatibility with 'ca65'.");
     println!("  -v, --version\t\tPrint the version of this program.");
     std::process::exit(0);
