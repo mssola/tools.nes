@@ -114,6 +114,11 @@ exit_code=$((exit_code + $?))
 diff tests/out/delayed_macro_arguments.nes tests/expected/delayed_macro_arguments.nes
 exit_code=$((exit_code + $?))
 
+echo "test: custom => unused_definition.nes"
+./target/debug/nasm -c empty -Werror --asan tests/unused_definition.s -o /dev/null 2>tests/out/unused_definition.txt
+diff tests/out/unused_definition.txt tests/expected/unused_definition.txt
+exit_code=$((exit_code + $?))
+
 ##
 # code.nes
 

@@ -142,8 +142,10 @@ pub struct Object {
     pub bundle: Bundle,
 
     /// Node which marks the source of the computed `bundle` attribute. This is
-    /// only provided in cases like macro calls where at the crunching stage we
-    /// might need to fetch previous context for the current `bundle` value.
+    /// provided in cases like macro calls where at the crunching stage we might
+    /// need to fetch previous context for the current `bundle` value. It is
+    /// also provided in variable definitions, as an indirect way to fetch the
+    /// original source containing the definition.
     pub node: Option<PNode>,
 
     /// The mapping index where the object was found. Note that this index
@@ -167,22 +169,6 @@ pub struct Object {
 
     /// Number of times this object was accessed. Incremented by `get_variable`.
     pub accessed: usize,
-}
-
-impl Object {
-    /// Create a default bundle with the given metadata parameters.
-    pub fn new(mapping: usize, segment: usize, object_type: ObjectType) -> Self {
-        Self {
-            bundle: Bundle::default(),
-            node: None,
-            mapping,
-            segment,
-            object_type,
-            asan_ignore: false,
-            asan_reserve: 1,
-            accessed: 0,
-        }
-    }
 }
 
 /// Context holds information about the different scopes being defined, the

@@ -495,7 +495,16 @@ impl<'a> Assembler<'a> {
 
         if let Err(message) = self.context.set_variable(
             &node.value,
-            &Object::new(self.current_mapping, self.current_segment, object_type),
+            &Object {
+                bundle: Bundle::default(),
+                node: Some(node.clone()),
+                mapping: self.current_mapping,
+                segment: self.current_segment,
+                object_type,
+                asan_ignore: false,
+                asan_reserve: 1,
+                accessed: 0,
+            },
             false,
         ) {
             return Err(Error {
@@ -619,7 +628,7 @@ impl<'a> Assembler<'a> {
                                 &node.value,
                                 &Object {
                                     bundle: value,
-                                    node: None,
+                                    node: Some(node.clone()),
                                     mapping: self.current_mapping,
                                     segment: self.current_segment,
                                     object_type: ObjectType::Value,
@@ -1199,13 +1208,24 @@ impl<'a> Assembler<'a> {
                 // (e.g. nasm's '--allow-unused' flag), or the magic
                 // 'asan:ignore' comment is given.
                 if !self.allow_unused && !bundle.asan_ignore && bundle.accessed == 0 {
+                    // For unused stuff we need to point to the source of the
+                    // definition, not the current context. This is usually
+                    // provided on the 'bundle.node' member, but we can always
+                    // pick the first source if that's not provided for some
+                    // unknown reason.
+                    let source = self.sources[match &bundle.node {
+                        Some(node) => node.source,
+                        None => 0,
+                    }]
+                    .clone();
+
                     // If this was a .proc definition then we are certain that
                     // this is dead code, which is a really crappy situation.
                     if matches!(bundle.object_type, ObjectType::Proc) {
                         errors.push(Error {
                             line: 0,
                             message: format!("proc '{full_name}' is unused"),
-                            source: self.sources[0].clone(),
+                            source,
                             expanded_from: self.macro_context.clone(),
                             global: true,
                         });
@@ -1216,7 +1236,7 @@ impl<'a> Assembler<'a> {
                         self.warnings.push(Error {
                             line: 0,
                             message: format!("{} '{full_name}' is unused", bundle.object_type),
-                            source: self.sources[0].clone(),
+                            source,
                             expanded_from: self.macro_context.clone(),
                             global: true,
                         });
