@@ -3167,7 +3167,9 @@ impl<'a> Assembler<'a> {
                     val.size = 1;
                     Ok((AddressingMode::RelativeOrZeropage, val))
                 } else if val.size == 1
-                    || (val.bytes[1] == 0x00 && !matches!(base.value.value.as_str(), "jmp" | "jsr"))
+                    || (val.resolved
+                        && val.bytes[1] == 0x00
+                        && !matches!(base.value.value.as_str(), "jmp" | "jsr"))
                 {
                     self.asan_check_arm(left_arm, &val)?;
                     val.size = 1;
@@ -4710,6 +4712,34 @@ JAL procedure
         // rts
         assert_eq!(res[1].size, 1);
         assert_eq!(res[1].bytes[0], 0x60);
+    }
+
+    #[test]
+    fn label_as_macro_argument() {
+        let res = just_bundles(
+            r#"
+.macro MACRO ADDR
+    adc ADDR
+.endmacro
+
+MACRO label
+
+label:
+    nop
+    "#,
+        );
+
+        assert_eq!(res.len(), 2);
+
+        // adc label
+        assert_eq!(res[0].size, 3);
+        assert_eq!(res[0].bytes[0], 0x6D);
+        assert_eq!(res[0].bytes[1], 0x03);
+        assert_eq!(res[0].bytes[2], 0x80);
+
+        // nop
+        assert_eq!(res[1].size, 1);
+        assert_eq!(res[1].bytes[0], 0xEA);
     }
 
     #[test]
