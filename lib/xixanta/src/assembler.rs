@@ -1230,15 +1230,20 @@ impl<'a> Assembler<'a> {
                             global: true,
                         });
                     } else {
+                        let (line, global) = match &bundle.node {
+                            Some(n) => (n.value.line, false),
+                            None => (0, true),
+                        };
+
                         // Otherwise, we cannot exactly pin down whether this is
                         // harmless or not. Hence, just issue a warning and let
                         // the programmer decide on this.
                         self.warnings.push(Error {
-                            line: 0,
+                            line,
                             message: format!("{} '{full_name}' is unused", bundle.object_type),
                             source,
                             expanded_from: self.macro_context.clone(),
-                            global: true,
+                            global,
                         });
                     }
                     continue;

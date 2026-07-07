@@ -1,1 +1,1 @@
-error: variable 'Var' is unused (def.s)
+error: variable 'Var' is unused (def.s: line 2)
