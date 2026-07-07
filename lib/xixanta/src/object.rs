@@ -343,7 +343,18 @@ impl Context {
                         self.to_human()
                     ));
                 }
-                *sc = object.clone();
+
+                match object.object_type {
+                    // For macro arguments, we still want to preserve the
+                    // 'accessed' member, as arguments are re-created on each
+                    // use and this information might get lost in the process.
+                    ObjectType::Argument => {
+                        let before = sc.accessed;
+                        *sc = object.clone();
+                        sc.accessed = before;
+                    }
+                    _ => *sc = object.clone(),
+                }
             }
             None => {
                 scope.insert(id.value.clone(), object.to_owned());
