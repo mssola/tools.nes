@@ -1,0 +1,1 @@
+warning: argument 'OTHER' of the macro 'BCD_ADD' is unused (unused_macro_arg.s: line 11)

@@ -1221,30 +1221,60 @@ impl<'a> Assembler<'a> {
 
                     // If this was a .proc definition then we are certain that
                     // this is dead code, which is a really crappy situation.
-                    if matches!(bundle.object_type, ObjectType::Proc) {
-                        errors.push(Error {
-                            line: 0,
-                            message: format!("proc '{full_name}' is unused"),
-                            source,
-                            expanded_from: self.macro_context.clone(),
-                            global: true,
-                        });
-                    } else {
-                        let (line, global) = match &bundle.node {
-                            Some(n) => (n.value.line, false),
-                            None => (0, true),
-                        };
+                    // Otherwise, we cannot exactly pin down whether this is
+                    // harmless or not. Hence, just issue a warning and let the
+                    // programmer decide on this.
+                    match &bundle.object_type {
+                        ObjectType::Proc => {
+                            errors.push(Error {
+                                line: 0,
+                                message: format!("proc '{full_name}' is unused"),
+                                source,
+                                expanded_from: self.macro_context.clone(),
+                                global: true,
+                            });
+                        }
+                        ObjectType::Argument(macro_name) => match self.macros.get(macro_name) {
+                            Some(mcr) => {
+                                let macro_definition = &mcr.left.as_ref().unwrap().value;
+                                self.warnings.push(Error {
+                                    line: macro_definition.line,
+                                    message: format!(
+                                        "argument '{name}' of the macro '{}' is unused",
+                                        macro_definition.value
+                                    ),
+                                    source,
+                                    expanded_from: self.macro_context.clone(),
+                                    global: false,
+                                });
+                            }
+                            None => {
+                                self.warnings.push(Error {
+                                    line: 0,
+                                    message: format!(
+                                        "{} '{full_name}' is unused",
+                                        bundle.object_type
+                                    ),
+                                    source,
+                                    expanded_from: self.macro_context.clone(),
+                                    global: true,
+                                });
+                            }
+                        },
+                        _ => {
+                            let (line, global) = match &bundle.node {
+                                Some(n) => (n.value.line, false),
+                                None => (0, true),
+                            };
 
-                        // Otherwise, we cannot exactly pin down whether this is
-                        // harmless or not. Hence, just issue a warning and let
-                        // the programmer decide on this.
-                        self.warnings.push(Error {
-                            line,
-                            message: format!("{} '{full_name}' is unused", bundle.object_type),
-                            source,
-                            expanded_from: self.macro_context.clone(),
-                            global,
-                        });
+                            self.warnings.push(Error {
+                                line,
+                                message: format!("{} '{full_name}' is unused", bundle.object_type),
+                                source,
+                                expanded_from: self.macro_context.clone(),
+                                global,
+                            });
+                        }
                     }
                     continue;
                 }
@@ -1463,7 +1493,8 @@ impl<'a> Assembler<'a> {
     // Consume a node which contains a macro call by pushing its bundles now.
     fn bundle_call(&mut self, node: &PNode) -> Result<(), Vec<Error>> {
         // Get the macro we are trying to reproduce.
-        let mcr = *self.macros.get(&node.value.value).ok_or(Error {
+        let macro_name = &node.value.value;
+        let mcr = *self.macros.get(macro_name).ok_or(Error {
             line: node.value.line,
             message: format!(
                 "could not find a macro with the name '{}'",
@@ -1517,7 +1548,7 @@ impl<'a> Assembler<'a> {
                     node: Some(arg.clone()),
                     mapping: self.current_mapping,
                     segment: self.current_segment,
-                    object_type: ObjectType::Argument,
+                    object_type: ObjectType::Argument(macro_name.clone()),
                     asan_ignore: false,
                     asan_reserve: 1,
                     accessed: 0,
@@ -3240,7 +3271,7 @@ impl<'a> Assembler<'a> {
                     if let Ok(var) = self.context.get_variable(&node.value, &self.mappings) {
                         if matches!(
                             var.object_type,
-                            ObjectType::Address | ObjectType::Argument | ObjectType::Proc
+                            ObjectType::Address | ObjectType::Argument(_) | ObjectType::Proc
                         ) {
                             return Ok(());
                         }
@@ -3274,7 +3305,7 @@ impl<'a> Assembler<'a> {
                     if let Ok(var) = self.context.get_variable(left_name, &self.mappings) {
                         if matches!(
                             var.object_type,
-                            ObjectType::Address | ObjectType::Argument | ObjectType::Proc
+                            ObjectType::Address | ObjectType::Argument(_) | ObjectType::Proc
                         ) {
                             return Ok(());
                         }
@@ -3282,7 +3313,7 @@ impl<'a> Assembler<'a> {
                     if let Ok(var) = self.context.get_variable(right_name, &self.mappings) {
                         if matches!(
                             var.object_type,
-                            ObjectType::Address | ObjectType::Argument | ObjectType::Proc
+                            ObjectType::Address | ObjectType::Argument(_) | ObjectType::Proc
                         ) {
                             return Ok(());
                         }

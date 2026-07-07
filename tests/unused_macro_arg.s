@@ -8,7 +8,7 @@
 
 ;;; asan:stack full
 
-.macro BCD_ADD ADDR
+.macro BCD_ADD ADDR, OTHER
     adc ADDR
     bcc :+
     nop
@@ -16,7 +16,7 @@
 .endmacro
 
 .proc add_to_player_y
-    BCD_ADD additions
+    BCD_ADD additions, 2
 
     rts
 

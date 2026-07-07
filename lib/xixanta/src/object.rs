@@ -120,7 +120,7 @@ pub enum ObjectType {
     Address,
     Proc,
     Value,
-    Argument,
+    Argument(String),
 }
 
 impl std::fmt::Display for ObjectType {
@@ -129,7 +129,7 @@ impl std::fmt::Display for ObjectType {
             ObjectType::Address => write!(f, "label"),
             ObjectType::Proc => write!(f, "proc"),
             ObjectType::Value => write!(f, "variable"),
-            ObjectType::Argument => write!(f, "macro argument"),
+            ObjectType::Argument(_) => write!(f, "macro argument"),
         }
     }
 }
@@ -242,7 +242,7 @@ impl Context {
                 Some(var) => match var.object_type {
                     // If it's a value or an argument, then we just account for
                     // the number of times it was accessed and return it as is.
-                    ObjectType::Value | ObjectType::Argument => {
+                    ObjectType::Value | ObjectType::Argument(_) => {
                         var.accessed += 1;
                         Ok(var.clone())
                     }
@@ -348,7 +348,7 @@ impl Context {
                     // For macro arguments, we still want to preserve the
                     // 'accessed' member, as arguments are re-created on each
                     // use and this information might get lost in the process.
-                    ObjectType::Argument => {
+                    ObjectType::Argument(_) => {
                         let before = sc.accessed;
                         *sc = object.clone();
                         sc.accessed = before;
