@@ -104,10 +104,9 @@ fn fetch_memory_definition(line: &str, line_num: usize) -> Result<RawMapping, St
 
                 match key.trim() {
                     "file" => res.ignore = val != "%O",
-                    "fill"
-                        if res.fill.is_none() => {
-                            res.fill = Some(String::from(""));
-                        }
+                    "fill" if res.fill.is_none() => {
+                        res.fill = Some(String::from(""));
+                    }
                     "fillval" => res.fill = Some(val.to_string()),
                     "start" => res.start = val.to_string(),
                     "size" => res.size = val.to_string(),
@@ -199,7 +198,7 @@ pub fn parse_cfg_file(text: &str) -> Result<Vec<Mapping>, String> {
                     return Err(format!(
                         "line does not end with a semicolon (line {})",
                         idx + 1
-                    ))
+                    ));
                 }
             };
 
@@ -240,7 +239,7 @@ pub fn parse_cfg_file(text: &str) -> Result<Vec<Mapping>, String> {
                 return Err(format!(
                     "section must end with an opening bracket (line {})",
                     idx + 1
-                ))
+                ));
             }
         };
     }
@@ -333,7 +332,7 @@ pub fn parse_nasm_cfg_file(text: &str) -> Result<Vec<Mapping>, String> {
                 return Err(format!(
                     "line does not end with a semicolon (line {})",
                     idx + 1
-                ))
+                ));
             }
         };
 

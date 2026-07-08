@@ -1,5 +1,5 @@
 [package]
 name = "xa65"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 authors = ["Miquel Sabaté Solà <mikisabate@gmail.com>"]

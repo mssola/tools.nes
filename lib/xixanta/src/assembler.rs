@@ -1,12 +1,12 @@
-use crate::mapping::{get_mapping_configuration, Mapping};
+use crate::SourceInfo;
+use crate::mapping::{Mapping, SectionType, get_mapping_configuration};
 use crate::node::{
-    is_asan_friendly_name, CommentType, ControlType, EchoKind, NodeType, OperationType, PNode,
-    PString,
+    CommentType, ControlType, EchoKind, NodeType, OperationType, PNode, PString,
+    is_asan_friendly_name,
 };
-use crate::object::{Bundle, Context, Object, ObjectType, GLOBAL_CONTEXT};
+use crate::object::{Bundle, Context, GLOBAL_CONTEXT, Object, ObjectType};
 use crate::opcodes::{AddressingMode, INSTRUCTIONS};
 use crate::parser::Parser;
-use crate::SourceInfo;
 use crate::{Error, ExpandedFrom};
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -618,10 +618,11 @@ impl<'a> Assembler<'a> {
                             // Check that the given name makes sense if the
                             // address sanitizer is enabled and the assigned
                             // value is known.
-                            if self.asan_enabled && value.resolved {
-                                if let Err(err) = self.asan_check_variable_name(node, &value) {
-                                    errors.push(err);
-                                }
+                            if self.asan_enabled
+                                && value.resolved
+                                && let Err(err) = self.asan_check_variable_name(node, &value)
+                            {
+                                errors.push(err);
                             }
 
                             if let Err(err) = self.context.set_variable(
@@ -855,16 +856,16 @@ impl<'a> Assembler<'a> {
             accessed: 0,
         };
 
-        if !node.value.is_empty() {
-            if let Err(message) = self.context.set_variable(&node.value, &object, true) {
-                return Err(Error {
-                    message,
-                    line: node.value.line,
-                    global: false,
-                    expanded_from: self.macro_context.clone(),
-                    source: self.source_for(node),
-                });
-            }
+        if !node.value.is_empty()
+            && let Err(message) = self.context.set_variable(&node.value, &object, true)
+        {
+            return Err(Error {
+                message,
+                line: node.value.line,
+                global: false,
+                expanded_from: self.macro_context.clone(),
+                source: self.source_for(node),
+            });
         }
         self.context.add_label(&object);
 
@@ -1507,10 +1508,10 @@ impl<'a> Assembler<'a> {
 
         // If the macro had not been referenced yet, remove it from the vector
         // of pending macros.
-        if !self.allow_unused {
-            if let Some(pos) = self.macro_names.iter().position(|x| x == &node.value.value) {
-                self.macro_names.swap_remove(pos);
-            }
+        if !self.allow_unused
+            && let Some(pos) = self.macro_names.iter().position(|x| x == &node.value.value)
+        {
+            self.macro_names.swap_remove(pos);
         }
 
         // Detect missmatches between the number of arguments provided and the
@@ -1994,7 +1995,7 @@ impl<'a> Assembler<'a> {
                     source: self.source_for(node),
                     expanded_from: self.macro_context.clone(),
                     global: false,
-                })
+                });
             }
             Ordering::Greater => {
                 return Err(Error {
@@ -2003,7 +2004,7 @@ impl<'a> Assembler<'a> {
                     source: self.source_for(node),
                     expanded_from: self.macro_context.clone(),
                     global: false,
-                })
+                });
             }
             _ => {}
         }
@@ -2322,7 +2323,7 @@ impl<'a> Assembler<'a> {
                     source: self.source_for(node),
                     expanded_from: self.macro_context.clone(),
                     message: format!("could not include binary data: {e}"),
-                })
+                });
             }
         };
 
@@ -2360,7 +2361,7 @@ impl<'a> Assembler<'a> {
                     source: self.source_for(node),
                     expanded_from: self.macro_context.clone(),
                     message: format!("could not include binary data: {e}"),
-                })
+                });
             }
         }
 
@@ -2412,7 +2413,7 @@ impl<'a> Assembler<'a> {
                     expanded_from: self.macro_context.clone(),
                     source: self.source_for(node),
                 }
-                .into())
+                .into());
             }
         };
 
@@ -2433,8 +2434,8 @@ impl<'a> Assembler<'a> {
         for i in 0..repeats {
             // If an index was given, set it now as a .repeat variable with the
             // loop index.
-            if args.len() == 2 {
-                if let Err(e) = self.context.set_variable(
+            if args.len() == 2
+                && let Err(e) = self.context.set_variable(
                     &args.last().unwrap().value,
                     &Object {
                         bundle: Bundle::fill(i as u8),
@@ -2447,16 +2448,16 @@ impl<'a> Assembler<'a> {
                         accessed: 0,
                     },
                     true,
-                ) {
-                    return Err(Error {
-                        line: node.value.line,
-                        message: e,
-                        source: self.source_for(node),
-                        expanded_from: self.macro_context.clone(),
-                        global: false,
-                    }
-                    .into());
+                )
+            {
+                return Err(Error {
+                    line: node.value.line,
+                    message: e,
+                    source: self.source_for(node),
+                    expanded_from: self.macro_context.clone(),
+                    global: false,
                 }
+                .into());
             }
 
             // And push all the bundles from the inner code.
@@ -2696,7 +2697,7 @@ impl<'a> Assembler<'a> {
                                     source: self.source_for(node),
                                     expanded_from: self.macro_context.clone(),
                                     global: false,
-                                })
+                                });
                             }
                             2 => {
                                 bundle.size = 2;
@@ -2728,7 +2729,7 @@ impl<'a> Assembler<'a> {
                     source: self.source_for(node),
                     expanded_from: self.macro_context.clone(),
                     global: false,
-                })
+                });
             }
         }
 
@@ -2904,7 +2905,7 @@ impl<'a> Assembler<'a> {
 
                     // Overwrite the variable with this new value. This way the
                     // next time this is found we don't have to evaluate it
-                    // again.  If the variable could not be set, then it's not
+                    // again. If the variable could not be set, then it's not
                     // that big of a deal at this stage.
                     value.bundle = bundle.clone();
                     let _ = self.context.set_variable(&node.value, &value, true);
@@ -3105,16 +3106,16 @@ impl<'a> Assembler<'a> {
 
         // Ensure that the literal mode for the left arm ensures an address
         // instead of some bogus number.
-        if let Some(lm) = &self.literal_mode {
-            if *lm != LiteralMode::Hexadecimal {
-                return Err(Error {
-                    message: "indexed addressing only works with addresses".to_string(),
-                    line: node.value.line,
-                    source: self.source_for(node),
-                    global: false,
-                    expanded_from: self.macro_context.clone(),
-                });
-            }
+        if let Some(lm) = &self.literal_mode
+            && *lm != LiteralMode::Hexadecimal
+        {
+            return Err(Error {
+                message: "indexed addressing only works with addresses".to_string(),
+                line: node.value.line,
+                source: self.source_for(node),
+                global: false,
+                expanded_from: self.macro_context.clone(),
+            });
         }
 
         // Check the right arm to know the index being used.
@@ -3136,13 +3137,12 @@ impl<'a> Assembler<'a> {
                     // indexing is, then convert this instruction to absolute
                     // indexing.
                     let mnemonic = node.value.value.to_lowercase();
-                    if let Some(entries) = INSTRUCTIONS.get(&mnemonic) {
-                        if entries.get(&AddressingMode::ZeropageIndexedX).is_none()
-                            && entries.get(&AddressingMode::IndexedX).is_some()
-                        {
-                            val.size = 2;
-                            return Ok((AddressingMode::IndexedX, val));
-                        }
+                    if let Some(entries) = INSTRUCTIONS.get(&mnemonic)
+                        && entries.get(&AddressingMode::ZeropageIndexedX).is_none()
+                        && entries.get(&AddressingMode::IndexedX).is_some()
+                    {
+                        val.size = 2;
+                        return Ok((AddressingMode::IndexedX, val));
                     }
 
                     // Re-inforce the optimization when val.size == 2 by forcing
@@ -3160,13 +3160,12 @@ impl<'a> Assembler<'a> {
                 if val.size == 1 || (val.resolved && val.bytes[1] == 0x00) {
                     // Similar to the case on "x" indexing.
                     let mnemonic = node.value.value.to_lowercase();
-                    if let Some(entries) = INSTRUCTIONS.get(&mnemonic) {
-                        if entries.get(&AddressingMode::ZeropageIndexedY).is_none()
-                            && entries.get(&AddressingMode::IndexedY).is_some()
-                        {
-                            val.size = 2;
-                            return Ok((AddressingMode::IndexedY, val));
-                        }
+                    if let Some(entries) = INSTRUCTIONS.get(&mnemonic)
+                        && entries.get(&AddressingMode::ZeropageIndexedY).is_none()
+                        && entries.get(&AddressingMode::IndexedY).is_some()
+                    {
+                        val.size = 2;
+                        return Ok((AddressingMode::IndexedY, val));
                     }
 
                     val.size = 1;
@@ -3268,13 +3267,13 @@ impl<'a> Assembler<'a> {
                     // If it's referencing an actual address, then let it be
                     // (e.g. 'lda palettes, x'; where 'palettes' is a legitimate
                     // name even if not 'is_asan_friendly_name').
-                    if let Ok(var) = self.context.get_variable(&node.value, &self.mappings) {
-                        if matches!(
+                    if let Ok(var) = self.context.get_variable(&node.value, &self.mappings)
+                        && matches!(
                             var.object_type,
                             ObjectType::Address | ObjectType::Argument(_) | ObjectType::Proc
-                        ) {
-                            return Ok(());
-                        }
+                        )
+                    {
+                        return Ok(());
                     }
 
                     // Everything has been exhausted, this is actually not a
@@ -3302,21 +3301,21 @@ impl<'a> Assembler<'a> {
                 } else {
                     // If everything failed but because it was an address
                     // (e.g. 'lda palettes + 1, x'), then return early.
-                    if let Ok(var) = self.context.get_variable(left_name, &self.mappings) {
-                        if matches!(
+                    if let Ok(var) = self.context.get_variable(left_name, &self.mappings)
+                        && matches!(
                             var.object_type,
                             ObjectType::Address | ObjectType::Argument(_) | ObjectType::Proc
-                        ) {
-                            return Ok(());
-                        }
+                        )
+                    {
+                        return Ok(());
                     }
-                    if let Ok(var) = self.context.get_variable(right_name, &self.mappings) {
-                        if matches!(
+                    if let Ok(var) = self.context.get_variable(right_name, &self.mappings)
+                        && matches!(
                             var.object_type,
                             ObjectType::Address | ObjectType::Argument(_) | ObjectType::Proc
-                        ) {
-                            return Ok(());
-                        }
+                        )
+                    {
+                        return Ok(());
                     }
 
                     self.warnings.push(Error {
@@ -3505,7 +3504,7 @@ impl<'a> Assembler<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mapping::{get_mapping_configuration, SectionType, Segment};
+    use crate::mapping::{SectionType, Segment, get_mapping_configuration};
 
     fn one_two() -> Vec<Mapping> {
         vec![
@@ -3694,10 +3693,11 @@ mod tests {
     fn parse_decimal() {
         assert_error("adc #222256", 1, false, "decimal value is too big");
         assert_error(
-                "adc #2A",
-                1, false,
-                "'A' is not a decimal value and could not find variable '2A' in the global scope either",
-            );
+            "adc #2A",
+            1,
+            false,
+            "'A' is not a decimal value and could not find variable '2A' in the global scope either",
+        );
         assert_instruction("adc #1", &[0x69, 0x01]);
         assert_instruction("adc #.hibyte(61953)", &[0x69, 0xF2]);
     }

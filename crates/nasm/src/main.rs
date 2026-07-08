@@ -207,11 +207,10 @@ fn find_git_directory(source: &SourceInfo) -> PathBuf {
 fn get_directory_from_source(source: &SourceInfo) -> PathBuf {
     let dir = find_git_directory(source).join(".nasm");
 
-    if !dir.exists() {
-        if let Err(e) = create_dir(&dir) {
+    if !dir.exists()
+        && let Err(e) = create_dir(&dir) {
             die(e.to_string());
         }
-    }
     dir
 }
 
