@@ -1,6 +1,8 @@
 [package]
 name = "header"
 version = "0.1.0"
+description = "Library for fetching all the information from the header of an NES/Famicom ROM file"
+
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
