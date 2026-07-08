@@ -1,0 +1,1 @@
+warning: referencing 'hello_bank0' from 'FIXED', which belongs to the 'BANK0' segment (unrom.s: line 108)

@@ -249,6 +249,21 @@ impl Parser {
                     source: self.current_source,
                 });
             }
+            "check:safe" | "asan:safe" => {
+                self.nodes.last_mut().unwrap().push(PNode {
+                    node_type: NodeType::Comment(CommentType::AsanSafe),
+                    value: PString {
+                        value: cmd,
+                        line: self.line,
+                        start,
+                        end: offset - 1,
+                    },
+                    left: None,
+                    right: None,
+                    args: None,
+                    source: self.current_source,
+                });
+            }
             &_ => {}
         }
 

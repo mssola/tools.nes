@@ -126,6 +126,13 @@ exit_code=$((exit_code + $?))
 diff tests/out/unused_macro_arg.nes tests/expected/unused_macro_arg.nes
 exit_code=$((exit_code + $?))
 
+echo "test: custom => unrom.nes"
+./target/debug/nasm -c unrom tests/unrom.s -o tests/out/unrom.nes 2>tests/out/unrom.txt
+diff tests/out/unrom.txt tests/expected/unrom.txt
+exit_code=$((exit_code + $?))
+diff tests/out/unrom.nes tests/expected/unrom.nes
+exit_code=$((exit_code + $?))
+
 ##
 # code.nes
 

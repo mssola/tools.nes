@@ -275,6 +275,7 @@ pub enum CommentType {
     AsanReserve(usize),
     AsanStack(Range<usize>),
     AsanIgnore,
+    AsanSafe,
 }
 
 /// The PNode type.
@@ -378,6 +379,7 @@ impl fmt::Display for NodeType {
                 CommentType::AsanReserve(_) => write!(f, ";; asan:reserve"),
                 CommentType::AsanStack(_) => write!(f, ";; asan:stack"),
                 CommentType::AsanIgnore => write!(f, ";; asan:ignore"),
+                CommentType::AsanSafe => write!(f, ";; asan:safe"),
             },
         }
     }

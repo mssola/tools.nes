@@ -156,6 +156,11 @@ struct Assembler<'a> {
     // sanitizer.
     asan_next_ignore: bool,
 
+    // Whether the next bundle should be marked as safe. That is, whether the
+    // checker can skip some of the checks for the bundle being produced from
+    // the next node.
+    asan_next_safe: bool,
+
     // The amount of bytes to reserve for the next variable assignment.
     asan_next_reserve: usize,
 
@@ -172,6 +177,13 @@ struct Assembler<'a> {
     // Stack of pending definitions. The last element from this list is the list
     // to be set to the next PendingNode push.
     pending_defines: Vec<Vec<PendingDefine>>,
+
+    // List of objects that have been visited while evaluating a node. Reset
+    // this vector before calling evaluate_node(), and check the results
+    // afterwards to check which objects are evaluated along the way. The item
+    // is a tuple where the first member is the String identifier of the
+    // variable/address/label/etc. that is being stored in the second member.
+    objects_visited: Vec<(String, Object)>,
 }
 
 /// The result to be given at the end of `assembler::assemble` and
@@ -435,10 +447,12 @@ impl<'a> Assembler<'a> {
             allow_unused: false,
             asan_enabled: false,
             asan_next_ignore: false,
+            asan_next_safe: false,
             asan_next_reserve: 1,
             asan_stack_definition: None,
             macro_context: vec![],
             pending_defines: vec![],
+            objects_visited: vec![],
         }
     }
 
@@ -846,6 +860,7 @@ impl<'a> Assembler<'a> {
                 affected_on_page: false,
                 resolved: false,
                 negative: false,
+                safe: false,
             },
             node: None,
             mapping: self.current_mapping,
@@ -879,6 +894,8 @@ impl<'a> Assembler<'a> {
         self.stage = Stage::Bundling;
 
         for node in nodes {
+            let mut next_safe = false;
+
             match &node.node_type {
                 // Initialize the label to the offset address of the current
                 // segment. Note that this is only the offset from the beginning
@@ -928,6 +945,10 @@ impl<'a> Assembler<'a> {
                 NodeType::Comment(CommentType::AsanIgnore) => {
                     next_ignore = true;
                     self.asan_next_ignore = true;
+                }
+                NodeType::Comment(CommentType::AsanSafe) => {
+                    next_safe = true;
+                    self.asan_next_safe = true;
                 }
                 NodeType::Instruction => {
                     self.literal_mode = None;
@@ -1001,7 +1022,12 @@ impl<'a> Assembler<'a> {
                 _ => {}
             }
 
-            // Keep `self.asan_next_ignore` to false if possible.
+            // Keep 'self.asan_next_safe' to false if possible.
+            if !next_safe {
+                self.asan_next_safe = false;
+            }
+
+            // Keep 'self.asan_next_ignore' to false if possible.
             if next_ignore {
                 next_ignore = false;
             } else {
@@ -1069,11 +1095,53 @@ impl<'a> Assembler<'a> {
                 }
             }
 
+            // Reset the 'objects_visited' list so the evaluate_node() next to
+            // this can tell us the objects that were actually visited on this
+            // call.
+            self.objects_visited = vec![];
+
             self.literal_mode = None;
             match self.evaluate_node(&pn.node) {
                 Ok(mut bundle) => {
                     let current = &self.mappings[pn.mapping].segments[pn.segment];
                     bundle.address = current.bundles[pn.bundle_index].address;
+
+                    // The first check deals on whether there is any reference
+                    // that crosses the mapping boundary. There are two
+                    // exceptions to this check:
+                    //
+                    //  1. We are currently on the Vector segment, which
+                    //     basically references addresses outside of it, and
+                    //     that is to be expected and safe.
+                    //  2. If the bundle was marked as "safe" by the programmer
+                    //     via the asan:safe/check:safe comment.
+                    //
+                    // Otherwise iterate over the objects that were visited over
+                    // the previous evaluate_node() call, and check for
+                    // potentially dangerous cross references. Since we cannot
+                    // be certain about these references, they are merely
+                    // warnings, not errors.
+                    if !current.bundles[pn.bundle_index].safe
+                        && !matches!(self.mappings[pn.mapping].section_type, SectionType::Vector)
+                    {
+                        for (name, object) in &self.objects_visited {
+                            if pn.mapping != object.mapping {
+                                let reference =
+                                    &self.mappings[object.mapping].segments[object.segment].name;
+
+                                self.warnings.push(Error {
+                                    line: pn.node.value.line,
+                                    message: format!(
+                                        "referencing '{name}' from '{}', which belongs to the '{reference}' segment",
+                                        current.name
+                                    ),
+                                    source: self.source_for(&pn.node),
+                                    global: false,
+                                    expanded_from: pn.macro_context.clone(),
+                                });
+                            }
+                        }
+                    }
 
                     // If we are trying to 'jmp'/'jsr' right into the next
                     // instruction, then warn the programmer about it. This
@@ -1610,6 +1678,10 @@ impl<'a> Assembler<'a> {
         current.offset += bundle.size as usize;
         current.segments[self.current_segment].offset += bundle.size as usize;
 
+        // Mark this bundle as reference-safe, so the checker afterwards doesn't
+        // complain on different checks.
+        bundle.safe = self.asan_next_safe;
+
         if !bundle.resolved {
             self.pending.push(PendingNode {
                 mapping: self.current_mapping,
@@ -1891,6 +1963,7 @@ impl<'a> Assembler<'a> {
                 affected_on_page: false,
                 resolved: false,
                 negative: false,
+                safe: false,
             }),
             Stage::Crunching => {
                 match self.context.get_relative_label(
@@ -1977,6 +2050,7 @@ impl<'a> Assembler<'a> {
             affected_on_page: false,
             resolved: true,
             negative: false,
+            safe: false,
         })
     }
 
@@ -2043,6 +2117,7 @@ impl<'a> Assembler<'a> {
             affected_on_page: false,
             resolved: true,
             negative: false,
+            safe: false,
         })
     }
 
@@ -2130,6 +2205,7 @@ impl<'a> Assembler<'a> {
             affected_on_page: false,
             resolved: true,
             negative: false,
+            safe: false,
         })
     }
 
@@ -2641,6 +2717,7 @@ impl<'a> Assembler<'a> {
             affected_on_page: false,
             resolved: true,
             negative: false,
+            safe: false,
         })
     }
 
@@ -2892,6 +2969,11 @@ impl<'a> Assembler<'a> {
     fn evaluate_variable(&mut self, node: &PNode) -> Result<Bundle, Error> {
         match self.context.get_variable(&node.value, &self.mappings) {
             Ok(mut value) => {
+                // Push this variable into the "visited objects" list. This list
+                // is to be cleared out or consumed by the caller.
+                self.objects_visited
+                    .push((node.value.value.clone(), value.clone()));
+
                 // If the given variable has a zero value AND we are resolving
                 // pending nodes AND the variable has a node object in it, then
                 // chances are that this is a macro call with an argument to be

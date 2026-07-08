@@ -246,7 +246,7 @@ fit in a byte. Hence, you could have a code like follows:
 If you compile the code with `-D PAL=1`, then the first branch will be taken
 instead of the second one.
 
-### Unused code
+## Unused code
 
 This assembler will also issue a warning whenever it finds unreferenced
 variables or labels. Hence, if you have something like:
@@ -268,6 +268,49 @@ In the case for subroutines defined via `.proc`, this warning will actually be
 an error, as `nasm` can rightly identify that this is dead code.
 
 This check can be skipped by providing the `--allow-unused` flag on nasm.
+
+## Cross-mapping references
+
+This assembler will issue a warning whenever you are referencing an object which
+is defined into a segment from another mapping. Some segments, like the
+'vectors' one, will reference code that is outside of its mapping. But in some
+other configurations, segments cannot make these cross-mapping references so
+happily. Imagine that we have an UNROM chip configuration, where "SWAPPABLE" is
+a segment that can be swapped according to the specification of this mapper
+chip. Then, you could have code like this:
+
+```asm
+.segment "SWAPPABLE"
+
+.proc foo
+    rts
+.endproc
+
+.segment "FIXED"
+
+jsr foo
+```
+
+Here the assembler will properly detect the address of 'foo' in the context of
+the 'SWAPPABLE' segment. But what this assembler doesn't know is that this
+segment is swappable. Hence, if the bank being mapped right now is not the one
+containing the 'SWAPPABLE' segment, then the address computed for 'foo' and used
+in that 'jsr' instruction will point to something else entirely. This would be
+similar to a use-after-free bug.
+
+This is something that can only be inspected at runtime, and so the assembler
+cannot be of much help here. Hence, this commit adds a warning so the programmer
+can understand the potentially dangerous operation.
+
+All of that being said, this assembler also adds support for "asan:safe" or
+"check:safe", which is a magic comment that the programmer can write to
+re-assure the assembler that this operation is fine (e.g. there is a guarantee
+that the mapped bank is that one we are expecting). Hence, the code above could
+now be written like so:
+
+```asm
+jsr foo      ; check:safe
+```
 
 ## Address sanitizer
 

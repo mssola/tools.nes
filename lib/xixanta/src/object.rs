@@ -32,6 +32,10 @@ pub struct Bundle {
     /// used for internal purposes only.
     pub resolved: bool,
 
+    /// Whether the programmer assured that the line that resulted into this
+    /// Bundle was safe to perform cross-mapping references.
+    pub safe: bool,
+
     /// Whether we have to consider the bundle to contain a negative number.
     /// This comes from the fact that we just have a bunch of signednessless
     /// bytes, but using the negative unary operator will give us a hint on how
@@ -67,6 +71,7 @@ impl Bundle {
             cycles: 0,
             affected_on_page: false,
             resolved: true,
+            safe: false,
             negative: false,
         }
     }
