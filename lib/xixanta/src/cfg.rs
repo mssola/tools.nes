@@ -269,6 +269,8 @@ pub fn parse_cfg_file(text: &str) -> Result<Vec<Mapping>, String> {
         //      realized it's CHR ROM.
         if header {
             header = false;
+        } else if start == 0xFFFA && size == 6 {
+            section_type = SectionType::Vector;
         } else if start == 0x0000 {
             section_type = SectionType::ChrRom;
         } else if section_type != SectionType::ChrRom {
@@ -355,6 +357,8 @@ pub fn parse_nasm_cfg_file(text: &str) -> Result<Vec<Mapping>, String> {
         //      realized it's CHR ROM.
         if header {
             header = false;
+        } else if start == 0xFFFA && size == 6 {
+            section_type = SectionType::Vector;
         } else if start == 0x0000 {
             section_type = SectionType::ChrRom;
         } else if section_type != SectionType::ChrRom {
@@ -485,7 +489,7 @@ FEATURES {
         assert_eq!(romv.start, 0xFFFA);
         assert_eq!(romv.size, 0x06);
         assert_eq!(romv.fill, Some(0x00));
-        assert_eq!(romv.section_type, SectionType::PrgRom);
+        assert_eq!(romv.section_type, SectionType::Vector);
         assert_eq!(
             romv.segments
                 .iter()

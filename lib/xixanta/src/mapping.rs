@@ -18,6 +18,9 @@ pub enum SectionType {
 
     /// Bank to be stored in CHR ROM with a size multiple of 4KB.
     ChrRom,
+
+    /// The 6 final bytes describing the addresses for nmi, reset and irq.
+    Vector,
 }
 
 /// A segment inside of a memory mapping, used to organize the code inside of a
@@ -149,11 +152,15 @@ fn validate_configuration(mappings: &[Mapping]) -> Result<(), String> {
         .iter()
         .filter(|m| m.section_type == SectionType::PrgRom)
         .fold(0, |acc, x| acc + x.size);
+    let vec_rom_len = mappings
+        .iter()
+        .filter(|m| m.section_type == SectionType::Vector)
+        .fold(0, |acc, x| acc + x.size);
 
-    if prg_rom_len < 0x4000 {
+    if prg_rom_len + vec_rom_len < 0x4000 {
         return Err("PRG ROM must be at least 8KB long".to_string());
     }
-    if prg_rom_len % 0x4000 != 0 {
+    if (prg_rom_len + vec_rom_len) % 0x4000 != 0 {
         return Err("PRG ROM must be formed by banks of exactly 8KB".to_string());
     }
 
