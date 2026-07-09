@@ -312,6 +312,48 @@ now be written like so:
 jsr foo      ; check:safe
 ```
 
+Moreover, you can define whole segments as "fixed" ones with the
+`asan:fixed-segments` (or `check:fixed-segments`) comments. This way, you
+express to the assembler that references to addresses of these segments are
+guaranteed to always be valid. Consider the following example:
+
+```asm
+;;; asan:fixed-segments ONE, OTHER
+
+.segment "ONE"
+
+.proc foo
+    rts
+.endproc
+
+.segment "OTHER"
+
+.proc bar
+    rts
+.endproc
+
+.segment "FIXED"
+
+jsr foo
+jsr bar
+```
+
+In the code above, we state that both 'ONE' and 'OTHER' are guaranteed to have a
+stable address space (they are fixed, never to be re-mapped). Hence, the
+assembler won't spit any warning at the final two 'jsr' instructions. Also note
+that you can define this comment multiple times. So the code below achieves the
+same thing:
+
+```asm
+;;; asan:fixed-segments ONE
+.segment "ONE"
+;; bla bla
+
+;;; asan:fixed-segments OTHER
+.segment "OTHER"
+;; rest
+```
+
 ## Address sanitizer
 
 This assembler comes with a set of tools that builds up an "address

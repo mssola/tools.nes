@@ -1,0 +1,1 @@
+warning: referencing 'hello_bank1' from 'FIXED', which belongs to the 'BANK1' segment (fixed-segments.s: line 114)

@@ -264,6 +264,77 @@ impl Parser {
                     source: self.current_source,
                 });
             }
+            "check:fixed-segments" | "asan:fixed-segments" => {
+                let mut args = vec![];
+                let mut eol = false;
+                let end = offset;
+
+                while !eol {
+                    // We will assume that this is the last argument unless the
+                    // last loop sees a comma.
+                    eol = true;
+
+                    // Skip initial whitespaces.
+                    for c in line.get(offset..).unwrap_or("").chars() {
+                        if !c.is_whitespace() {
+                            break;
+                        }
+                        offset += 1;
+                    }
+
+                    // Fetch the argument and push it unless it's empty.
+                    let mut arg = String::from("");
+                    for c in line.get(offset..).unwrap_or("").chars() {
+                        if c.is_whitespace() {
+                            offset += 1;
+                            break;
+                        } else if c == ',' {
+                            break;
+                        }
+                        offset += 1;
+
+                        arg.push(c);
+                    }
+                    if !arg.is_empty() {
+                        args.push(arg);
+                    }
+
+                    // Skip whitespaces until a comma if available.
+                    for c in line.get(offset..).unwrap_or("").chars() {
+                        offset += 1;
+
+                        if c == ',' {
+                            eol = false;
+                            break;
+                        }
+                    }
+                }
+
+                if args.is_empty() {
+                    return Err(Error {
+                        line: self.line,
+                        global: false,
+                        source: self.sources[self.current_source].clone(),
+                        message: "'asan:fixed-segments' expects at least one argument".to_string(),
+                        expanded_from: vec![],
+                    }
+                    .into());
+                }
+
+                self.nodes.last_mut().unwrap().push(PNode {
+                    node_type: NodeType::Comment(CommentType::AsanFixedSegments(args)),
+                    value: PString {
+                        value: cmd,
+                        line: self.line,
+                        start,
+                        end,
+                    },
+                    left: None,
+                    right: None,
+                    args: None,
+                    source: self.current_source,
+                });
+            }
             &_ => {}
         }
 
@@ -3842,5 +3913,64 @@ VAR3 = $200 ;; asan:reserve $100
             "the stack must be on the $0100 page"
         );
         assert_eq!(errors.get(4).unwrap().message, "bad 'asan:stack' range");
+    }
+
+    #[test]
+    fn parse_fixed_segments() {
+        let code = r#";; asan:fixed-segments CODE
+;; asan:fixed-segments CODE , FIXED
+;; asan:fixed-segments TAIL, FIXED,
+"#;
+        let mut parser = Parser::default();
+        assert!(
+            parser
+                .parse(code.as_bytes(), &SourceInfo::default())
+                .is_ok()
+        );
+
+        let nodes = parser.nodes();
+        assert_eq!(nodes.len(), 3);
+
+        assert_node(
+            nodes.first().unwrap(),
+            NodeType::Comment(CommentType::AsanFixedSegments(vec!["CODE".to_string()])),
+            code,
+            "asan:fixed-segments",
+        );
+        assert_node(
+            nodes.get(1).unwrap(),
+            NodeType::Comment(CommentType::AsanFixedSegments(vec![
+                "CODE".to_string(),
+                "FIXED".to_string(),
+            ])),
+            code,
+            "asan:fixed-segments",
+        );
+        assert_node(
+            nodes.get(2).unwrap(),
+            NodeType::Comment(CommentType::AsanFixedSegments(vec![
+                "TAIL".to_string(),
+                "FIXED".to_string(),
+            ])),
+            code,
+            "asan:fixed-segments",
+        );
+    }
+
+    #[test]
+    fn parse_bad_asan_fixed_segments() {
+        let code = ";; asan:fixed-segments";
+
+        let mut parser = Parser::default();
+        let res = parser.parse(code.as_bytes(), &SourceInfo::default());
+
+        assert!(res.is_err());
+        let errors = res.unwrap_err();
+        assert_eq!(errors.len(), 1);
+
+        assert_eq!(
+            errors.first().unwrap().message,
+            "'asan:fixed-segments' expects at least one argument"
+        );
     }
 }

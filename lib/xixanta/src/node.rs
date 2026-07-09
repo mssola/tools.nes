@@ -276,6 +276,7 @@ pub enum CommentType {
     AsanStack(Range<usize>),
     AsanIgnore,
     AsanSafe,
+    AsanFixedSegments(Vec<String>),
 }
 
 /// The PNode type.
@@ -380,6 +381,7 @@ impl fmt::Display for NodeType {
                 CommentType::AsanStack(_) => write!(f, ";; asan:stack"),
                 CommentType::AsanIgnore => write!(f, ";; asan:ignore"),
                 CommentType::AsanSafe => write!(f, ";; asan:safe"),
+                CommentType::AsanFixedSegments(_) => write!(f, ";; asan:fixed-segments"),
             },
         }
     }

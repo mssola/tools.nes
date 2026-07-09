@@ -184,6 +184,10 @@ struct Assembler<'a> {
     // is a tuple where the first member is the String identifier of the
     // variable/address/label/etc. that is being stored in the second member.
     objects_visited: Vec<(String, Object)>,
+
+    // List of mapping/segment indeces which the programmer asked to be
+    // considered safe.
+    safe_segments: Vec<(usize, usize)>,
 }
 
 /// The result to be given at the end of `assembler::assemble` and
@@ -453,6 +457,7 @@ impl<'a> Assembler<'a> {
             macro_context: vec![],
             pending_defines: vec![],
             objects_visited: vec![],
+            safe_segments: vec![],
         }
     }
 
@@ -950,6 +955,14 @@ impl<'a> Assembler<'a> {
                     next_safe = true;
                     self.asan_next_safe = true;
                 }
+                NodeType::Comment(CommentType::AsanFixedSegments(segments)) => {
+                    for name in segments {
+                        let (midx, sidx) = self.get_mapping_segment_by_name(node, name)?;
+                        if !self.is_in_safe_segment(midx, sidx) {
+                            self.safe_segments.push((midx, sidx));
+                        }
+                    }
+                }
                 NodeType::Instruction => {
                     self.literal_mode = None;
                     match self.evaluate_node(node) {
@@ -1107,7 +1120,7 @@ impl<'a> Assembler<'a> {
                     bundle.address = current.bundles[pn.bundle_index].address;
 
                     // The first check deals on whether there is any reference
-                    // that crosses the mapping boundary. There are two
+                    // that crosses the mapping boundary. There are some
                     // exceptions to this check:
                     //
                     //  1. We are currently on the Vector segment, which
@@ -1115,6 +1128,9 @@ impl<'a> Assembler<'a> {
                     //     that is to be expected and safe.
                     //  2. If the bundle was marked as "safe" by the programmer
                     //     via the asan:safe/check:safe comment.
+                    //  3. The object belongs to a segment that the programmer
+                    //     explicitely marked as safe via the
+                    //     asan:fixed-segments/check:fixed-segments comment.
                     //
                     // Otherwise iterate over the objects that were visited over
                     // the previous evaluate_node() call, and check for
@@ -1125,7 +1141,9 @@ impl<'a> Assembler<'a> {
                         && !matches!(self.mappings[pn.mapping].section_type, SectionType::Vector)
                     {
                         for (name, object) in &self.objects_visited {
-                            if pn.mapping != object.mapping {
+                            if pn.mapping != object.mapping
+                                && !self.is_in_safe_segment(object.mapping, object.segment)
+                            {
                                 let reference =
                                     &self.mappings[object.mapping].segments[object.segment].name;
 
@@ -2925,6 +2943,39 @@ impl<'a> Assembler<'a> {
         Ok(())
     }
 
+    // Returns true if the given mapping/segment pair were marked by the
+    // programmer to be safe.
+    fn is_in_safe_segment(&self, mapping: usize, segment: usize) -> bool {
+        self.safe_segments
+            .iter()
+            .any(|s| s.0 == mapping && s.1 == segment)
+    }
+
+    // Return the mapping and segment indeces which identify the given segment
+    // identified by 'name'. If it cannot be found, then it returns an error by
+    // pinning the location of the given 'node'.
+    fn get_mapping_segment_by_name(
+        &self,
+        node: &'a PNode,
+        name: &str,
+    ) -> Result<(usize, usize), Error> {
+        for (mapping_idx, mapping) in self.mappings.iter().enumerate() {
+            for (segment_idx, segment) in mapping.segments.iter().enumerate() {
+                if segment.name == name {
+                    return Ok((mapping_idx, segment_idx));
+                }
+            }
+        }
+
+        Err(Error {
+            line: node.value.line,
+            message: format!("unknown segment '{name}'"),
+            source: self.source_for(node),
+            expanded_from: self.macro_context.clone(),
+            global: false,
+        })
+    }
+
     // Change the current segment to the one referenced in `node`.
     fn switch_to_segment(&mut self, node: &'a PNode) -> Result<(), Error> {
         let name = self.fetch_quoted_first_argument(node)?;
@@ -2941,28 +2992,10 @@ impl<'a> Assembler<'a> {
             });
         }
 
-        // Find the segment being referenced and update the
-        // `self.current_segment` accordingly.
-        let mut found = false;
-        for (mapping_idx, mapping) in self.mappings.iter().enumerate() {
-            for (segment_idx, segment) in mapping.segments.iter().enumerate() {
-                if segment.name == name {
-                    self.current_mapping = mapping_idx;
-                    self.current_segment = segment_idx;
-                    found = true;
-                    break;
-                }
-            }
-        }
-        if !found {
-            return Err(Error {
-                line: node.value.line,
-                message: format!("unknown segment '{name}'"),
-                source: self.source_for(node),
-                expanded_from: self.macro_context.clone(),
-                global: false,
-            });
-        }
+        let (midx, sidx) = self.get_mapping_segment_by_name(node, name)?;
+        self.current_mapping = midx;
+        self.current_segment = sidx;
+
         Ok(())
     }
 

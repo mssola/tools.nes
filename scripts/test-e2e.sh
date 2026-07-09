@@ -133,6 +133,13 @@ exit_code=$((exit_code + $?))
 diff tests/out/unrom.nes tests/expected/unrom.nes
 exit_code=$((exit_code + $?))
 
+echo "test: custom => fixed-segments.nes"
+./target/debug/nasm -c unrom tests/fixed-segments.s -o tests/out/fixed-segments.nes 2>tests/out/fixed-segments.txt
+diff tests/out/fixed-segments.txt tests/expected/fixed-segments.txt
+exit_code=$((exit_code + $?))
+diff tests/out/fixed-segments.nes tests/expected/fixed-segments.nes
+exit_code=$((exit_code + $?))
+
 ##
 # code.nes
 
