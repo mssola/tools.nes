@@ -420,7 +420,7 @@ impl Context {
         let mut ax = String::with_capacity(name.len());
 
         // Clear the context stack as we will set it manually.
-        self.stack.truncate(0);
+        self.stack.clear();
 
         // If the given name turns out to be just the global one, skip the push
         // for the stack.

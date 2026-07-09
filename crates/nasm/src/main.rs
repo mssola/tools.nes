@@ -295,7 +295,7 @@ fn main() {
     // Select the input stream and build the source object.
     let path = Path::new(&args.file);
     let Ok(input) = File::open(path) else {
-        die(format!("failed to open the given file '{}'", &args.file));
+        die(format!("failed to open the given file '{}'", args.file));
         return;
     };
     let source = match path.parent() {

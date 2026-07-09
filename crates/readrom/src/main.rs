@@ -141,7 +141,7 @@ fn main() {
     let args = parse_arguments();
 
     let Ok(mut input) = File::open(&args.file) else {
-        die(format!("failed to open the given file '{}'", &args.file));
+        die(format!("failed to open the given file '{}'", args.file));
         return;
     };
 
