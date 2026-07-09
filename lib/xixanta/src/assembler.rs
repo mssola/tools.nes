@@ -83,7 +83,7 @@ impl MemoryRange {
     /// Display the range in hexadecimal format and by taking into consideration
     /// on whether it's really a range or a single value.
     pub fn range_to_human(&self) -> String {
-        if self.range.start + 1 == self.range.end {
+        if self.range.start + 1 >= self.range.end {
             if self.range.start <= 0xFF {
                 return format!("${:02X}", self.range.start);
             }
