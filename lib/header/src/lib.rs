@@ -221,7 +221,7 @@ fn parse_ram_definition(
 ) -> Option<RamDefinition> {
     // If the bit for persistent memory was not set, then we don't even
     // bother. If there was something relevant here, then the ROM does not have
-    // a proper format.\
+    // a proper format.
     //
     // Moreover, if this is not NES 2.0 format, then we don't even bother as
     // defining this on iNES v1 is not recommended.

@@ -97,7 +97,10 @@ fn print_header(header: &Header) {
             def.size / 1024,
             def.kind
         );
+    } else if header.has_persistent_memory {
+        println!("  PRG-RAM size:\t\t8192 bytes (8KB)");
     }
+
     if let Some(def) = &header.chr_ram_definition {
         println!(
             "  CHR-RAM size:\t\t{} bytes ({}KB); {}",
