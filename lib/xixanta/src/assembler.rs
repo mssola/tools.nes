@@ -1382,11 +1382,7 @@ impl<'a> Assembler<'a> {
                     let val = bundle.bundle.value() as usize;
                     let range = MemoryRange {
                         range: (val..val + bundle.asan_reserve),
-                        name: if context_name == GLOBAL_CONTEXT {
-                            name.clone()
-                        } else {
-                            format!("{context_name}::{name}")
-                        },
+                        name: full_name,
                     };
 
                     // Increase the counters for memory usage on either RAM slot and
