@@ -225,10 +225,10 @@ fn save_memory_stats(source: &SourceInfo, memory: &mut MemoryResult, has_working
 
     for mr in ranges {
         if mr.range.start + 1 == mr.range.end {
-            if let Err(e) = writeln!(file, "{}: {}", mr.range_to_human(), mr.name) {
+            if let Err(e) = writeln!(file, "{}: {}", mr.to_human(), mr.name) {
                 return die(format!("could not write memory.txt file: {e}"));
             }
-        } else if let Err(e) = writeln!(file, "{}: {}", mr.range_to_human(), mr.name) {
+        } else if let Err(e) = writeln!(file, "{}: {}", mr.to_human(), mr.name) {
             return die(format!("could not write memory.txt file: {e}"));
         }
     }

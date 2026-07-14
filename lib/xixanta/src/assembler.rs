@@ -13,7 +13,6 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::ops::Neg;
-use std::ops::Range;
 
 /// The mode in which a literal is expressed.
 #[derive(Clone, PartialEq)]
@@ -69,20 +68,20 @@ struct PendingDefine {
     obj: Object,
 }
 
-/// Memory range that can be identified by a name.
+/// A range that can be identified by a name.
 #[derive(Clone, Debug, PartialEq)]
-pub struct MemoryRange {
-    // The range in memory itself.
-    pub range: Range<usize>,
+pub struct Range {
+    /// The range in memory itself.
+    pub range: std::ops::Range<usize>,
 
-    // Name that can access this memory range.
+    /// Name that can access this memory range.
     pub name: String,
 }
 
-impl MemoryRange {
+impl Range {
     /// Display the range in hexadecimal format and by taking into consideration
     /// on whether it's really a range or a single value.
-    pub fn range_to_human(&self) -> String {
+    pub fn to_human(&self) -> String {
         if self.range.start + 1 >= self.range.end {
             if self.range.start <= 0xFF {
                 return format!("${:02X}", self.range.start);
@@ -97,9 +96,9 @@ impl MemoryRange {
     }
 }
 
-impl std::fmt::Display for MemoryRange {
+impl std::fmt::Display for Range {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "'{}' ({})", self.name, self.range_to_human())
+        write!(f, "'{}' ({})", self.name, self.to_human())
     }
 }
 
@@ -165,7 +164,7 @@ struct Assembler<'a> {
     asan_next_reserve: usize,
 
     // The memory range as defined by an 'asan:stack' statement.
-    asan_stack_definition: Option<MemoryRange>,
+    asan_stack_definition: Option<Range>,
 
     // Stack of macro expansions. That is, every time a macro is expanded
     // (i.e. via 'bundle_call'), the node that performed the expansion is
@@ -196,7 +195,7 @@ struct Assembler<'a> {
 #[derive(Debug, Default)]
 pub struct MemoryResult {
     /// Memory ranges used by the source.
-    pub memory_ranges: Vec<MemoryRange>,
+    pub memory_ranges: Vec<Range>,
 
     /// Total Internal RAM being used by the source in bytes.
     pub total_internal_ram: usize,
@@ -608,7 +607,7 @@ impl<'a> Assembler<'a> {
                             }
                         }
                         None => {
-                            self.asan_stack_definition = Some(MemoryRange {
+                            self.asan_stack_definition = Some(Range {
                                 range: range.clone(),
                                 name: "<stack>".to_string(),
                             });
@@ -1366,58 +1365,63 @@ impl<'a> Assembler<'a> {
                     continue;
                 }
 
-                // If this is not a value, then go to the next iteration.
-                if !matches!(bundle.object_type, ObjectType::Value) {
-                    continue;
-                }
-
-                // We have a value at hand. If the address sanitizer is enabled
-                // and the current value is not explicitely set to ignore it, we
-                // should perform an extra check. That being said, we also skip
-                // this check if we detect the name to not be friendly to ASAN.
-                if self.asan_enabled && !bundle.asan_ignore && is_asan_friendly_name(name) {
-                    let actual_name = name.split("::").last().unwrap_or("");
-
-                    // Build up the memory range object for this bundle.
-                    let val = bundle.bundle.value() as usize;
-                    let range = MemoryRange {
-                        range: (val..val + bundle.asan_reserve),
-                        name: full_name,
-                    };
-
-                    // Increase the counters for memory usage on either RAM slot and
-                    // check for bounds.
-                    if actual_name.starts_with("zp_") || actual_name.starts_with("m_") {
-                        // Avoid considering references to PPU/APU addresses as
-                        // reserved memory.
-                        if range.range.start < 0x2000 {
-                            memory.total_internal_ram += bundle.asan_reserve;
-
-                            if memory.total_internal_ram > 0x800 {
-                                errors.push(Error {
-                                    line: 0,
-                                    global: true,
-                                    message: "out of internal RAM".to_string(),
-                                    expanded_from: self.macro_context.clone(),
-                                    source: self.sources[0].clone(),
-                                });
-                            }
-                        }
-                    } else if actual_name.starts_with("wr_") {
-                        memory.total_working_ram += bundle.asan_reserve;
-
-                        if memory.total_working_ram > 0x2000 {
-                            errors.push(Error {
-                                line: 0,
-                                global: true,
-                                message: "out of working RAM".to_string(),
-                                expanded_from: self.macro_context.clone(),
-                                source: self.sources[0].clone(),
-                            });
-                        }
+                // Lastly, if this is a value, then add it into our list of
+                // memory ranges, and if it's an address/proc into our list of
+                // addresses.
+                match bundle.object_type {
+                    ObjectType::Proc | ObjectType::Address => {
+                        // TODO
+                        println!("{full_name}");
                     }
+                    ObjectType::Value
+                        // We have a value at hand. If the address sanitizer is
+                        // enabled and the current value is not explicitely set
+                        // to ignore it, we should perform an extra check. That
+                        // being said, we also skip this check if we detect the
+                        // name to not be friendly to ASAN.
+                        if self.asan_enabled && !bundle.asan_ignore && is_asan_friendly_name(name) => {
+                            // Build up the memory range object for this bundle.
+                            let val = bundle.bundle.value() as usize;
+                            let range = Range {
+                                range: (val..val + bundle.asan_reserve),
+                                name: full_name,
+                            };
 
-                    memory.memory_ranges.push(range);
+                            // Increase the counters for memory usage on either RAM slot and
+                            // check for bounds.
+                            if name.starts_with("zp_") || name.starts_with("m_") {
+                                // Avoid considering references to PPU/APU addresses as
+                                // reserved memory.
+                                if range.range.start < 0x2000 {
+                                    memory.total_internal_ram += bundle.asan_reserve;
+
+                                    if memory.total_internal_ram > 0x800 {
+                                        errors.push(Error {
+                                            line: 0,
+                                            global: true,
+                                            message: "out of internal RAM".to_string(),
+                                            expanded_from: self.macro_context.clone(),
+                                            source: self.sources[0].clone(),
+                                        });
+                                    }
+                                }
+                            } else if name.starts_with("wr_") {
+                                memory.total_working_ram += bundle.asan_reserve;
+
+                                if memory.total_working_ram > 0x2000 {
+                                    errors.push(Error {
+                                        line: 0,
+                                        global: true,
+                                        message: "out of working RAM".to_string(),
+                                        expanded_from: self.macro_context.clone(),
+                                        source: self.sources[0].clone(),
+                                    });
+                                }
+                            }
+
+                            memory.memory_ranges.push(range);
+                        }
+                    _ => {}
                 }
             }
 
@@ -3451,7 +3455,7 @@ impl<'a> Assembler<'a> {
                             let end = original_value + object.asan_reserve;
 
                             if given_value < original_value || given_value >= end {
-                                let range = MemoryRange {
+                                let range = Range {
                                     name: name.value.value.clone(),
                                     range: (original_value..end),
                                 };
@@ -3510,7 +3514,7 @@ impl<'a> Assembler<'a> {
         if actual_name.starts_with("zp_") {
             if bundle.size > 1 {
                 let value = bundle.value() as usize;
-                let range = MemoryRange {
+                let range = Range {
                     name: node.value.value.to_owned(),
                     range: (value..(value + self.asan_next_reserve)),
                 };
@@ -3524,7 +3528,7 @@ impl<'a> Assembler<'a> {
             }
         } else if bundle.size != 2 {
             let value = bundle.value() as usize;
-            let range = MemoryRange {
+            let range = Range {
                 name: node.value.value.to_owned(),
                 range: (value..(value + self.asan_next_reserve)),
             };
@@ -3539,7 +3543,7 @@ impl<'a> Assembler<'a> {
             });
         } else if actual_name.starts_with("wr_") {
             let value = bundle.value() as usize;
-            let range = MemoryRange {
+            let range = Range {
                 name: node.value.value.to_owned(),
                 range: (value..(value + self.asan_next_reserve)),
             };
