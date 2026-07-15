@@ -187,6 +187,18 @@ struct Assembler<'a> {
     // List of mapping/segment indeces which the programmer asked to be
     // considered safe.
     safe_segments: Vec<(usize, usize)>,
+
+    // Name of the last proc that was encountered while traversing the parsed
+    // nodes.
+    last_proc: String,
+
+    // Target address that was last saved in push_bundle().
+    last_address: Option<usize>,
+
+    // Map that identifies for each given string identifying a piece of code
+    // (e.g. a proc's name), the address which can be used as the 'end' for a
+    // Range object.
+    address_ends: HashMap<String, usize>,
 }
 
 /// The result to be given at the end of `assembler::assemble` and
@@ -232,6 +244,14 @@ pub struct AssemblerResult {
     /// The resaulting memory analysis from the address sanitizer. Ignore this
     /// if you did not assemble the source with the address sanitizer enabled.
     pub memory: MemoryResult,
+
+    /// The addresses that have been evaluated. Note that some addresses will be
+    /// proper ranges (i.e. proc's), while others will only be a value (i.e.
+    /// labels). This is done in purpose as there's no reliable way to guess
+    /// whether a label was actually a subroutine or not. Hence, we don't even
+    /// try and encourage programmers to use .proc's when necessary (see
+    /// style.nes).
+    pub addresses: Vec<Range>,
 }
 
 /// Read the contents from the `reader` as a source file and produce a list of
@@ -264,6 +284,7 @@ pub fn assemble(
                 mappings: vec![],
                 accessing_working_ram: false,
                 memory: MemoryResult::default(),
+                addresses: vec![],
             };
         }
     };
@@ -291,6 +312,7 @@ pub fn assemble_with_mapping(
 
     let mut asm = Assembler::new(mapping);
     let mut memory = MemoryResult::default();
+    let mut addresses = vec![];
     asm.asan_enabled = asan;
     asm.allow_unused = allow_unused;
 
@@ -305,6 +327,7 @@ pub fn assemble_with_mapping(
             mappings: asm.mappings,
             accessing_working_ram: asm.accessing_working_ram,
             memory,
+            addresses,
         };
     }
 
@@ -322,6 +345,7 @@ pub fn assemble_with_mapping(
                 mappings: asm.mappings,
                 accessing_working_ram: asm.accessing_working_ram,
                 memory,
+                addresses,
             };
         }
     }
@@ -336,6 +360,7 @@ pub fn assemble_with_mapping(
             mappings: asm.mappings,
             accessing_working_ram: asm.accessing_working_ram,
             memory,
+            addresses,
         };
     }
 
@@ -372,6 +397,7 @@ pub fn assemble_with_mapping(
             mappings: asm.mappings,
             accessing_working_ram: asm.accessing_working_ram,
             memory,
+            addresses,
         };
     }
 
@@ -385,12 +411,13 @@ pub fn assemble_with_mapping(
             mappings: asm.mappings,
             accessing_working_ram: asm.accessing_working_ram,
             memory,
+            addresses,
         };
     }
 
     // Before filling in the holes with fill(), let's check what we have
     // processed so far.
-    if let Err(errors) = asm.check(&mut memory) {
+    if let Err(errors) = asm.check(&mut memory, &mut addresses) {
         return AssemblerResult {
             bundles: vec![],
             errors,
@@ -398,6 +425,7 @@ pub fn assemble_with_mapping(
             mappings: asm.mappings,
             accessing_working_ram: asm.accessing_working_ram,
             memory,
+            addresses,
         };
     }
 
@@ -416,6 +444,7 @@ pub fn assemble_with_mapping(
             mappings: asm.mappings,
             accessing_working_ram: asm.accessing_working_ram,
             memory,
+            addresses,
         },
         Err(errors) => AssemblerResult {
             bundles: vec![],
@@ -424,6 +453,7 @@ pub fn assemble_with_mapping(
             mappings: asm.mappings,
             accessing_working_ram: asm.accessing_working_ram,
             memory,
+            addresses,
         },
     }
 }
@@ -457,6 +487,9 @@ impl<'a> Assembler<'a> {
             pending_defines: vec![],
             objects_visited: vec![],
             safe_segments: vec![],
+            last_proc: String::new(),
+            last_address: None,
+            address_ends: HashMap::new(),
         }
     }
 
@@ -915,6 +948,8 @@ impl<'a> Assembler<'a> {
                 // then open up its inner context.
                 NodeType::Control(ControlType::StartProc) => {
                     let proc_name = &node.left.as_ref().unwrap();
+                    self.last_proc = proc_name.value.value.clone();
+
                     if let Err(e) = self.apply_segment_offset_to_label(proc_name, ObjectType::Proc)
                     {
                         errors.push(e);
@@ -984,6 +1019,23 @@ impl<'a> Assembler<'a> {
                         ControlType::Echo(t) => self.evaluate_echo(node, t)?,
                         ControlType::StartRepeat => {
                             self.evaluate_repeat_statement(node)?;
+                        }
+                        ControlType::EndProc => {
+                            // Save the last visited proc as the index for the
+                            // 'address_ends' map. Note that we need to have it
+                            // here because after the previous
+                            // evaluate_control_statement() call the context
+                            // will be the right one.
+
+                            let context_name = self.context.name();
+                            let full_name = if context_name == GLOBAL_CONTEXT {
+                                self.last_proc.clone()
+                            } else {
+                                format!("{context_name}::{}", self.last_proc)
+                            };
+                            if let Some(last_address) = self.last_address {
+                                self.address_ends.insert(full_name, last_address);
+                            }
                         }
                         ControlType::StartScope
                             // If this is the start of a .scope statement, then go
@@ -1275,8 +1327,12 @@ impl<'a> Assembler<'a> {
     }
 
     // Perform different checks on the bundles we have produced so far, and
-    // update the 'memory' if possible (i.e. ASAN is enabled).
-    fn check(&mut self, memory: &mut MemoryResult) -> Result<(), Vec<Error>> {
+    // update the 'memory' and the 'addresses' if possible.
+    fn check(
+        &mut self,
+        memory: &mut MemoryResult,
+        addresses: &mut Vec<Range>,
+    ) -> Result<(), Vec<Error>> {
         let mut errors = vec![];
 
         for (context_name, map) in self.context.map.iter() {
@@ -1370,8 +1426,21 @@ impl<'a> Assembler<'a> {
                 // addresses.
                 match bundle.object_type {
                     ObjectType::Proc | ObjectType::Address => {
-                        // TODO
-                        println!("{full_name}");
+                        // Using unwrap() is safe as it only returns an error on
+                        // badly formatted addresses. This will not happen at
+                        // this point.
+                        let resolved = self.context.resolve_label(&self.mappings, &bundle).unwrap();
+
+                        let val = resolved.bundle.value() as usize;
+                        let end = match self.address_ends.get(&full_name) {
+                            Some(v) => v,
+                            None => &val,
+                        };
+                        let range = Range {
+                            range: (val..*end),
+                            name: full_name,
+                        };
+                        addresses.push(range);
                     }
                     ObjectType::Value
                         // We have a value at hand. If the address sanitizer is
@@ -1695,6 +1764,13 @@ impl<'a> Assembler<'a> {
         bundle.address = current.start as usize + current.offset;
         current.offset += bundle.size as usize;
         current.segments[self.current_segment].offset += bundle.size as usize;
+
+        // Save this bundle as the last address being used. Note that the
+        // address being pointed at is _after_ consuming the bundle (i.e. by
+        // adding 'bundle.size'). This is because in the end this 'last_address'
+        // is going to be used by the Range struct as its 'end' member. Since
+        // this is going to be inclusive, we need to point at the "next" bundle.
+        self.last_address = Some(bundle.address + bundle.size as usize);
 
         // Mark this bundle as reference-safe, so the checker afterwards doesn't
         // complain on different checks.

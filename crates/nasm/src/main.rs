@@ -270,6 +270,20 @@ fn print_memory_summary(mut output: Box<dyn Write>, memory: &MemoryResult, has_w
     }
 }
 
+// Save the 'addresses' list into the `<source>/.nasm/addresses.txt` file.
+fn save_addresses(source: &SourceInfo, mut addresses: Vec<xixanta::assembler::Range>) {
+    let Ok(mut file) = File::create(get_directory_from_source(source).join("addresses.txt")) else {
+        return die("could not write memory.txt file".to_string());
+    };
+
+    addresses.sort_by_key(|a| a.range.start);
+    for a in addresses {
+        if let Err(e) = writeln!(file, "{},{:04X},{:04X}", a.name, a.range.start, a.range.end) {
+            return die(format!("could not write addresses.txt file: {e}"));
+        }
+    }
+}
+
 // Print to the `output` stream the statistics that can be gathered from the
 // given `mappings`.
 fn print_segments_stats(mut output: Box<dyn Write>, mappings: &[Mapping]) {
@@ -462,5 +476,10 @@ fn main() {
             println!("\n=> Amount of memory used (in bytes):\n");
             print_memory_summary(Box::new(io::stdout()), &memory, has_working_ram);
         }
+    }
+
+    // Print addresses.
+    if args.info {
+        save_addresses(&source, res.addresses);
     }
 }

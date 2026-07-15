@@ -246,6 +246,22 @@ fit in a byte. Hence, you could have a code like follows:
 If you compile the code with `-D PAL=1`, then the first branch will be taken
 instead of the second one.
 
+## The .nasm/ directory
+
+When you enable the `--write-info` flag, some files will be written into a
+hidden `.nasm/` directory. This directory will contain debug information that
+can be later used by other tools. That being said, some of these files can also
+be useful to programmers. They are as follows:
+
+- `segments.txt`: summary of the segments being used and how much they have been
+  filled. Note that you need to also pass `--stats` to get this file.
+- `memory.txt`: list of variables being used, expressed as ranges to account for
+  reservation via the `asan:reserve` special comment. Note that you need to also
+  pass `--asan` to get this file.
+- `addresses.txt`: list of addresses known by the assembler, expressed as ranges
+  to account for blocks of code like proc's. You don't need any other flag for
+  this file.
+
 ## Unused code
 
 This assembler will also issue a warning whenever it finds unreferenced
