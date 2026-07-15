@@ -1429,7 +1429,7 @@ impl<'a> Assembler<'a> {
                         // Using unwrap() is safe as it only returns an error on
                         // badly formatted addresses. This will not happen at
                         // this point.
-                        let resolved = self.context.resolve_label(&self.mappings, &bundle).unwrap();
+                        let resolved = self.context.resolve_label(&self.mappings, bundle).unwrap();
 
                         let val = resolved.bundle.value() as usize;
                         let end = match self.address_ends.get(&full_name) {

@@ -1,6 +1,9 @@
 use header::{Header, Kind};
+use std::collections::HashMap;
 use std::fs::File;
-use std::io::{ErrorKind, Read};
+use std::io::{BufRead, BufReader, BufWriter, ErrorKind, Read, Write};
+use std::path::PathBuf;
+use xixanta::opcodes::OPCODES;
 
 /// Version for this program.
 const VERSION: &str = "0.1.0";
@@ -9,15 +12,21 @@ const VERSION: &str = "0.1.0";
 struct Args {
     file: String,
     header: bool,
+    disassemble: Option<String>,
+    nasm: Option<String>,
+    raw: bool,
 }
 
 fn print_help() {
     println!("Display information about NES/Famicom ROM files.\n");
     println!("usage: readrom [OPTIONS] <FILE>\n");
     println!("Options:");
-    println!("  -h, --help\t\tPrint this message.");
-    println!("  -H, --header\t\tJust print the ROM header and quit.");
-    println!("  -v, --version\t\tPrint the version of this program.");
+    println!("  -d, --disassemble <ADDRESS>\tDisassemble starting from the given ADDRESS.");
+    println!("  -h, --help\t\t\tPrint this message.");
+    println!("  -H, --header\t\t\tJust print the ROM header and quit.");
+    println!("  -n, --nasm-directory <PATH>\tPath to the .nasm/ directory.");
+    println!("  -r, --raw\t\t\tPrint bytes with no formatting at all when disassembling.");
+    println!("  -v, --version\t\t\tPrint the version of this program.");
     std::process::exit(0);
 }
 
@@ -30,8 +39,14 @@ fn parse_arguments() -> Args {
     // Skip command name.
     args.next();
 
-    for arg in args {
+    while let Some(arg) = args.next() {
         match arg.as_str() {
+            "-d" | "--disassemble" => match args.next() {
+                Some(a) => res.disassemble = Some(a),
+                None => die(
+                    "you need to specify an address for the '-d/--disassemble' flag".to_string(),
+                ),
+            },
             "-h" | "--help" => print_help(),
             "-H" | "--header" => {
                 if res.header {
@@ -39,6 +54,11 @@ fn parse_arguments() -> Args {
                 }
                 res.header = true;
             }
+            "-n" | "--nasm" => match args.next() {
+                Some(a) => res.nasm = Some(a),
+                None => die("you need to specify a file for the '-n/--nasm' flag".to_string()),
+            },
+            "-r" | "--raw" => res.raw = true,
             "-v" | "--version" => {
                 println!("readrom {VERSION}");
                 std::process::exit(0);
@@ -140,6 +160,240 @@ fn die(message: String) {
     std::process::exit(1);
 }
 
+// Print a block of code from the given open ROM 'file'. The range is indicated
+// by 'start' and an optional 'end'. If 'end' is None, then the block of code
+// will only span a single instruction. Moreover, the 'memories' and the
+// 'addresses' maps can help assist the printing with the information taken from
+// the .nasm/memory.txt and .nasm/addresses.txt files respectively. Finally, set
+// 'raw' to true if you want all bytes to be printed directly into the stdout,
+// otherwise a human-readable format will be used.
+fn print_range(
+    mut file: File,
+    start: usize,
+    end: Option<usize>,
+    memories: HashMap<usize, String>,
+    addresses: HashMap<usize, String>,
+    raw: bool,
+    filter: Option<&str>,
+) -> Result<(), String> {
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+
+    // Fetch the bytes to be printed.
+
+    // NOTE: minus 0x8000 to account for non-ROM address, plus 0x10 to skip the
+    // header from the file.
+    let range_start = start
+        .checked_sub(0x8000)
+        .map(|val| val + 0x10)
+        .ok_or_else(|| format!("bad start address {:#x}", start))?;
+
+    // The 'end' of the range depends on whether the user is just printing a
+    // single instruction or it's really trying to print a proper range.
+    let res = match end {
+        Some(e) => {
+            let range_end = e
+                .checked_sub(0x8000)
+                .map(|val| val + 0x10)
+                .ok_or_else(|| format!("bad end address {:#x}", e))?;
+            bytes.get(range_start..range_end).unwrap_or(&[])
+        }
+        // If it's just one instruction, take the opcode byte and some more to
+        // account for the maximum size of an instruction on this platform.
+        None => bytes.get(range_start..range_start + 3).unwrap_or(&[]),
+    };
+
+    // Printing raw: blindessly spit bytes to stdout.
+    if raw {
+        let mut writer = BufWriter::new(std::io::stdout());
+        writer
+            .write_all(&res[..res.len()])
+            .map_err(|_| "cannot write to the stdout".to_string())?;
+        return Ok(());
+    }
+
+    // Print into a more human-readable shape.
+
+    let mut iter = res.iter();
+    let mut current_address = start;
+    while let Some(byte) = iter.next() {
+        // Given the opcode, fetch the instruction object for it, and how much
+        // the address should be advanced after printing the instruction.
+        let (instr, size, formatted) = match OPCODES.get(byte) {
+            Some(tpl) => {
+                let mut ins = tpl.clone();
+                let mut formatted = format!("{:02X}\t", byte);
+
+                match ins.size {
+                    2 => {
+                        ins.bytes[0] = *iter.next().unwrap_or(&0);
+                        formatted = format!("{:02X} {:02X}\t", byte, ins.bytes[0]);
+                    }
+                    3 => {
+                        ins.bytes[0] = *iter.next().unwrap_or(&0);
+                        ins.bytes[1] = *iter.next().unwrap_or(&0);
+                        formatted =
+                            format!("{:02X} {:02X} {:02X}", byte, ins.bytes[0], ins.bytes[1]);
+                    }
+                    _ => {}
+                }
+
+                (
+                    ins.to_human(current_address, filter, &memories, &addresses),
+                    ins.size,
+                    formatted,
+                )
+            }
+            None => (byte.to_string(), 1, byte.to_string()),
+        };
+
+        // Do we actually know of a label which points to the current address?
+        // If so, show it now.
+        if let Some(address_name) = addresses.get(&current_address)
+            && current_address != start
+        {
+            println!(
+                "\n  {}:",
+                address_name.split("::").last().unwrap_or(address_name)
+            );
+        }
+
+        // And print our awesome line :)
+        println!("${:4X}:\t{}\t{} ", current_address, formatted, instr);
+        current_address += size as usize;
+
+        if end.is_none() {
+            break;
+        }
+    }
+
+    // Sometimes there is a label marking the end of the code, which is set
+    // after the last instruction. Show these labels too as some branch
+    // instructions can use it.
+    if let Some(address_name) = addresses.get(&current_address) {
+        println!(
+            "\n  {}:",
+            address_name.split("::").last().unwrap_or(address_name)
+        );
+    }
+
+    Ok(())
+}
+
+fn parse_hex_value(address: &str) -> Option<usize> {
+    match address.len() {
+        // Simple 'a2fb' format.
+        4 => {
+            if let Ok(val) = usize::from_str_radix(address, 16) {
+                return Some(val);
+            }
+        }
+        // nasm's '$a2fb' format.
+        5 => {
+            if let Some(addr) = address.get(1..)
+                && let Ok(val) = usize::from_str_radix(addr, 16)
+            {
+                return Some(val);
+            }
+        }
+        // Standard '0xa2fb' format.
+        6 => {
+            if let Some(addr) = address.get(2..)
+                && let Ok(val) = usize::from_str_radix(addr, 16)
+            {
+                return Some(val);
+            }
+        }
+        _ => {}
+    }
+
+    None
+}
+
+fn do_disassemble(
+    input: File,
+    address: &str,
+    nasm_path: &Option<String>,
+    raw: bool,
+) -> Result<(), String> {
+    let mut start = None;
+    let mut end = None;
+    let mut is_nasm_path = true;
+    let mut addresses: HashMap<usize, String> = HashMap::default();
+    let mut memories: HashMap<usize, String> = HashMap::default();
+
+    // Fill up the 'addresses' and the 'memories' maps.
+    if let Some(path) = nasm_path {
+        if let Ok(file) = File::open(PathBuf::from(path).join("addresses.txt")) {
+            let reader = BufReader::new(file);
+            for line in reader.lines() {
+                let line = line.map_err(|e| e.to_string())?;
+                let columns: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+                if columns.len() != 3 {
+                    return Err("badly formatted address file".to_string());
+                }
+
+                let parsed_start = usize::from_str_radix(columns[1], 16)
+                    .map_err(|_| format!("invalid hex value: '{}'", columns[1]))?;
+                addresses.insert(parsed_start, columns[0].to_string());
+
+                if columns[0] == address {
+                    start = Some(parsed_start);
+                    end = Some(
+                        usize::from_str_radix(columns[2], 16)
+                            .map_err(|_| format!("invalid hex value: '{}'", columns[2]))?,
+                    );
+                }
+            }
+        }
+
+        // If the memory.txt file is available, fill up the 'memories' hash.
+        if let Ok(file) = File::open(PathBuf::from(path).join("memory.txt")) {
+            let reader = BufReader::new(file);
+            for line in reader.lines() {
+                let line = line.map_err(|e| e.to_string())?;
+                if line.is_empty() || line.starts_with("---") {
+                    break;
+                }
+
+                let (left, right) = line.split_once(':').unwrap();
+                let start = match left.trim().split_once('-') {
+                    Some((start, _)) => usize::from_str_radix(start.get(1..).unwrap(), 16).unwrap(),
+                    None => usize::from_str_radix(left.get(1..).unwrap(), 16).unwrap(),
+                };
+                memories.insert(start, right.trim().to_string());
+            }
+        }
+    } else {
+        is_nasm_path = false;
+    }
+
+    // If this is just a numeric value, take it as is.
+    if let Some(start) = parse_hex_value(address) {
+        return print_range(input, start, None, memories, addresses, raw, None);
+    }
+
+    // Otherwise, print the full range if possible.
+    if !is_nasm_path {
+        Err("you need to use the '-n/--nasm-directory' on disassembly".to_string())
+    } else if addresses.is_empty() {
+        Err("failed to open the .nasm/addresses.txt file".to_string())
+    } else {
+        match start {
+            Some(s) => print_range(
+                input,
+                s,
+                Some(end.unwrap()),
+                memories,
+                addresses,
+                raw,
+                Some(format!("{address}::").as_str()),
+            ),
+            None => Err(format!("could not find address '{address}'")),
+        }
+    }
+}
+
 fn main() {
     let args = parse_arguments();
 
@@ -148,7 +402,16 @@ fn main() {
         return;
     };
 
-    // Header.
+    // Check whether the user wanted to disassemble something.
+
+    if let Some(address) = args.disassemble {
+        if let Err(e) = do_disassemble(input, &address, &args.nasm, args.raw) {
+            die(e);
+        }
+        std::process::exit(0);
+    }
+
+    // Nope. Then let's just print information about it. First the header.
 
     let mut buf = vec![0u8; 0x10];
     if let Err(e) = input.read_exact(&mut buf) {

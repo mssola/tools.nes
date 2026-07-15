@@ -22,10 +22,9 @@ will invoke `nasm` with more pedantic features like its address sanitizer.
 
 ## `readrom`
 
-The `readrom` program reads a given ROM file and shows all the information that
-can be gathered from it. For now this only applies to information on the header,
-but in the future we might want to add disassembling user-specified segments,
-for example.
+`readrom` is an objdump-like utility that reads a given ROM file and shows
+information about it. Read more about it in
+[./crates/readrom/README.md](./crates/readrom/README.md).
 
 ## License
 

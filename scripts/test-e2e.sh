@@ -236,11 +236,35 @@ echo "LEVEL = 0" >> tests/jetpac.nes/config/generated.s
 # NOTE: we use '--stats' as otherwise the 'segments.txt' file would be removed
 # from the jetpac.nes repository, and the submodule would then be marked with
 # "-dirty".
-$AS65 --no-errors --allow-unused --strict --stats -b ./target/debug/nasm -C tests/jetpac.nes/config/nrom.cfg -o /dev/null tests/jetpac.nes/src/jetpac.s 1>/dev/null
+$AS65 --no-errors --allow-unused --strict --stats -b ./target/debug/nasm -C tests/jetpac.nes/config/nrom.cfg -o tests/out/jetpac.NTSC.nes tests/jetpac.nes/src/jetpac.s 1>/dev/null
 
 # Remove the generated.s file to avoid git from thinking we have modified the
 # project in any meaningful way.
 rm -f tests/jetpac.nes/config/generated.s
+
+##
+# readrom
+
+echo "test: readrom: header (jetpac.nes)"
+./target/debug/readrom tests/out/jetpac.NTSC.nes > tests/out/jetpac.header.txt
+diff tests/out/jetpac.header.txt tests/expected/readrom/header.txt
+exit_code=$((exit_code + $?))
+
+echo "test: readrom: hexadecimal address (jetpac.nes)"
+./target/debug/readrom -d '$a3b2' -n tests/jetpac.nes/.nasm/ tests/out/jetpac.NTSC.nes > tests/out/jetpac-a3b2-address.txt
+diff tests/out/jetpac-a3b2-address.txt tests/expected/readrom/a3b2-address.txt
+exit_code=$((exit_code + $?))
+
+echo "test: readrom: full NMI disassembling (jetpac.nes)"
+./target/debug/readrom -d nmi -n tests/jetpac.nes/.nasm/ tests/out/jetpac.NTSC.nes > tests/out/jetpac-full-nmi.txt
+diff tests/out/jetpac-full-nmi.txt tests/expected/readrom/jetpac-full-nmi.txt
+exit_code=$((exit_code + $?))
+
+# Remove the dangling jetpac.nes ROM file.
+rm tests/out/jetpac.NTSC.nes
+
+# This file wasn't available originally on jetpac.nes
+rm -f tests/jetpac.nes/.nasm/addresses.txt
 
 ##
 # Done!

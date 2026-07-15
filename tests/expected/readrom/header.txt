@@ -1,0 +1,11 @@
+Header:
+  Kind:			NES 2.0
+  PRG ROM size:		32768 bytes (32KB)
+  CHR ROM size:		8192 bytes (8KB)
+  Mapper:		NROM
+  Mirroring:		Horizontal
+  CPU/PPU timing:	NTSC
+Vectors:
+  NMI:			0xa2f8
+  Reset:		0xa3c2
+  IRQ:			0xa3c1

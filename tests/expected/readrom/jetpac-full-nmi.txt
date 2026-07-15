@@ -1,0 +1,123 @@
+$A2F8:	24 20		bit Globals::zp_flags 
+$A2FA:	30 01		bmi @save_registers 
+$A2FC:	40		rti 
+
+  @save_registers:
+$A2FD:	48		pha 
+$A2FE:	8A		txa 
+$A2FF:	48		pha 
+$A300:	98		tya 
+$A301:	48		pha 
+$A302:	A9 00		lda #$00 
+$A304:	8D 03 20	sta OAM::m_address 
+$A307:	A9 02		lda #$02 
+$A309:	8D 14 40	sta OAM::m_dma 
+$A30C:	24 28		bit Globals::zp_extra_flags 
+$A30E:	10 03		bpl @check_pause 
+$A310:	20 EE 8C	jsr Score::nmi_update_scores 
+
+  @check_pause:
+$A313:	24 38		bit Driver::zp_flags 
+$A315:	50 03		bvc @increase_rand 
+$A317:	20 62 A2	jsr Driver::nmi_hud_toggle_pause 
+
+  @increase_rand:
+$A31A:	E6 0A		inc Prng::zp_rand 
+$A31C:	A9 08		lda #$08 
+$A31E:	25 20		and Globals::zp_flags 
+$A320:	D0 6E		bne @ppu_registers 
+$A322:	24 2E		bit Driver::zp_blink_status 
+$A324:	10 0B		bpl @update_lifes 
+$A326:	A9 00		lda #$00 
+$A328:	50 02		bvc @set_blinking 
+$A32A:	A9 70		lda #$70 
+
+  @set_blinking:
+$A32C:	85 04		sta Globals::zp_nmi_reserved 
+$A32E:	20 BC A2	jsr Driver::nmi_blink_player_selection 
+
+  @update_lifes:
+$A331:	A5 50		lda Player::zp_state 
+$A333:	29 08		and #$08 
+$A335:	F0 34		beq @shuttle_update 
+$A337:	2C 02 20	bit PPU::m_status 
+$A33A:	A9 28		lda #$28 
+$A33C:	8D 06 20	sta PPU::m_address 
+$A33F:	A9 4B		lda #$4B 
+$A341:	8D 06 20	sta PPU::m_address 
+$A344:	A5 53		lda Player::zp_lifes 
+$A346:	18		clc 
+$A347:	69 10		adc #$10 
+$A349:	8D 07 20	sta PPU::m_data 
+$A34C:	24 27		bit Globals::zp_multiplayer 
+$A34E:	10 15		bpl @unset_life_flag 
+$A350:	2C 02 20	bit PPU::m_status 
+$A353:	A9 28		lda #$28 
+$A355:	8D 06 20	sta PPU::m_address 
+$A358:	A9 56		lda #$56 
+$A35A:	8D 06 20	sta PPU::m_address 
+$A35D:	A5 54		lda $54 
+$A35F:	18		clc 
+$A360:	69 10		adc #$10 
+$A362:	8D 07 20	sta PPU::m_data 
+
+  @unset_life_flag:
+$A365:	A5 50		lda Player::zp_state 
+$A367:	29 F7		and #$F7 
+$A369:	85 50		sta Player::zp_state 
+
+  @shuttle_update:
+$A36B:	A5 20		lda Globals::zp_flags 
+$A36D:	AA		tax 
+$A36E:	29 20		and #$20 
+$A370:	F0 13		beq @game_status 
+$A372:	A5 CB		lda Items::zp_collected 
+$A374:	D0 06		bne @do_update_shuttle 
+$A376:	20 78 89	jsr Background::nmi_clear_shuttle 
+$A379:	4C 7F A3	jmp @unset_shuttle_flag 
+
+  @do_update_shuttle:
+$A37C:	20 59 91	jsr Items::update_shuttle 
+
+  @unset_shuttle_flag:
+$A37F:	A5 20		lda Globals::zp_flags 
+$A381:	29 DF		and #$DF 
+$A383:	85 20		sta Globals::zp_flags 
+
+  @game_status:
+$A385:	8A		txa 
+$A386:	29 01		and #$01 
+$A388:	D0 06		bne @ppu_registers 
+$A38A:	A5 30		lda Title::zp_title_timer 
+$A38C:	F0 02		beq @ppu_registers 
+$A38E:	C6 30		dec Title::zp_title_timer 
+
+  @ppu_registers:
+$A390:	24 20		bit Globals::zp_flags 
+$A392:	50 13		bvc @scroll 
+$A394:	A9 BF		lda #$BF 
+$A396:	25 20		and Globals::zp_flags 
+$A398:	85 20		sta Globals::zp_flags 
+$A39A:	2C 02 20	bit PPU::m_status 
+$A39D:	A5 81		lda PPU::zp_mask 
+$A39F:	8D 01 20	sta PPU::m_mask 
+$A3A2:	A5 80		lda PPU::zp_control 
+$A3A4:	8D 00 20	sta PPU::m_control 
+
+  @scroll:
+$A3A7:	2C 02 20	bit PPU::m_status 
+$A3AA:	A9 00		lda #$00 
+$A3AC:	8D 05 20	sta PPU::m_scroll 
+$A3AF:	8D 05 20	sta PPU::m_scroll 
+$A3B2:	20 1D 8B	jsr Sound::tick 
+$A3B5:	A9 7F		lda #$7F 
+$A3B7:	25 20		and Globals::zp_flags 
+$A3B9:	85 20		sta Globals::zp_flags 
+$A3BB:	68		pla 
+$A3BC:	A8		tay 
+$A3BD:	68		pla 
+$A3BE:	AA		tax 
+$A3BF:	68		pla 
+$A3C0:	40		rti 
+
+  irq:
