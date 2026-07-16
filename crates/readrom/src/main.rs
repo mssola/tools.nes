@@ -1,7 +1,7 @@
 use header::{Header, Kind};
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufRead, BufReader, BufWriter, ErrorKind, Read, Seek, SeekFrom, Write};
+use std::io::{BufRead, BufReader, BufWriter, ErrorKind, Read, Write};
 use std::path::PathBuf;
 use xixanta::mapping::get_mapping_configuration;
 use xixanta::opcodes::OPCODES;
@@ -188,7 +188,7 @@ fn die(message: String) {
 // 'raw' to true if you want all bytes to be printed directly into the stdout,
 // otherwise a human-readable format will be used.
 fn print_range(
-    mut file: &File,
+    bytes: &[u8],
     start: usize,
     end: Option<usize>,
     memories: HashMap<usize, String>,
@@ -196,11 +196,7 @@ fn print_range(
     raw: bool,
     filter: Option<&str>,
 ) -> Result<(), String> {
-    let mut bytes = Vec::new();
-    file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
-    file.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
-
-    // Fetch the bytes to be printed.
+    // Put a lower and upper bounds to the bytes to be used for printing.
 
     // NOTE: minus 0x8000 to account for non-ROM address, plus 0x10 to skip the
     // header from the file.
@@ -338,7 +334,7 @@ fn parse_hex_value(address: &str) -> Option<usize> {
 }
 
 fn do_disassemble(
-    input: &File,
+    bytes: &[u8],
     address: Option<&str>,
     nasm_path: &Option<String>,
     mut start: Option<usize>,
@@ -399,7 +395,7 @@ fn do_disassemble(
     if let Some(address) = address
         && let Some(start) = parse_hex_value(address)
     {
-        return print_range(input, start, None, memories, addresses, raw, None);
+        return print_range(bytes, start, None, memories, addresses, raw, None);
     }
 
     // Otherwise, print the full range if possible.
@@ -413,7 +409,7 @@ fn do_disassemble(
 
         match start {
             Some(s) => print_range(
-                input,
+                bytes,
                 s,
                 Some(end.unwrap()),
                 memories,
@@ -426,9 +422,12 @@ fn do_disassemble(
     }
 }
 
-fn handle_disassembling_args(args: &Args, input: &File) -> Result<bool, String> {
+fn handle_disassembling_args(args: &Args, mut input: &File) -> Result<bool, String> {
+    let mut bytes = Vec::new();
+    input.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+
     if let Some(address) = &args.disassemble {
-        if let Err(e) = do_disassemble(input, Some(address), &args.nasm, None, None, args.raw) {
+        if let Err(e) = do_disassemble(&bytes, Some(address), &args.nasm, None, None, args.raw) {
             die(e);
         }
         return Ok(true);
@@ -455,7 +454,7 @@ fn handle_disassembling_args(args: &Args, input: &File) -> Result<bool, String> 
                             .collect::<Vec<_>>()
                             .join(", ")
                     );
-                    do_disassemble(input, None, &args.nasm, Some(start), Some(end), args.raw)?;
+                    do_disassemble(&bytes, None, &args.nasm, Some(start), Some(end), args.raw)?;
                 }
             }
             None => {
@@ -484,7 +483,7 @@ fn handle_disassembling_args(args: &Args, input: &File) -> Result<bool, String> 
                                 .collect::<Vec<_>>()
                                 .join(", ")
                         );
-                        do_disassemble(input, None, &args.nasm, Some(start), Some(end), args.raw)?;
+                        do_disassemble(&bytes, None, &args.nasm, Some(start), Some(end), args.raw)?;
                         return Ok(true);
                     }
                     for segment in &m.segments {
@@ -501,7 +500,7 @@ fn handle_disassembling_args(args: &Args, input: &File) -> Result<bool, String> 
                                     .join(", ")
                             );
                             do_disassemble(
-                                input,
+                                &bytes,
                                 None,
                                 &args.nasm,
                                 Some(start),
