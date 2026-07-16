@@ -1,7 +1,7 @@
 use header::{Header, Kind};
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufRead, BufReader, BufWriter, ErrorKind, Read, Write};
+use std::io::{BufRead, BufReader, BufWriter, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 use xixanta::mapping::get_mapping_configuration;
 use xixanta::opcodes::OPCODES;
@@ -13,6 +13,7 @@ const VERSION: &str = "0.1.0";
 struct Args {
     file: String,
     header: bool,
+    all: bool,
     disassemble: Option<String>,
     mapping: Option<String>,
     nasm: Option<String>,
@@ -24,6 +25,7 @@ fn print_help() {
     println!("Display information about NES/Famicom ROM files.\n");
     println!("usage: readrom [OPTIONS] <FILE>\n");
     println!("Options:");
+    println!("  -a, --disassemble-all\tDisassemble everything from the ROM file.");
     println!(
         "  -c, --config <FILE>\tLinker configuration to be used, whether an identifier or a file path."
     );
@@ -48,6 +50,7 @@ fn parse_arguments() -> Args {
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "-a" | "--all" => res.all = true,
             "-c" | "--config" => match args.next() {
                 Some(a) => res.config = Some(a),
                 None => die("you need to specify a value for the '-c/--config' flag".to_string()),
@@ -194,6 +197,7 @@ fn print_range(
     filter: Option<&str>,
 ) -> Result<(), String> {
     let mut bytes = Vec::new();
+    file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
     file.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
 
     // Fetch the bytes to be printed.
@@ -261,7 +265,7 @@ fn print_range(
                     formatted,
                 )
             }
-            None => (byte.to_string(), 1, byte.to_string()),
+            None => ("<unknown>".to_string(), 1, "<unknown>".to_string()),
         };
 
         // Do we actually know of a label which points to the current address?
@@ -426,6 +430,39 @@ fn handle_disassembling_args(args: &Args, input: &File) -> Result<bool, String> 
     if let Some(address) = &args.disassemble {
         if let Err(e) = do_disassemble(input, Some(address), &args.nasm, None, None, args.raw) {
             die(e);
+        }
+        return Ok(true);
+    }
+
+    if args.all {
+        match &args.config {
+            Some(cfg) => {
+                let mappings = get_mapping_configuration(cfg)?;
+                for m in &mappings {
+                    // If this is not code, then just skip it.
+                    if m.start < 0x8000 {
+                        continue;
+                    }
+
+                    let start = m.start as usize;
+                    let end = start + m.size;
+                    println!(
+                        "\n=> Start of '{}', which contains these segments: {}.\n",
+                        m.name,
+                        m.segments
+                            .iter()
+                            .map(|s| s.name.clone())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                    do_disassemble(input, None, &args.nasm, Some(start), Some(end), args.raw)?;
+                }
+            }
+            None => {
+                return Err(
+                    "you need to provide the configuration file with '-c/--config'".to_string(),
+                );
+            }
         }
         return Ok(true);
     }
