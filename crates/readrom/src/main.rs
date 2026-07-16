@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, ErrorKind, Read, Write};
 use std::path::PathBuf;
+use xixanta::mapping::get_mapping_configuration;
 use xixanta::opcodes::OPCODES;
 
 /// Version for this program.
@@ -13,17 +14,23 @@ struct Args {
     file: String,
     header: bool,
     disassemble: Option<String>,
+    mapping: Option<String>,
     nasm: Option<String>,
     raw: bool,
+    config: Option<String>,
 }
 
 fn print_help() {
     println!("Display information about NES/Famicom ROM files.\n");
     println!("usage: readrom [OPTIONS] <FILE>\n");
     println!("Options:");
+    println!(
+        "  -c, --config <FILE>\tLinker configuration to be used, whether an identifier or a file path."
+    );
     println!("  -d, --disassemble <ADDRESS>\tDisassemble starting from the given ADDRESS.");
     println!("  -h, --help\t\t\tPrint this message.");
     println!("  -H, --header\t\t\tJust print the ROM header and quit.");
+    println!("  -m, --mapping <NAME>\t\t\tDisassemble the mapped segments as referenced by NAME.");
     println!("  -n, --nasm-directory <PATH>\tPath to the .nasm/ directory.");
     println!("  -r, --raw\t\t\tPrint bytes with no formatting at all when disassembling.");
     println!("  -v, --version\t\t\tPrint the version of this program.");
@@ -41,6 +48,10 @@ fn parse_arguments() -> Args {
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "-c" | "--config" => match args.next() {
+                Some(a) => res.config = Some(a),
+                None => die("you need to specify a value for the '-c/--config' flag".to_string()),
+            },
             "-d" | "--disassemble" => match args.next() {
                 Some(a) => res.disassemble = Some(a),
                 None => die(
@@ -54,6 +65,12 @@ fn parse_arguments() -> Args {
                 }
                 res.header = true;
             }
+            "-m" | "--mapping" => match args.next() {
+                Some(a) => res.mapping = Some(a),
+                None => {
+                    die("you need to specify an address for the '-m/--mapping' flag".to_string())
+                }
+            },
             "-n" | "--nasm" => match args.next() {
                 Some(a) => res.nasm = Some(a),
                 None => die("you need to specify a file for the '-n/--nasm' flag".to_string()),
@@ -168,7 +185,7 @@ fn die(message: String) {
 // 'raw' to true if you want all bytes to be printed directly into the stdout,
 // otherwise a human-readable format will be used.
 fn print_range(
-    mut file: File,
+    mut file: &File,
     start: usize,
     end: Option<usize>,
     memories: HashMap<usize, String>,
@@ -252,10 +269,13 @@ fn print_range(
         if let Some(address_name) = addresses.get(&current_address)
             && current_address != start
         {
-            println!(
-                "\n  {}:",
-                address_name.split("::").last().unwrap_or(address_name)
-            );
+            match filter {
+                Some(_) => println!(
+                    "\n  {}:",
+                    address_name.split("::").last().unwrap_or(address_name)
+                ),
+                None => println!("\n  {}:", address_name),
+            }
         }
 
         // And print our awesome line :)
@@ -271,10 +291,13 @@ fn print_range(
     // after the last instruction. Show these labels too as some branch
     // instructions can use it.
     if let Some(address_name) = addresses.get(&current_address) {
-        println!(
-            "\n  {}:",
-            address_name.split("::").last().unwrap_or(address_name)
-        );
+        match filter {
+            Some(_) => println!(
+                "\n  {}:",
+                address_name.split("::").last().unwrap_or(address_name)
+            ),
+            None => println!("\n  {}:", address_name),
+        }
     }
 
     Ok(())
@@ -311,13 +334,13 @@ fn parse_hex_value(address: &str) -> Option<usize> {
 }
 
 fn do_disassemble(
-    input: File,
-    address: &str,
+    input: &File,
+    address: Option<&str>,
     nasm_path: &Option<String>,
+    mut start: Option<usize>,
+    mut end: Option<usize>,
     raw: bool,
 ) -> Result<(), String> {
-    let mut start = None;
-    let mut end = None;
     let mut is_nasm_path = true;
     let mut addresses: HashMap<usize, String> = HashMap::default();
     let mut memories: HashMap<usize, String> = HashMap::default();
@@ -337,7 +360,7 @@ fn do_disassemble(
                     .map_err(|_| format!("invalid hex value: '{}'", columns[1]))?;
                 addresses.insert(parsed_start, columns[0].to_string());
 
-                if columns[0] == address {
+                if start.is_none() && columns[0] == address.unwrap() {
                     start = Some(parsed_start);
                     end = Some(
                         usize::from_str_radix(columns[2], 16)
@@ -369,7 +392,9 @@ fn do_disassemble(
     }
 
     // If this is just a numeric value, take it as is.
-    if let Some(start) = parse_hex_value(address) {
+    if let Some(address) = address
+        && let Some(start) = parse_hex_value(address)
+    {
         return print_range(input, start, None, memories, addresses, raw, None);
     }
 
@@ -379,6 +404,9 @@ fn do_disassemble(
     } else if addresses.is_empty() {
         Err("failed to open the .nasm/addresses.txt file".to_string())
     } else {
+        let filter_string: Option<String> = address.map(|addr| format!("{addr}::"));
+        let filter: Option<&str> = filter_string.as_deref();
+
         match start {
             Some(s) => print_range(
                 input,
@@ -387,11 +415,77 @@ fn do_disassemble(
                 memories,
                 addresses,
                 raw,
-                Some(format!("{address}::").as_str()),
+                filter,
             ),
-            None => Err(format!("could not find address '{address}'")),
+            None => Err(format!("could not find address '{}'", address.unwrap())),
         }
     }
+}
+
+fn handle_disassembling_args(args: &Args, input: &File) -> Result<bool, String> {
+    if let Some(address) = &args.disassemble {
+        if let Err(e) = do_disassemble(input, Some(address), &args.nasm, None, None, args.raw) {
+            die(e);
+        }
+        return Ok(true);
+    }
+
+    if let Some(name) = &args.mapping {
+        match &args.config {
+            Some(cfg) => {
+                let mappings = get_mapping_configuration(cfg)?;
+                for m in &mappings {
+                    if m.name == *name {
+                        let start = m.start as usize;
+                        let end = start + m.size;
+                        println!(
+                            "\n=> Start of '{}', which contains these segments: {}.\n",
+                            *name,
+                            m.segments
+                                .iter()
+                                .map(|s| s.name.clone())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
+                        do_disassemble(input, None, &args.nasm, Some(start), Some(end), args.raw)?;
+                        return Ok(true);
+                    }
+                    for segment in &m.segments {
+                        if segment.name == *name {
+                            let start = m.start as usize;
+                            let end = start + m.size;
+                            println!(
+                                "\n=> Start of '{}', which contains these segments: {}.\n",
+                                *name,
+                                m.segments
+                                    .iter()
+                                    .map(|s| s.name.clone())
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            );
+                            do_disassemble(
+                                input,
+                                None,
+                                &args.nasm,
+                                Some(start),
+                                Some(end),
+                                args.raw,
+                            )?;
+                            return Ok(true);
+                        }
+                    }
+                }
+            }
+            None => {
+                return Err(
+                    "you need to provide the configuration file with '-c/--config'".to_string(),
+                );
+            }
+        }
+        return Ok(true);
+    }
+
+    Ok(false)
 }
 
 fn main() {
@@ -403,12 +497,13 @@ fn main() {
     };
 
     // Check whether the user wanted to disassemble something.
-
-    if let Some(address) = args.disassemble {
-        if let Err(e) = do_disassemble(input, &address, &args.nasm, args.raw) {
-            die(e);
+    match handle_disassembling_args(&args, &input) {
+        Ok(quit) => {
+            if quit {
+                std::process::exit(0);
+            }
         }
-        std::process::exit(0);
+        Err(e) => die(e),
     }
 
     // Nope. Then let's just print information about it. First the header.
