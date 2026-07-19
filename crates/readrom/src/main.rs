@@ -1,7 +1,7 @@
 use header::{Header, Kind};
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufRead, BufReader, BufWriter, ErrorKind, Read, Write};
+use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
 use xixanta::mapping::get_mapping_configuration;
 use xixanta::opcodes::OPCODES;
@@ -422,12 +422,9 @@ fn do_disassemble(
     }
 }
 
-fn handle_disassembling_args(args: &Args, mut input: &File) -> Result<bool, String> {
-    let mut bytes = Vec::new();
-    input.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
-
+fn handle_disassembling_args(args: &Args, bytes: &[u8]) -> Result<bool, String> {
     if let Some(address) = &args.disassemble {
-        if let Err(e) = do_disassemble(&bytes, Some(address), &args.nasm, None, None, args.raw) {
+        if let Err(e) = do_disassemble(bytes, Some(address), &args.nasm, None, None, args.raw) {
             die(e);
         }
         return Ok(true);
@@ -454,7 +451,7 @@ fn handle_disassembling_args(args: &Args, mut input: &File) -> Result<bool, Stri
                             .collect::<Vec<_>>()
                             .join(", ")
                     );
-                    do_disassemble(&bytes, None, &args.nasm, Some(start), Some(end), args.raw)?;
+                    do_disassemble(bytes, None, &args.nasm, Some(start), Some(end), args.raw)?;
                 }
             }
             None => {
@@ -483,7 +480,7 @@ fn handle_disassembling_args(args: &Args, mut input: &File) -> Result<bool, Stri
                                 .collect::<Vec<_>>()
                                 .join(", ")
                         );
-                        do_disassemble(&bytes, None, &args.nasm, Some(start), Some(end), args.raw)?;
+                        do_disassemble(bytes, None, &args.nasm, Some(start), Some(end), args.raw)?;
                         return Ok(true);
                     }
                     for segment in &m.segments {
@@ -500,7 +497,7 @@ fn handle_disassembling_args(args: &Args, mut input: &File) -> Result<bool, Stri
                                     .join(", ")
                             );
                             do_disassemble(
-                                &bytes,
+                                bytes,
                                 None,
                                 &args.nasm,
                                 Some(start),
@@ -527,13 +524,18 @@ fn handle_disassembling_args(args: &Args, mut input: &File) -> Result<bool, Stri
 fn main() {
     let args = parse_arguments();
 
+    // Open the ROM file and read it.
     let Ok(mut input) = File::open(&args.file) else {
         die(format!("failed to open the given file '{}'", args.file));
         return;
     };
+    let mut bytes = Vec::new();
+    if let Err(e) = input.read_to_end(&mut bytes) {
+        die(e.to_string());
+    }
 
     // Check whether the user wanted to disassemble something.
-    match handle_disassembling_args(&args, &input) {
+    match handle_disassembling_args(&args, &bytes) {
         Ok(quit) => {
             if quit {
                 std::process::exit(0);
@@ -544,15 +546,12 @@ fn main() {
 
     // Nope. Then let's just print information about it. First the header.
 
-    let mut buf = vec![0u8; 0x10];
-    if let Err(e) = input.read_exact(&mut buf) {
-        match e.kind() {
-            ErrorKind::UnexpectedEof => die("malformed ROM file".to_string()),
-            _ => die(e.to_string()),
-        }
+    let buf = bytes.get(0..0x10).unwrap_or(&[]);
+    if buf.is_empty() {
+        die("malformed ROM file".to_string());
     }
 
-    let header = match Header::try_from(buf.as_slice()) {
+    let header = match Header::try_from(buf) {
         Ok(h) => h,
         Err(e) => {
             die(e.to_string());
@@ -565,18 +564,9 @@ fn main() {
         std::process::exit(0);
     }
 
-    // PRG ROM.
-
-    buf = vec![0u8; header.prg_rom_size * 16 * 1024];
-    if let Err(e) = input.read_exact(&mut buf) {
-        match e.kind() {
-            ErrorKind::UnexpectedEof => die("could not read advertised PRG ROM space".to_string()),
-            _ => die(e.to_string()),
-        }
-    }
-
     // Vectors.
 
-    let vectors = &buf.as_slice()[buf.len() - 6..];
+    let rom_size = header.prg_rom_size * 16 * 1024;
+    let vectors = &bytes.get(0x10 + rom_size - 6..).unwrap_or(&[]);
     print_vectors(vectors);
 }
