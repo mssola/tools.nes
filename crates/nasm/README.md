@@ -384,7 +384,7 @@ order for the assembler to be useful. Because of this, the tooling around this
 detection is behind the `-a/--asan` flag.
 
 The address sanitizer will blindly follow the naming conventions from
-[style.nes](https://github.com/mssola/style.nes), and assume at first that each
+[style.nes](https://git.mssola.com/nes/style.nes), and assume at first that each
 variable takes 1 byte exactly. Hence, in order to reserve one byte, you can
 simply:
 

@@ -1,7 +1,7 @@
 `readrom` is an objdump-like utility that reads a given NES/Famicom ROM file and
 shows information about it. You can run it by simply passing a ROM file to
 it. For example, for the [Jetpac NTSC ROM
-file](https://github.com/mssola/jetpac.nes/releases/tag/v1.0):
+file](https://git.mssola.com/releases/jetpac.nes/v1.0/):
 
 ```
 $ readrom jetpac.NTSC.nes

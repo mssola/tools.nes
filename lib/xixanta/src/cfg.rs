@@ -515,7 +515,7 @@ FEATURES {
 
     #[test]
     fn parse_unrom_configuration() {
-        // Coming from https://github.com/mssola/code.nes.
+        // Coming from https://git.mssola.com/nes/code.nes.
         let res = parse_cfg_file(
             r#"
 ##
