@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/usr/bin/bash
 
 # Instead of setting -e or something like that, we will accumulate errors and
 # exit with the accumulated result at the end.
