@@ -3974,13 +3974,13 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
 
     // sed
     ops.insert(
-        0x38,
+        0xF8,
         Instruction {
             identifier: InstructionIdentifier::Sed,
             addressing_mode: AddressingMode::Implied,
             cycles: 2,
             size: 1,
-            opcode: 0x38,
+            opcode: 0xF8,
             affected_on_page: false,
             bytes: [0, 0],
         },
