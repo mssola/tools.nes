@@ -1,8 +1,9 @@
 [package]
 name = "nasm"
 version = "0.1.0"
-edition = "2024"
-authors = ["Miquel Sabaté Solà <mikisabate@gmail.com>"]
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
 
 [dependencies]
 xixanta.workspace = true
