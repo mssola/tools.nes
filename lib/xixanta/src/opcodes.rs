@@ -96,6 +96,10 @@ pub enum InstructionIdentifier {
     Txa,
     Txs,
     Tya,
+
+    // Pseudo-instructions used by 'vnf'.
+    Start,
+    Unknown,
 }
 
 /// An entry to the 'INSTRUCTIONS' map, which holds some values relevant for
@@ -215,6 +219,8 @@ impl Instruction {
             InstructionIdentifier::Txa => "txa",
             InstructionIdentifier::Txs => "txs",
             InstructionIdentifier::Tya => "tya",
+            InstructionIdentifier::Start => "<start>",
+            InstructionIdentifier::Unknown => "<unknown>",
         };
 
         // On most addressing modes, if the current value is actually found on

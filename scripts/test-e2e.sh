@@ -267,6 +267,15 @@ rm tests/out/jetpac.NTSC.nes
 rm -f tests/jetpac.nes/.nasm/addresses.txt
 
 ##
+# runrom
+
+echo "test: runrom => arithlog.nes"
+./target/debug/nasm -Werror -o tests/out/arithlog.nes tests/runrom/arithlog.s
+./target/debug/runrom --function --dump-memory tests/out/arithlog.nes > tests/out/arithlog.txt
+diff tests/out/arithlog.txt tests/expected/runrom/arithlog.txt
+exit_code=$((exit_code + $?))
+
+##
 # Done!
 
 exit $exit_code

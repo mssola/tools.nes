@@ -1,0 +1,58 @@
+<start>		PC: $8000, cycles: 7, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----I--
+lda #$01	PC: $8002, cycles: 9, registers: [a: $01, x: $00, y: $00, sp: $FD], status: ----I--
+sta $00		PC: $8004, cycles: 12, registers: [a: $01, x: $00, y: $00, sp: $FD], status: ----I--
+sec		PC: $8005, cycles: 14, registers: [a: $01, x: $00, y: $00, sp: $FD], status: ----I-C
+adc $00		PC: $8007, cycles: 17, registers: [a: $03, x: $00, y: $00, sp: $FD], status: ----I--
+ldx #$FF	PC: $8009, cycles: 19, registers: [a: $03, x: $FF, y: $00, sp: $FD], status: N---I--
+inx		PC: $800A, cycles: 21, registers: [a: $03, x: $00, y: $00, sp: $FD], status: ----IZ-
+inx		PC: $800B, cycles: 23, registers: [a: $03, x: $01, y: $00, sp: $FD], status: ----I--
+sta $00, x	PC: $800D, cycles: 27, registers: [a: $03, x: $01, y: $00, sp: $FD], status: ----I--
+clc		PC: $800E, cycles: 29, registers: [a: $03, x: $01, y: $00, sp: $FD], status: ----I--
+adc $00		PC: $8010, cycles: 32, registers: [a: $04, x: $01, y: $00, sp: $FD], status: ----I--
+sta $02		PC: $8012, cycles: 35, registers: [a: $04, x: $01, y: $00, sp: $FD], status: ----I--
+txa		PC: $8013, cycles: 37, registers: [a: $01, x: $01, y: $00, sp: $FD], status: ----I--
+sec		PC: $8014, cycles: 39, registers: [a: $01, x: $01, y: $00, sp: $FD], status: ----I-C
+sbc $00		PC: $8016, cycles: 42, registers: [a: $00, x: $01, y: $00, sp: $FD], status: ----IZC
+sta $03		PC: $8018, cycles: 45, registers: [a: $00, x: $01, y: $00, sp: $FD], status: ----IZC
+sec		PC: $8019, cycles: 47, registers: [a: $00, x: $01, y: $00, sp: $FD], status: ----IZC
+rol $03		PC: $801B, cycles: 52, registers: [a: $00, x: $01, y: $00, sp: $FD], status: ----IZ-
+sta $04		PC: $801D, cycles: 55, registers: [a: $00, x: $01, y: $00, sp: $FD], status: ----IZ-
+sec		PC: $801E, cycles: 57, registers: [a: $00, x: $01, y: $00, sp: $FD], status: ----IZC
+ror $02		PC: $8020, cycles: 62, registers: [a: $00, x: $01, y: $00, sp: $FD], status: ----IZ-
+sta $05		PC: $8022, cycles: 65, registers: [a: $00, x: $01, y: $00, sp: $FD], status: ----IZ-
+asl		PC: $8023, cycles: 67, registers: [a: $00, x: $01, y: $00, sp: $FD], status: ----IZ-
+sta $06		PC: $8025, cycles: 70, registers: [a: $00, x: $01, y: $00, sp: $FD], status: ----IZ-
+ldy #$01	PC: $8027, cycles: 72, registers: [a: $00, x: $01, y: $01, sp: $FD], status: ----I--
+tya		PC: $8028, cycles: 74, registers: [a: $01, x: $01, y: $01, sp: $FD], status: ----I--
+and $00, x	PC: $802A, cycles: 78, registers: [a: $01, x: $01, y: $01, sp: $FD], status: ----I--
+sta $07		PC: $802C, cycles: 81, registers: [a: $01, x: $01, y: $01, sp: $FD], status: ----I--
+ora $00		PC: $802E, cycles: 84, registers: [a: $01, x: $01, y: $01, sp: $FD], status: ----I--
+sta $08		PC: $8030, cycles: 87, registers: [a: $01, x: $01, y: $01, sp: $FD], status: ----I--
+inc $00		PC: $8032, cycles: 92, registers: [a: $01, x: $01, y: $01, sp: $FD], status: ----I--
+eor $00		PC: $8034, cycles: 95, registers: [a: $03, x: $01, y: $01, sp: $FD], status: ----I--
+sta $09		PC: $8036, cycles: 98, registers: [a: $03, x: $01, y: $01, sp: $FD], status: ----I--
+lda #$FF	PC: $8038, cycles: 100, registers: [a: $FF, x: $01, y: $01, sp: $FD], status: N---I--
+clc		PC: $8039, cycles: 102, registers: [a: $FF, x: $01, y: $01, sp: $FD], status: N---I--
+adc #$01	PC: $803B, cycles: 104, registers: [a: $00, x: $01, y: $01, sp: $FD], status: ----IZC
+sta $0A		PC: $803D, cycles: 107, registers: [a: $00, x: $01, y: $01, sp: $FD], status: ----IZC
+lda #$00	PC: $803F, cycles: 109, registers: [a: $00, x: $01, y: $01, sp: $FD], status: ----IZC
+sec		PC: $8040, cycles: 111, registers: [a: $00, x: $01, y: $01, sp: $FD], status: ----IZC
+sbc #$01	PC: $8042, cycles: 113, registers: [a: $FF, x: $01, y: $01, sp: $FD], status: N---I--
+sta $0B		PC: $8044, cycles: 116, registers: [a: $FF, x: $01, y: $01, sp: $FD], status: N---I--
+rts		PC: $8045, cycles: 122, registers: [a: $FF, x: $01, y: $01, sp: $FD], status: N---I--
+<end>
+
+== Memory dump ==
+
+[$0] = $02 [reads=6, writes=2]
+[$1] = $03 [reads=1, writes=1]
+[$2] = $82 [reads=1, writes=2]
+[$3] = $01 [reads=1, writes=2]
+[$4] = $00 [reads=0, writes=1]
+[$5] = $00 [reads=0, writes=1]
+[$6] = $00 [reads=0, writes=1]
+[$7] = $01 [reads=0, writes=1]
+[$8] = $01 [reads=0, writes=1]
+[$9] = $03 [reads=0, writes=1]
+[$A] = $00 [reads=0, writes=1]
+[$B] = $FF [reads=0, writes=1]

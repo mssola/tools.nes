@@ -26,6 +26,15 @@ will invoke `nasm` with more pedantic features like its address sanitizer.
 information about it. Read more about it in
 [./crates/readrom/README.md](./crates/readrom/README.md).
 
+## `runrom`
+
+`runrom` is an NES/Famicom emulator that doesn't attempt to run a ROM
+graphically. Instead, it just runs code and exposes the data on memory,
+registers, etc. for a given run. Thus, `runrom` is a tool to run an NES/Famicom
+programatically, so developers can use it to test their ROM files under certain
+conditions. Read more about it in
+[./crates/runrom/README.md](./crates/runrom/README.md).
+
 ## License
 
 This repository holds two licenses, as you can also note on the `Cargo.toml`
