@@ -69,6 +69,8 @@ impl PString {
                 if c > 'f' && c <= 'z' {
                     valid_hex = false;
                 }
+            } else {
+                valid_hex = false;
             }
         }
 
@@ -510,6 +512,31 @@ mod tests {
             let string = String::from(name);
 
             assert_eq!(is_asan_friendly_name(&string), expect);
+        }
+    }
+
+    #[test]
+    fn is_valid_identifier() {
+        let tests = vec![
+            ("", false),
+            ("valid", true),
+            ("invalid::scoped", false),
+            ("x", false),
+            ("aaaa", false),
+            ("123", false),
+            ("@aa", true),
+        ];
+
+        for (name, expect) in tests {
+            let ps = PString {
+                value: name.to_string(),
+                line: 0,
+                start: 0,
+                end: 0,
+            };
+
+            let res = ps.is_valid_identifier(false).is_ok();
+            assert_eq!(res, expect);
         }
     }
 }
