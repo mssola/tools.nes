@@ -378,8 +378,8 @@ in that 'jsr' instruction will point to something else entirely. This would be
 similar to a use-after-free bug.
 
 This is something that can only be inspected at runtime, and so the assembler
-cannot be of much help here. Hence, this commit adds a warning so the programmer
-can understand the potentially dangerous operation.
+cannot be of much help here. Hence, `nasm` adds a warning so the programmer can
+understand the potentially dangerous operation.
 
 All of that being said, this assembler also adds support for "asan:safe" or
 "check:safe", which is a magic comment that the programmer can write to
