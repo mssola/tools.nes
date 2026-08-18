@@ -605,6 +605,21 @@ impl<'a> Assembler<'a> {
                         });
                         continue;
                     }
+
+                    // If this is a named label with an invalid identifier,
+                    // report it now.
+                    if !node.value.is_empty()
+                        && let Err(err) = node.value.is_valid_identifier(true)
+                    {
+                        errors.push(Error {
+                            message: format!("invalid identifier: {err}"),
+                            line: node.value.line,
+                            source: self.source_for(node),
+                            expanded_from: self.macro_context.clone(),
+                            global: false,
+                        });
+                    }
+
                     if let Err(err) = self.define_variable(node, ObjectType::Address) {
                         errors.push(err);
                     }
@@ -1825,10 +1840,13 @@ impl<'a> Assembler<'a> {
                         Ok(self.evaluate_decimal(node)?)
                     } else if node.value.is_anonymous_relative_reference() {
                         Ok(self.evaluate_anonymous_relative_reference(node)?)
-                    } else if node.value.is_valid_identifier(true).is_err() {
-                        // If this is not a valid identifier, just error out.
+                    } else if let Err(err) = node.value.is_valid_identifier(true) {
+                        // If this is not a valid identifier, just error
+                        // out. Note that this should have been already covered
+                        // when defining the identifier, but just as a sanity
+                        // check.
                         Err(Error {
-                            message: "invalid identifier".to_string(),
+                            message: format!("invalid identifier: {err}"),
                             line: node.value.line,
                             source: self.source_for(node),
                             expanded_from: self.macro_context.clone(),
@@ -5024,6 +5042,17 @@ label:
         assert_eq!(
             res.warnings[2].to_string(),
             "conditional jump that points to the next instruction (line 15)"
+        );
+    }
+
+    #[test]
+    fn bad_label_name() {
+        let res = just_assemble("x: nop");
+
+        assert_eq!(res.errors.len(), 1);
+        assert_eq!(
+            res.errors[0].to_string(),
+            "invalid identifier: cannot use reserved name 'x' (line 4)"
         );
     }
 
