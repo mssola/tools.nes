@@ -329,14 +329,22 @@ impl Context {
 
     /// Sets a value for an object identified by `id`. If `overwrite` is set to
     /// true, then this value will be set even if the id already existed,
-    /// otherwise it will return a ContextError
+    /// otherwise it will return a ContextError. If 'force_global' is set to
+    /// true, then the variable will be defined at the global context, not the
+    /// current one.
     pub fn set_variable(
         &mut self,
         id: &PString,
         object: &Object,
         overwrite: bool,
+        force_global: bool,
     ) -> Result<(), String> {
-        let scope_name = self.name().to_string();
+        let scope_name = if force_global {
+            GLOBAL_CONTEXT
+        } else {
+            self.name()
+        }
+        .to_string();
         let scope = self.map.get_mut(&scope_name).unwrap();
 
         match scope.get_mut(&id.value) {

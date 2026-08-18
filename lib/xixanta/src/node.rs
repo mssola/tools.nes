@@ -319,8 +319,10 @@ pub enum NodeType {
     /// '$'. The `left` node contains the inner expression.
     Literal,
 
-    /// A label statement, which only sets the `value`, the name of the label.
-    Label,
+    /// A label statement, which only sets the `value`, the name of the
+    /// label. If the inner boolean is true, then the label is considered to be
+    /// global, otherwise scopes apply.
+    Label(bool),
 
     /// A macro call. Note that a Value might also encode this, but when a Call
     /// has been detected, then there is no doubt on it.
@@ -347,7 +349,8 @@ impl fmt::Display for NodeType {
             NodeType::Control(control_type) => write!(f, "control function ({control_type})"),
             NodeType::ControlBody => write!(f, "control function body"),
             NodeType::Literal => write!(f, "literal"),
-            NodeType::Label => write!(f, "label"),
+            NodeType::Label(true) => write!(f, "(global) label"),
+            NodeType::Label(false) => write!(f, "(scoped) label"),
             NodeType::Call => write!(f, "call"),
             NodeType::Fallthrough => write!(f, "fallthrough"),
             NodeType::Operation(op) => match op {

@@ -98,6 +98,69 @@ missing in `ca65`. In this case, `nasm` has the `--prelude` flag, which will
 print some code that can fill the gaps when running `ca65` with some
 nasm-specific code. See below.
 
+#### Defining global labels
+
+For optimization reasons, sometimes it's necessary to write a label that can be
+accessed globally, regardless of the current scope. The
+[jetpac.nes](https://git.mssola.com/nes/jetpac.nes/) game has a good example of
+this need on its `enemies.s` file. In there, we define a function pointer that
+is set to the current function handler for the enemies' algorithm. Then enemy
+handling can go along like this:
+
+```asm
+   ;; previous code
+
+   lda #.hibyte(@return_from_movement_handler - 1)
+   pha
+   lda #.lobyte(@return_from_movement_handler - 1)
+   pha
+   jmp (zp_movement_fn)
+
+@return_from_movement_handler:
+   ;; Rest of the code after enemy movement has been handled.
+```
+
+That is, we push onto the stack the address of `@return_from_movement_handler`,
+and then `jmp` to the function handler. Then, the function handler can simply
+call `rts` and everything will be fine. As explained in the source code, other
+techniques like trampolines or the "rts trick" were not desirable on this
+context.
+
+Moreover, note that a simple `jmp` was not possible from the context of enemy
+handlers, as `@return_from_movement_handler` is inside of the scope of the
+`Enemies::update` proc. For this game the performance penalty with this setup
+was acceptable, but note that it's inside of a loop, and these extra cycles are
+given for each enemy.
+
+But this is potentially bad if your game is more tight on the cycle count and
+every cycle you can squeeze matters. For this reason, `nasm` has the possibility
+to define labels globally. That is, the above example could be rewritten like
+this:
+
+```asm
+    jmp (zp_movement_fn)
+
+#@return_from_movement_handler:
+   ;; Rest of the code after enemy movement has been handled.
+```
+
+Notice the leading '#' symbol. This tells `nasm` that
+`@return_from_movement_handler` should be defined at the global scope,
+regardless of the current one (hence, it's no longer hidden inside of the
+`Enemies::update` scope). With this, then each handler can switch from an `rts`
+to:
+
+```asm
+    jmp @return_from_movement_handler   ; or hide it on an 'RTS_FROM_ENEMY_HANDLER' macro.
+```
+
+In total, for each iteration loop, the setup would save 10 cycles (2 cycles x
+lda, 3 cycles x pha), and replacing each handler's `rts` with a `jmp` would save
+3 cycles (6 cycles 'rts' - 3 cycles 'jmp'). That is, given that this game
+allowed 4 enemies at once, then each call to `Enemies::update` could save 13
+cycles x 4 enemies = 52 cycles. Not a crazy amount, yes, but this optimization
+is now so easy to pull that it's well worth it.
+
 #### The `__fallthrough__` pseudo-instruction
 
 It's a [well-known

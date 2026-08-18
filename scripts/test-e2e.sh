@@ -140,6 +140,13 @@ exit_code=$((exit_code + $?))
 diff tests/out/fixed-segments.nes tests/expected/fixed-segments.nes
 exit_code=$((exit_code + $?))
 
+echo "test: custom => global-labels.nes"
+./target/debug/nasm -c empty -Werror --asan -o tests/out/global-labels.nes tests/global-labels.s 2>tests/out/global-labels.txt
+diff tests/out/global-labels.txt tests/expected/global-labels.txt
+exit_code=$((exit_code + $?))
+diff tests/out/global-labels.nes tests/expected/global-labels.nes
+exit_code=$((exit_code + $?))
+
 ##
 # code.nes
 

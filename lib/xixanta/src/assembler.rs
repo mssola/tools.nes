@@ -523,7 +523,10 @@ impl<'a> Assembler<'a> {
             accessed: 1,
         };
 
-        if let Err(err) = self.context.set_variable(&var_name, &var_value, false) {
+        if let Err(err) = self
+            .context
+            .set_variable(&var_name, &var_value, false, false)
+        {
             Err(Error {
                 global: true,
                 line: 0,
@@ -557,6 +560,7 @@ impl<'a> Assembler<'a> {
                 accessed: 0,
             },
             false,
+            matches!(node.node_type, NodeType::Label(true)),
         ) {
             return Err(Error {
                 message,
@@ -585,7 +589,7 @@ impl<'a> Assembler<'a> {
                 // context so it's known. The actual value cannot be computed
                 // right now as we don't know the segment size where it belongs
                 // yet.
-                NodeType::Label => {
+                NodeType::Label(_) => {
                     // There's no good reason to declare a named label inside of
                     // a macro. If that's the case, just error out.
                     if (self.macros_seen > 0 || self.repeats_seen > 0) && !node.value.is_empty() {
@@ -688,6 +692,7 @@ impl<'a> Assembler<'a> {
                                     asan_reserve: self.asan_next_reserve,
                                     accessed: 0,
                                 },
+                                false,
                                 false,
                             ) {
                                 errors.push(Error {
@@ -909,7 +914,12 @@ impl<'a> Assembler<'a> {
         };
 
         if !node.value.is_empty()
-            && let Err(message) = self.context.set_variable(&node.value, &object, true)
+            && let Err(message) = self.context.set_variable(
+                &node.value,
+                &object,
+                true,
+                matches!(node.node_type, NodeType::Label(true)),
+            )
         {
             return Err(Error {
                 message,
@@ -938,7 +948,7 @@ impl<'a> Assembler<'a> {
                 // segment. Note that this is only the offset from the beginning
                 // of the offset, the effective address will only be available
                 // after calling `Context::get_variable`
-                NodeType::Label => {
+                NodeType::Label(_) => {
                     if let Err(e) = self.apply_segment_offset_to_label(node, ObjectType::Address) {
                         errors.push(e);
                     }
@@ -1150,11 +1160,16 @@ impl<'a> Assembler<'a> {
                             // value.
                             let mut dobj = d.obj.clone();
                             dobj.bundle = o;
-                            self.context.set_variable(&d.id, &dobj, true)
+                            self.context.set_variable(
+                                &d.id,
+                                &dobj,
+                                true,
+                                matches!(n.node_type, NodeType::Label(true)),
+                            )
                         }
                         // No attached node, we can proceed by setting the
                         // variable as is.
-                        None => self.context.set_variable(&d.id, &d.obj, true),
+                        None => self.context.set_variable(&d.id, &d.obj, true, false),
                     };
                 }
             }
@@ -1714,7 +1729,7 @@ impl<'a> Assembler<'a> {
                 // calls, just in case a macro is applied multiple times and we
                 // need to get the latest value.
                 let id = &margs.next().unwrap().value;
-                if let Err(message) = self.context.set_variable(id, &obj, true) {
+                if let Err(message) = self.context.set_variable(id, &obj, true, false) {
                     return Err(Error {
                         line: node.value.line,
                         message,
@@ -2618,6 +2633,7 @@ impl<'a> Assembler<'a> {
                         accessed: 0,
                     },
                     true,
+                    false,
                 )
             {
                 return Err(Error {
@@ -3099,7 +3115,12 @@ impl<'a> Assembler<'a> {
                     // again. If the variable could not be set, then it's not
                     // that big of a deal at this stage.
                     value.bundle = bundle.clone();
-                    let _ = self.context.set_variable(&node.value, &value, true);
+                    let _ = self.context.set_variable(
+                        &node.value,
+                        &value,
+                        true,
+                        matches!(node.node_type, NodeType::Label(true)),
+                    );
 
                     // And return the computed bundle.
                     Ok(bundle)

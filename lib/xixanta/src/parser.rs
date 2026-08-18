@@ -536,7 +536,7 @@ impl Parser {
         // identifier and finally fall through.
         self.offset = 0;
         let (mut id, mut nt) = self.parse_identifier(l, true)?;
-        if nt == NodeType::Label {
+        if matches!(nt, NodeType::Label(_)) {
             self.nodes.last_mut().unwrap().push(PNode {
                 node_type: nt,
                 value: id,
@@ -558,7 +558,7 @@ impl Parser {
             // for it and fall through.
             self.offset = 0;
             (id, nt) = self.parse_identifier(l, true)?;
-            if nt == NodeType::Label {
+            if matches!(nt, NodeType::Label(_)) {
                 return Err(self
                     .parser_error("cannot have multiple labels at the same location")
                     .into());
@@ -624,10 +624,11 @@ impl Parser {
     // statement. Returns a PString representing this identifier on success,
     // plus a hint on whether the identifier belongs to a label or not.
     fn parse_identifier(&mut self, line: &str, dot: bool) -> Result<(PString, NodeType), Error> {
-        let start = self.column;
-        let base_offset = self.offset;
+        let mut start = self.column;
+        let mut base_offset = self.offset;
         let mut nt = NodeType::Value;
         let mut first_seen = false;
+        let mut global_label = false;
 
         // For the general case we just need to iterate until a whitespace
         // character or an inline comment is found. Then our PString object is
@@ -644,6 +645,25 @@ impl Parser {
             // Error out if '.' is not allowed from now on.
             if c == '.' && (!dot || first_seen) {
                 return Err(self.parser_error("cannot have a '.' in this context"));
+            }
+
+            // If this is the first character, then allow a leading '#'
+            // character to denote a global label. Note that the '#' symbol will
+            // be skipped in the resulting name, and the start/end positions
+            // from the node will also reflect the '#' symbol being skipped.
+            if c == '#' && !first_seen {
+                global_label = true;
+
+                // We don't want the '#' symbol to be considered part of the
+                // name, as it's just a literal from the syntax, not the name
+                // itself.
+                base_offset += 1;
+                start += 1;
+
+                // Nothing else to be done, just jump into the next character.
+                first_seen = true;
+                self.next();
+                continue;
             }
             first_seen = true;
 
@@ -732,16 +752,24 @@ impl Parser {
                                     }
                                 }
                                 // Regular label (e.g. "label:").
-                                _ => nt = NodeType::Label,
+                                _ => nt = NodeType::Label(global_label),
                             }
                         }
                     }
                     // If there are no characters left, check if it was a regular label.
                     None => {
                         if c == ':' {
-                            nt = NodeType::Label;
+                            nt = NodeType::Label(global_label);
                         }
                     }
+                }
+
+                // Detect bogus names starting with '#' but not being an actual
+                // label.
+                if global_label && !matches!(nt, NodeType::Label(true)) {
+                    return Err(
+                        self.parser_error("identifier starts with a '#' but it's not a label")
+                    );
                 }
 
                 // The value of the identifier is whatever we have picked up
@@ -755,7 +783,7 @@ impl Parser {
                 // regular labels because we want to ignore to extra ':'
                 // character in the end.
                 let end = match nt {
-                    NodeType::Label => {
+                    NodeType::Label(_) => {
                         self.next();
                         self.column - 1
                     }
@@ -1729,7 +1757,7 @@ impl Parser {
             return Err(self.parser_error("invalid identifier"));
         }
 
-        if nt == NodeType::Label {
+        if matches!(nt, NodeType::Label(_)) {
             Err(self.parser_error("not expecting a label defined here"))
         } else {
             Ok(PNode {
@@ -2217,6 +2245,19 @@ mod tests {
 
         // Instruction
         assert_node(nodes.last().unwrap(), NodeType::Instruction, line, "dex")
+    }
+
+    #[test]
+    fn bad_pound_label() {
+        let mut parser = Parser::default();
+        let err = parser
+            .parse("#fakelabel = 1".as_bytes(), &SourceInfo::default())
+            .unwrap_err();
+
+        assert_eq!(
+            err.first().unwrap().message,
+            "identifier starts with a '#' but it's not a label"
+        );
     }
 
     // Literals
