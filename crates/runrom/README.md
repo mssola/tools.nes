@@ -1,14 +1,32 @@
-This is yet another NES/Famicom emulator. Only this time around it's
-specifically tailored to NES/Famicom developers, not players.
+This is an NES/Famicom emulator that doesn't attempt to run a ROM
+graphically. Instead, it just runs code and exposes the data on memory,
+registers, etc. for a given run. Thus, `runrom` is a tool to run an NES/Famicom
+programatically, so developers can use it to test their ROM files under certain
+conditions.
 
-First of all, the `vnf` library used for this binary exposes the virtual machine
-with a proper interface. This way, you can run ROM files programmatically. Then,
-`runrom` is just a wrapper on top of this library with a set of options that
-toggle certain features from it. This is a nice thing to have if you don't need
-to write very specific conditions with a tailored program. Second of all,
-`runrom` runs with no graphics nor sound. That is, it runs headless. Thus, it
-can be run on your testing infrastructure, so you can run continuous integration
-on critical paths from your games.
+This is all supported via the [vnf](../../lib/vnf) library, which is the one
+that implements the Virtual Machine and all its interfaces. The main goal is to
+be able to run ROM files programmatically, either by a given amount of steps, or
+via some desired conditions. In any case, `runrom` is just a wrapper on top of
+this library with a set of options that toggle certain features from it. This is
+a nice thing to have if you don't need to write very specific conditions with a
+tailored program.
+
+Also note that `runrom` runs with no graphics nor sound. That is, it performs a
+headless run. Thus, it can be run on your non-graphical testing infrastructure,
+so you can run continuous integration on critical paths from your games.
+
+Thus, the goal is that for any given game you would:
+
+1. Have a script that calls `runrom` in different ways to test specific
+   functions on certain conditions.
+2. Have more specialized programs linking [vnf](../../lib/vnf) whenever the
+   conditions need to be more intricate (e.g. "after calling this function with
+   this memory layout, these memory addresses are changed this way, and
+   registers are left like this").
+3. Have a process on CI/CD that calls all of this to validate the code.
+
+This allows for a more robust development environment.
 
 ## Basic usage
 
