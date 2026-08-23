@@ -77,7 +77,40 @@ otherwise you will get a count of errors.
 Note that warnings that were turned into errors via the `-Werror` flag will also
 be accounted.
 
-### Interfaces specific to `nasm`
+### Defining global values from the command line
+
+You can define global values with the `-D` flag which follows a `NAME=VALUE`
+syntax. Note that the value is expected to be in decimal format and it has to
+fit in a byte. Hence, you could have a code like follows:
+
+```asm
+.ifdef PAL
+  lda #1
+.else
+  lda #0
+.endif
+```
+
+If you compile the code with `-D PAL=1`, then the first branch will be taken
+instead of the second one.
+
+### The .nasm/ directory
+
+When you enable the `--write-info` flag, some files will be written into a
+hidden `.nasm/` directory. This directory will contain debug information that
+can be later used by other tools. That being said, some of these files can also
+be useful to programmers. They are as follows:
+
+- `segments.txt`: summary of the segments being used and how much they have been
+  filled. Note that you need to also pass `--stats` to get this file.
+- `memory.txt`: list of variables being used, expressed as ranges to account for
+  reservation via the `asan:reserve` special comment. Note that you need to also
+  pass `--asan` to get this file. See more on the address sanitizer below.
+- `addresses.txt`: list of addresses known by the assembler, expressed as ranges
+  to account for blocks of code like proc's. You don't need any other flag for
+  this file.
+
+## Language features
 
 In contrast to `ca65`, there are some nasm-specific features. First of all,
 `nasm` defines the `__NASM__` variable by default, with an integer value of
@@ -90,15 +123,118 @@ something like:
 .endif
 ```
 
-The main design of this assembler from the interface's perspective was to be as
-close to `ca65` as possible. Thus, using `__NASM__` shouldn't happen, as it's
-expected from code written targetting `ca65` to "just work" on `nasm`. That
+It's expected from code written targetting `ca65` to "just work" on `nasm`. That
 being said, if you use `nasm` there might be some specific features which are
-missing in `ca65`. In this case, `nasm` has the `--prelude` flag, which will
-print some code that can fill the gaps when running `ca65` with some
-nasm-specific code. See below.
+missing in `ca65`.
 
-#### Defining global labels
+### Unused code
+
+This assembler will issue a warning whenever it finds unreferenced variables or
+labels. Hence, if you have something like:
+
+```asm
+foo:
+    rts
+
+;; code that never references 'foo'.
+```
+
+Then you will get:
+
+```
+warning: label 'foo' is unused (unused.s)
+```
+
+In the case for subroutines defined via `.proc`, this warning will actually be
+an error, as `nasm` can rightly identify that this is dead code.
+
+This check can be skipped by providing the `--allow-unused` flag on nasm.
+
+### Cross-mapping references
+
+This assembler will issue a warning whenever you are referencing an object which
+is defined into a segment from another mapping. Some segments, like the
+'vectors' one, will reference code that is outside of its mapping. But in some
+other configurations, segments cannot make these cross-mapping references so
+happily. Imagine that we have an UNROM chip configuration, where "SWAPPABLE" is
+a segment that can be swapped according to the specification of this mapper
+chip. Then, you could have code like this:
+
+```asm
+.segment "SWAPPABLE"
+
+.proc foo
+    rts
+.endproc
+
+.segment "FIXED"
+
+jsr foo
+```
+
+Here the assembler will properly detect the address of 'foo' in the context of
+the 'SWAPPABLE' segment. But what this assembler doesn't know is that this
+segment is swappable. Hence, if the bank being mapped right now is not the one
+containing the 'SWAPPABLE' segment, then the address computed for 'foo' and used
+in that 'jsr' instruction will point to something else entirely.
+
+This is something that can only be inspected at runtime, and so the assembler
+cannot be of much help here. Hence, `nasm` adds a warning so the programmer can
+understand the potentially dangerous operation.
+
+All of that being said, this assembler also adds support for "asan:safe" or
+"check:safe", which is a magic comment that the programmer can write to
+re-assure the assembler that this operation is fine (e.g. there is a guarantee
+that the mapped bank is that one we are expecting). Hence, the code above could
+now be written like so:
+
+```asm
+jsr foo      ; check:safe
+```
+
+Moreover, you can define whole segments as "fixed" ones with the
+`asan:fixed-segments` (or `check:fixed-segments`) comments. This way, you
+express to the assembler that references to addresses of these segments are
+guaranteed to always be valid. Consider the following example:
+
+```asm
+;;; asan:fixed-segments ONE, OTHER
+
+.segment "ONE"
+
+.proc foo
+    rts
+.endproc
+
+.segment "OTHER"
+
+.proc bar
+    rts
+.endproc
+
+.segment "FIXED"
+
+jsr foo
+jsr bar
+```
+
+In the code above, we state that both 'ONE' and 'OTHER' are guaranteed to have a
+stable address space (they are fixed, never to be re-mapped). Hence, the
+assembler won't spit any warning at the final two 'jsr' instructions. Also note
+that you can define this comment multiple times. So the code below achieves the
+same thing:
+
+```asm
+;;; asan:fixed-segments ONE
+.segment "ONE"
+;; bla bla
+
+;;; asan:fixed-segments OTHER
+.segment "OTHER"
+;; rest
+```
+
+### Defining global labels
 
 For optimization reasons, sometimes it's necessary to write a label that can be
 accessed globally, regardless of the current scope. The
@@ -161,7 +297,7 @@ allowed 4 enemies at once, then each call to `Enemies::update` could save 13
 cycles x 4 enemies = 52 cycles. Not a crazy amount, yes, but this optimization
 is now so easy to pull that it's well worth it.
 
-#### The `__fallthrough__` pseudo-instruction
+### The `__fallthrough__` pseudo-instruction
 
 It's a [well-known
 optimization](https://www.nesdev.org/wiki/6502_assembly_optimisations) to avoid
@@ -292,147 +428,6 @@ of **values**: `empty`, `nrom`, `nrom65`, `unrom`, `uxrom` and `mmc1`. These
 values correspond to the configurations [already
 bundled](../../lib/xixanta/src/mappings) on this application.
 
-## Defining global values from the command line
-
-You can define global values with the `-D` flag which follows a `NAME=VALUE`
-syntax. Note that the value is expected to be in decimal format and it has to
-fit in a byte. Hence, you could have a code like follows:
-
-```asm
-.ifdef PAL
-  lda #1
-.else
-  lda #0
-.endif
-```
-
-If you compile the code with `-D PAL=1`, then the first branch will be taken
-instead of the second one.
-
-## The .nasm/ directory
-
-When you enable the `--write-info` flag, some files will be written into a
-hidden `.nasm/` directory. This directory will contain debug information that
-can be later used by other tools. That being said, some of these files can also
-be useful to programmers. They are as follows:
-
-- `segments.txt`: summary of the segments being used and how much they have been
-  filled. Note that you need to also pass `--stats` to get this file.
-- `memory.txt`: list of variables being used, expressed as ranges to account for
-  reservation via the `asan:reserve` special comment. Note that you need to also
-  pass `--asan` to get this file.
-- `addresses.txt`: list of addresses known by the assembler, expressed as ranges
-  to account for blocks of code like proc's. You don't need any other flag for
-  this file.
-
-## Unused code
-
-This assembler will also issue a warning whenever it finds unreferenced
-variables or labels. Hence, if you have something like:
-
-```asm
-foo:
-    rts
-
-;; code that never references 'foo'.
-```
-
-Then you will get:
-
-```
-warning: label 'foo' is unused (unused.s)
-```
-
-In the case for subroutines defined via `.proc`, this warning will actually be
-an error, as `nasm` can rightly identify that this is dead code.
-
-This check can be skipped by providing the `--allow-unused` flag on nasm.
-
-## Cross-mapping references
-
-This assembler will issue a warning whenever you are referencing an object which
-is defined into a segment from another mapping. Some segments, like the
-'vectors' one, will reference code that is outside of its mapping. But in some
-other configurations, segments cannot make these cross-mapping references so
-happily. Imagine that we have an UNROM chip configuration, where "SWAPPABLE" is
-a segment that can be swapped according to the specification of this mapper
-chip. Then, you could have code like this:
-
-```asm
-.segment "SWAPPABLE"
-
-.proc foo
-    rts
-.endproc
-
-.segment "FIXED"
-
-jsr foo
-```
-
-Here the assembler will properly detect the address of 'foo' in the context of
-the 'SWAPPABLE' segment. But what this assembler doesn't know is that this
-segment is swappable. Hence, if the bank being mapped right now is not the one
-containing the 'SWAPPABLE' segment, then the address computed for 'foo' and used
-in that 'jsr' instruction will point to something else entirely. This would be
-similar to a use-after-free bug.
-
-This is something that can only be inspected at runtime, and so the assembler
-cannot be of much help here. Hence, `nasm` adds a warning so the programmer can
-understand the potentially dangerous operation.
-
-All of that being said, this assembler also adds support for "asan:safe" or
-"check:safe", which is a magic comment that the programmer can write to
-re-assure the assembler that this operation is fine (e.g. there is a guarantee
-that the mapped bank is that one we are expecting). Hence, the code above could
-now be written like so:
-
-```asm
-jsr foo      ; check:safe
-```
-
-Moreover, you can define whole segments as "fixed" ones with the
-`asan:fixed-segments` (or `check:fixed-segments`) comments. This way, you
-express to the assembler that references to addresses of these segments are
-guaranteed to always be valid. Consider the following example:
-
-```asm
-;;; asan:fixed-segments ONE, OTHER
-
-.segment "ONE"
-
-.proc foo
-    rts
-.endproc
-
-.segment "OTHER"
-
-.proc bar
-    rts
-.endproc
-
-.segment "FIXED"
-
-jsr foo
-jsr bar
-```
-
-In the code above, we state that both 'ONE' and 'OTHER' are guaranteed to have a
-stable address space (they are fixed, never to be re-mapped). Hence, the
-assembler won't spit any warning at the final two 'jsr' instructions. Also note
-that you can define this comment multiple times. So the code below achieves the
-same thing:
-
-```asm
-;;; asan:fixed-segments ONE
-.segment "ONE"
-;; bla bla
-
-;;; asan:fixed-segments OTHER
-.segment "OTHER"
-;; rest
-```
-
 ## Address sanitizer
 
 This assembler comes with a set of tools that builds up an "address
@@ -497,7 +492,7 @@ lda zp_variable, x
 This will access memory far beyond to `zp_variable` which was only reserving a
 single byte. This is beyond the scope of this tool and other tools should be
 used instead (e.g. an emulator with breakpoints on accesses to unexpected memory
-regions, or `vnf` from this project).
+regions, or [runrom](../runrom) from this project).
 
 On another note, the address sanitizer is also able to do some basic bound
 checks. For example:
