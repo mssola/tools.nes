@@ -175,7 +175,7 @@ fn print_vectors(addrs: &[u8]) {
 }
 
 // Print the given `message` and exit(1).
-fn die(message: String) {
+fn die(message: String) -> ! {
     println!("error: {message}");
     std::process::exit(1);
 }
@@ -527,7 +527,6 @@ fn main() {
     // Open the ROM file and read it.
     let Ok(mut input) = File::open(&args.file) else {
         die(format!("failed to open the given file '{}'", args.file));
-        return;
     };
     let mut bytes = Vec::new();
     if let Err(e) = input.read_to_end(&mut bytes) {
@@ -553,10 +552,7 @@ fn main() {
 
     let header = match Header::try_from(buf) {
         Ok(h) => h,
-        Err(e) => {
-            die(e.to_string());
-            return;
-        }
+        Err(e) => die(e.to_string()),
     };
     print_header(&header);
 

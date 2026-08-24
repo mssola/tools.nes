@@ -27,7 +27,7 @@ fn print_help() {
 }
 
 // Print the given `message` and exit(1).
-fn die(message: String) {
+fn die(message: String) -> ! {
     eprintln!("error: {message}");
     std::process::exit(1);
 }
@@ -123,7 +123,6 @@ fn start_from_reset_vector(file: &String) -> u16 {
 
     let Ok(mut input) = File::open(file) else {
         die(format!("failed to open the given file '{file}'"));
-        return 0;
     };
 
     let mut buf = vec![0u8; 0x10];
@@ -136,10 +135,7 @@ fn start_from_reset_vector(file: &String) -> u16 {
 
     let header = match Header::try_from(buf.as_slice()) {
         Ok(h) => h,
-        Err(e) => {
-            die(e.to_string());
-            return 0;
-        }
+        Err(e) => die(e.to_string()),
     };
 
     // 2. With a known PRG ROM size, fetch the two bytes pertaining to the reset
@@ -155,7 +151,6 @@ fn start_from_reset_vector(file: &String) -> u16 {
 
     if input.seek(SeekFrom::Start(offset)).is_err() {
         die("cannot peek into the ROM's reset address".to_string());
-        return 0;
     };
     let mut buf = [0u8; 0x02];
     if let Err(e) = input.read_exact(&mut buf) {

@@ -77,7 +77,6 @@ fn parse_define(arg: &str) -> (String, u8) {
 
     let Some(name) = key_value.next() else {
         die(format!("bad format for define '{arg}'"));
-        return (String::default(), 0);
     };
 
     if name
@@ -95,7 +94,6 @@ fn parse_define(arg: &str) -> (String, u8) {
             die(format!(
                 "value for define '{arg}' must be a valid 8-bit integer"
             ));
-            return (String::default(), 0);
         }
     };
 
@@ -189,7 +187,7 @@ fn parse_arguments() -> Args {
 }
 
 // Print the given `message` and exit(1).
-fn die(message: String) {
+fn die(message: String) -> ! {
     eprintln!("error: {message}");
     std::process::exit(1);
 }
@@ -222,7 +220,7 @@ fn get_directory_from_source(source: &SourceInfo) -> PathBuf {
 // Save the `memory` object into the `<source>/.nasm/memory.txt` file.
 fn save_memory_stats(source: &SourceInfo, memory: &mut MemoryResult, has_working_ram: bool) {
     let Ok(mut file) = File::create(get_directory_from_source(source).join("memory.txt")) else {
-        return die("could not write memory.txt file".to_string());
+        die("could not write memory.txt file".to_string());
     };
 
     let ranges = &mut memory.memory_ranges;
@@ -231,15 +229,15 @@ fn save_memory_stats(source: &SourceInfo, memory: &mut MemoryResult, has_working
     for mr in ranges {
         if mr.range.start + 1 == mr.range.end {
             if let Err(e) = writeln!(file, "{}: {}", mr.to_human(), mr.name) {
-                return die(format!("could not write memory.txt file: {e}"));
+                die(format!("could not write memory.txt file: {e}"));
             }
         } else if let Err(e) = writeln!(file, "{}: {}", mr.to_human(), mr.name) {
-            return die(format!("could not write memory.txt file: {e}"));
+            die(format!("could not write memory.txt file: {e}"));
         }
     }
 
     if let Err(e) = writeln!(file, "\n--- Summary (in bytes) ---") {
-        return die(format!("could not write memory.txt file: {e}"));
+        die(format!("could not write memory.txt file: {e}"));
     }
     print_memory_summary(Box::new(file), memory, has_working_ram);
 }
@@ -255,7 +253,7 @@ fn print_memory_summary(mut output: Box<dyn Write>, memory: &MemoryResult, has_w
         "- Internal RAM: {}/2048 ({:.2}%)",
         memory.total_internal_ram, perc
     ) {
-        return die(format!("could not write memory summary: {e}"));
+        die(format!("could not write memory summary: {e}"));
     }
 
     if has_working_ram {
@@ -273,13 +271,13 @@ fn print_memory_summary(mut output: Box<dyn Write>, memory: &MemoryResult, has_w
 // Save the 'addresses' list into the `<source>/.nasm/addresses.txt` file.
 fn save_addresses(source: &SourceInfo, mut addresses: Vec<xixanta::assembler::Range>) {
     let Ok(mut file) = File::create(get_directory_from_source(source).join("addresses.txt")) else {
-        return die("could not write memory.txt file".to_string());
+        die("could not write memory.txt file".to_string());
     };
 
     addresses.sort_by_key(|a| a.range.start);
     for a in addresses {
         if let Err(e) = writeln!(file, "{},{:04X},{:04X}", a.name, a.range.start, a.range.end) {
-            return die(format!("could not write addresses.txt file: {e}"));
+            die(format!("could not write addresses.txt file: {e}"));
         }
     }
 }
@@ -296,14 +294,14 @@ fn print_segments_stats(mut output: Box<dyn Write>, mappings: &[Mapping]) {
                 "- {}: {}/{} ({:.0}%)",
                 mapping.name, mapping.offset, mapping.size, perc
             ) {
-                return die(format!("could not write segments summary: {e}"));
+                die(format!("could not write segments summary: {e}"));
             }
         } else if let Err(e) = writeln!(
             output,
             "- {}: {}/{} ({:.2}%)",
             mapping.name, mapping.offset, mapping.size, perc
         ) {
-            return die(format!("could not write segments summary: {e}"));
+            die(format!("could not write segments summary: {e}"));
         }
     }
 }
@@ -315,17 +313,13 @@ fn main() {
     let path = Path::new(&args.file);
     let Ok(input) = File::open(path) else {
         die(format!("failed to open the given file '{}'", args.file));
-        return;
     };
     let source = match path.parent() {
         Some(parent) => SourceInfo {
             directory: parent.to_path_buf(),
             name: path.file_name().unwrap().to_str().unwrap().to_string(),
         },
-        None => {
-            die("failed to find directory for the given file".to_string());
-            return;
-        }
+        None => die("failed to find directory for the given file".to_string()),
     };
 
     // Select the output stream.
@@ -337,10 +331,7 @@ fn main() {
         let name = args.out.unwrap_or(String::from("out.nes"));
         match File::create(&name) {
             Ok(f) => (BufWriter::new(Box::new(f)), args.file.as_str()),
-            Err(_) => {
-                die(format!("could not create file '{name}'"));
-                return;
-            }
+            Err(_) => die(format!("could not create file '{name}'")),
         }
     };
 
@@ -455,7 +446,7 @@ fn main() {
         if args.info {
             let Ok(file) = File::create(get_directory_from_source(&source).join("segments.txt"))
             else {
-                return die("could not write segments.txt file".to_string());
+                die("could not write segments.txt file".to_string());
             };
             print_segments_stats(Box::new(file), &res.mappings);
         }

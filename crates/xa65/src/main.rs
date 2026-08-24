@@ -28,11 +28,15 @@ fn print_help() {
     println!("Options:");
     println!("  --allow-unused\tPass the '--allow-unused' flag to 'nasm'.");
     println!("  -b, --bin <PROGRAM>\tAlternative to the binary for 'nasm'.");
-    println!("  -C, --config <FILE>\tLinker configuration to be used, whether an identifier or a file path.");
+    println!(
+        "  -C, --config <FILE>\tLinker configuration to be used, whether an identifier or a file path."
+    );
     println!("  -h, --help\t\tPrint this message.");
     println!("  -n, --no-errors\tError out if the output differ or 'nasm' has produced an error.");
     println!("  -o, --out <FILE>\tFile path where the output should be located after execution.");
-    println!("  -s, --strict\t\tBe more strict on 'nasm' by adding the address-sanitizer and writing debug/analysis information.");
+    println!(
+        "  -s, --strict\t\tBe more strict on 'nasm' by adding the address-sanitizer and writing debug/analysis information."
+    );
     println!("  --stats\t\tPrint statistics to the standard output.");
     println!("  --target nes\t\tUsed for compatibility with 'ca65'.");
     println!("  -v, --version\t\tPrint the version of this program.");
@@ -123,7 +127,7 @@ fn parse_arguments() -> Args {
 }
 
 // Print the given `message` and exit(1).
-fn die(message: String) {
+fn die(message: String) -> ! {
     eprintln!("error: {message}");
     std::process::exit(1);
 }
@@ -234,10 +238,7 @@ fn main() {
     // Make sure that the binaries are there.
     let (nasm, cl65) = match get_binaries(args.bin.unwrap_or("nasm".to_string())) {
         Ok((nasm, cl65)) => (nasm, cl65),
-        Err(e) => {
-            die(e);
-            return;
-        }
+        Err(e) => die(e),
     };
 
     // Generate a temporary directory in which both binary files will be placed
@@ -245,7 +246,6 @@ fn main() {
     let dir = temporary_dir();
     if let Err(e) = std::fs::create_dir(&dir) {
         die(format!("could not create temporary directory: {}", e));
-        return;
     }
 
     // Run 'nasm' with the given arguments. We only care about the exit code of
@@ -277,10 +277,7 @@ fn main() {
                 std::process::exit(cmd.code().unwrap_or(1));
             }
         }
-        Err(e) => {
-            die(e.to_string());
-            return;
-        }
+        Err(e) => die(e.to_string()),
     }
 
     // Run 'cl65' with the given arguments.
@@ -303,10 +300,7 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        Err(e) => {
-            die(e.to_string());
-            return;
-        }
+        Err(e) => die(e.to_string()),
     }
 
     // Everything went fine, we should have both binaries available to be
@@ -335,10 +329,7 @@ fn main() {
                 }
             }
         }
-        Err(e) => {
-            die(e.to_string());
-            return;
-        }
+        Err(e) => die(e.to_string()),
     }
 
     // And just copy one of the binaries to where it was originally requested.
