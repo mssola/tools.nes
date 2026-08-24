@@ -1,6 +1,8 @@
 use header::Header;
+use std::collections::HashMap;
 use std::fs::File;
-use std::io::{ErrorKind, Read, Seek, SeekFrom};
+use std::io::{BufRead, BufReader, ErrorKind, Read, Seek, SeekFrom};
+use std::path::PathBuf;
 use vnf::{Machine, MemoryInitialValue, MemoryPolicy};
 
 /// Version for this program.
@@ -11,6 +13,7 @@ struct Args {
     file: String,
     start: Option<u16>,
     assume_function: bool,
+    nasm: Option<String>,
     dump_memory: bool,
 }
 
@@ -21,6 +24,7 @@ fn print_help() {
     println!("  -d, --dump-memory\tShow the memory that has changed after a run.");
     println!("  -f, --function\tRun the code by assuming it's a function.");
     println!("  -h, --help\t\tPrint this message and quit.");
+    println!("  -n, --nasm-directory <PATH>\tPath to the .nasm/ directory.");
     println!("  -s, --start\t\tAddress from where to start (default: reset vector).");
     println!("  -v, --version\t\tPrint version information.");
     std::process::exit(0);
@@ -64,9 +68,34 @@ fn parse_hex_argument(given: &str) -> Result<u16, String> {
     }
 }
 
+// Fetch the address mapping from the .nasm/addresses.txt file. You need to pass
+// the full 'path' to the .nasm/ directory for the project (i.e. the '-n/--nasm'
+// option).
+fn fetch_addresses(path: PathBuf) -> Result<HashMap<String, usize>, String> {
+    let mut addresses: HashMap<String, usize> = HashMap::default();
+
+    if let Ok(file) = File::open(path.join("addresses.txt")) {
+        let reader = BufReader::new(file);
+        for line in reader.lines() {
+            let line = line.map_err(|e| e.to_string())?;
+            let columns: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+            if columns.len() != 3 {
+                return Err("badly formatted address file".to_string());
+            }
+
+            let parsed_start = usize::from_str_radix(columns[1], 16)
+                .map_err(|_| format!("invalid hex value: '{}'", columns[1]))?;
+            addresses.insert(columns[0].to_string(), parsed_start);
+        }
+    }
+
+    Ok(addresses)
+}
+
 fn parse_arguments() -> Args {
     let mut args = std::env::args();
     let mut res = Args::default();
+    let mut start = None;
 
     // Skip command name.
     args.next();
@@ -78,13 +107,9 @@ fn parse_arguments() -> Args {
                 if res.start.is_some() {
                     die("do not specify the '-s/--start' flag twice".to_string());
                 }
-                let Some(val) = args.next() else {
+                start = args.next();
+                if start.is_none() {
                     die("you need to specify a value for the -s/--start flag!".to_string());
-                    return res;
-                };
-                match parse_hex_argument(&val) {
-                    Ok(n) => res.start = Some(n),
-                    Err(e) => die(e),
                 }
             }
             "-d" | "--dump-memory" => {
@@ -93,6 +118,10 @@ fn parse_arguments() -> Args {
             "-f" | "--function" => {
                 res.assume_function = true;
             }
+            "-n" | "--nasm" => match args.next() {
+                Some(a) => res.nasm = Some(a),
+                None => die("you need to specify a file for the '-n/--nasm' flag".to_string()),
+            },
             "-v" | "--version" => {
                 println!("runrom {VERSION}");
                 std::process::exit(0);
@@ -106,6 +135,28 @@ fn parse_arguments() -> Args {
                 }
                 res.file = arg;
             }
+        }
+    }
+
+    // If the '-s/--start' option was provided, we need to parse it. This is
+    // either a valid hexadecimal value, or a string representing an address
+    // from the .nasm/ directory.
+    if let Some(val) = start {
+        match parse_hex_argument(&val) {
+            Ok(n) => res.start = Some(n),
+            Err(e) => match res.nasm {
+                Some(ref nasm_path) => {
+                    let addresses = match fetch_addresses(PathBuf::from(nasm_path)) {
+                        Ok(addr) => addr,
+                        Err(err) => die(err),
+                    };
+                    match addresses.get(&val) {
+                        Some(v) => res.start = Some(*v as u16),
+                        None => die(format!("could not find '{val}'")),
+                    }
+                }
+                None => die(e),
+            },
         }
     }
 

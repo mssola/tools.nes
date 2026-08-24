@@ -36,14 +36,30 @@ You can run a ROM file by simply:
 $ runrom <your-game-path>/game.nes
 ```
 
-This will display all of the instructions being run. By default it will run from
-the reset vector. You can change that with the `-s/--start` option, which
-accepts a 16-bit address from where to start execution.
+This will display all of the instructions being run.
 
-That being said, most of the times you want to test a specific function. For
-that, you can toggle the `-f/--function` option, which tells `runrom` that the
-address is just a function and, whenever a top-level `rts`/`rti` instruction is
-found, then execution can be halted.
+### From where should the VM start?
+
+By default `runrom` will start from the advertised reset vector. You can change
+that with the `-s/--start` option, which accepts a 16-bit address from where to
+start execution. The address can be given in hexadecimal format, but you can
+also provide a full address name with the `-n/--nasm` option. With this option
+you provide the location to the hidden `.nasm/` directory for the project (see
+more details on [nasm's README file](../nasm/README.md)), which is then used to
+translate the given identifier with the actual address. So:
+
+```
+$ runrom --start my-function --nasm <path-to-nasm-directory> game.nes
+```
+
+### When should the VM end?
+
+A lot of times you want to test a specific function. For that, you can toggle
+the `-f/--function` option, which tells `runrom` that the address is just a
+function and, whenever a top-level `rts`/`rti` instruction is found, then
+execution should be halted.
+
+### Other features
 
 Moreover, you may also find interesting the `-d/--dump-memory` option, which
 will display a summary of memory addresses which have been updated along
