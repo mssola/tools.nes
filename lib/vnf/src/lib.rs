@@ -183,7 +183,7 @@ pub struct Machine {
     /// Whether the machine is supposed to be running just a function (while
     /// also going into inner calls). Hence, it will stop whenever an 'rts' or
     /// 'rti' instruction is found at the top level.
-    run_function_mode: bool,
+    pub run_function_mode: bool,
 
     /// The PRG ROM pool of bytes.
     pub prg_rom: Vec<u8>,
@@ -550,20 +550,6 @@ impl Machine {
                 self.current_instruction.bytes = [0, 0];
             }
         };
-
-        Ok(())
-    }
-
-    /// Run a top-level function. That is, assume that the current 'start'
-    /// address is the start of a function, and keep on iterating the machine
-    /// until an 'rts'/'rti' instruction is found at the top-level (we still
-    /// allow inner calls).
-    pub fn run_function(&mut self) -> Result<(), String> {
-        self.run_function_mode = true;
-
-        while self.active {
-            self.next_iteration()?;
-        }
 
         Ok(())
     }

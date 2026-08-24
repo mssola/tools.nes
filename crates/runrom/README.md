@@ -36,7 +36,9 @@ You can run a ROM file by simply:
 $ runrom <your-game-path>/game.nes
 ```
 
-This will display all of the instructions being run.
+This will display all of the instructions being run. Moreover, you can also pass
+the `-d/--dump-memory` option, which will display a summary of memory addresses
+which have been updated along execution, and some statistics about them.
 
 ### From where should the VM start?
 
@@ -49,7 +51,7 @@ more details on [nasm's README file](../nasm/README.md)), which is then used to
 translate the given identifier with the actual address. So:
 
 ```
-$ runrom --start my-function --nasm <path-to-nasm-directory> game.nes
+$ runrom --start my-function --nasm <path to .nasm/> game.nes
 ```
 
 ### When should the VM end?
@@ -59,8 +61,12 @@ the `-f/--function` option, which tells `runrom` that the address is just a
 function and, whenever a top-level `rts`/`rti` instruction is found, then
 execution should be halted.
 
-### Other features
+Otherwise, you can also pass the `--until-address` option. This option follows
+the same format as `-s/--start` and it accepts an address (again, either in
+hexadecimal form or with an identifier). With this, `runrom` will run until the
+given address is met. This way, you can expect something like this to work just
+fine:
 
-Moreover, you may also find interesting the `-d/--dump-memory` option, which
-will display a summary of memory addresses which have been updated along
-execution, and some statistics about them.
+```
+$ runrom --start init-loop --until-address end-loop --nasm <path to .nasm/> game.nes
+```

@@ -15,6 +15,7 @@ struct Args {
     assume_function: bool,
     nasm: Option<String>,
     dump_memory: bool,
+    until_address: u16,
 }
 
 fn print_help() {
@@ -92,10 +93,41 @@ fn fetch_addresses(path: PathBuf) -> Result<HashMap<String, usize>, String> {
     Ok(addresses)
 }
 
+// Parse the given 'val' as if it was an hexadecimal literal. If that fails,
+// pick up whether a 'nasm' directory was provided (i.e. '-n/--nasm' option),
+// and try to find a mapping on the 'addresses' map. If that map is empty, then
+// it will be filled by parsing the "addresses.txt" file from the 'nasm'
+// directory.
+fn parse_hex_or_reference(
+    val: String,
+    nasm: &Option<String>,
+    addresses: &mut HashMap<String, usize>,
+) -> u16 {
+    match parse_hex_argument(&val) {
+        Ok(n) => n,
+        Err(e) => match nasm {
+            Some(nasm_path) => {
+                if addresses.is_empty() {
+                    *addresses = match fetch_addresses(PathBuf::from(nasm_path)) {
+                        Ok(addr) => addr,
+                        Err(err) => die(err),
+                    };
+                }
+                match addresses.get(&val) {
+                    Some(v) => *v as u16,
+                    None => die(format!("could not find '{val}'")),
+                }
+            }
+            None => die(e),
+        },
+    }
+}
+
 fn parse_arguments() -> Args {
     let mut args = std::env::args();
     let mut res = Args::default();
     let mut start = None;
+    let mut until_address = None;
 
     // Skip command name.
     args.next();
@@ -122,6 +154,12 @@ fn parse_arguments() -> Args {
                 Some(a) => res.nasm = Some(a),
                 None => die("you need to specify a file for the '-n/--nasm' flag".to_string()),
             },
+            "--until-address" => {
+                until_address = args.next();
+                if until_address.is_none() {
+                    die("you need to specify a value for the --until-address flag!".to_string());
+                }
+            }
             "-v" | "--version" => {
                 println!("runrom {VERSION}");
                 std::process::exit(0);
@@ -138,27 +176,20 @@ fn parse_arguments() -> Args {
         }
     }
 
-    // If the '-s/--start' option was provided, we need to parse it. This is
-    // either a valid hexadecimal value, or a string representing an address
-    // from the .nasm/ directory.
+    // Further handle options which can be either an hexadecimal value or an
+    // address reference.
+
+    let mut addresses = HashMap::new();
+
     if let Some(val) = start {
-        match parse_hex_argument(&val) {
-            Ok(n) => res.start = Some(n),
-            Err(e) => match res.nasm {
-                Some(ref nasm_path) => {
-                    let addresses = match fetch_addresses(PathBuf::from(nasm_path)) {
-                        Ok(addr) => addr,
-                        Err(err) => die(err),
-                    };
-                    match addresses.get(&val) {
-                        Some(v) => res.start = Some(*v as u16),
-                        None => die(format!("could not find '{val}'")),
-                    }
-                }
-                None => die(e),
-            },
-        }
+        res.start = Some(parse_hex_or_reference(val, &res.nasm, &mut addresses));
     }
+    res.until_address = match until_address {
+        Some(val) => parse_hex_or_reference(val, &res.nasm, &mut addresses),
+        None => 0xFFFF,
+    };
+
+    // And finally, check that a ROM file was actually provided.
 
     if res.file.is_empty() {
         die("you need to specify the file to be run".to_string());
@@ -214,7 +245,13 @@ fn start_from_reset_vector(file: &String) -> u16 {
     ((buf[1] as u16) << 8) + buf[0] as u16
 }
 
-fn run(file: &String, start: u16, assume_function: bool, dump_memory: bool) -> Result<(), String> {
+fn run(
+    file: &String,
+    start: u16,
+    end: u16,
+    assume_function: bool,
+    dump_memory: bool,
+) -> Result<(), String> {
     let mut machine = Machine::from(
         file,
         start,
@@ -226,13 +263,11 @@ fn run(file: &String, start: u16, assume_function: bool, dump_memory: bool) -> R
             minimum_stack_value: 0,
         },
     )?;
-    machine.verbose = true;
 
-    if assume_function {
-        machine.run_function()?;
-    } else {
-        machine.until_address(0xFFFF)?;
-    }
+    machine.verbose = true;
+    machine.run_function_mode = assume_function;
+
+    machine.until_address(end)?;
 
     if dump_memory {
         let mut title = false;
@@ -262,7 +297,13 @@ fn main() {
         None => start_from_reset_vector(&args.file),
     };
 
-    match run(&args.file, start, args.assume_function, args.dump_memory) {
+    match run(
+        &args.file,
+        start,
+        args.until_address,
+        args.assume_function,
+        args.dump_memory,
+    ) {
         Ok(m) => m,
         Err(e) => {
             die(e);
