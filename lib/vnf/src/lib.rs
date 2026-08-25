@@ -202,7 +202,7 @@ pub struct Machine {
     /// instruction.
     extra_cycles: usize,
 
-    /// The extra cycles to be added as part of a page penalty.
+    /// The amount of cycles wasted on page penalties.
     pub page_penalty: usize,
 
     /// Number of instructions that have been run so far.
