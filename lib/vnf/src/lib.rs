@@ -563,8 +563,10 @@ impl Machine {
         Ok(())
     }
 
-    // Perform a read of the given memory 'address'.
-    fn read_memory(&mut self, address: u16) -> Result<u8, String> {
+    // Perform a read of the given memory 'address'. Set 'account_read' to true
+    // if you want this read to be accounted on the statistics of reads of the
+    // given address, false otherwise.
+    fn read_memory(&mut self, address: u16, account_read: bool) -> Result<u8, String> {
         let cell = self.ram.get_mut(address as usize).unwrap();
 
         if !cell.read_allowed {
@@ -573,7 +575,9 @@ impl Machine {
                 address
             ));
         }
-        cell.reads += 1;
+        if account_read {
+            cell.reads += 1;
+        }
 
         Ok(cell.value)
     }
@@ -629,7 +633,7 @@ impl Machine {
     }
 
     // Pop the stack once and return the value that was found.
-    fn pop_stack(&mut self) -> Result<u8, String> {
+    fn pop_stack(&mut self, account_read: bool) -> Result<u8, String> {
         if self.s == self.initial_stack_value {
             return Err("stack overflow!".to_string());
         }
@@ -641,7 +645,7 @@ impl Machine {
         }
 
         let address = 0x200 + self.s as u16;
-        self.read_memory(address)
+        self.read_memory(address, account_read)
     }
 
     // Returns true of the stack is empty, false otherwise. Note that this
@@ -957,8 +961,8 @@ impl Machine {
                 // Pull the previous address from the stack and jump there. Note
                 // that we have to subtract the current instruction's size
                 // because it will be re-added after the call to `execute`.
-                let low = self.pop_stack()? as u16;
-                let high = (self.pop_stack()? as u16) << 8;
+                let low = self.pop_stack(false)? as u16;
+                let high = (self.pop_stack(false)? as u16) << 8;
                 self.pc = (high + low) as usize;
                 self.skip_pc = true;
             }
@@ -1041,7 +1045,7 @@ impl Machine {
                     // NOTE: 0x0800 until 0x2000 are simply mirrors of the first
                     // 2KB. Let's mask out the upper bits.
                     let real = address & 0x07FF;
-                    self.read_memory(real as u16)?
+                    self.read_memory(real as u16, true)?
                 }
                 0x8000..=0xFFFF => {
                     let real = address - 0x8000;
@@ -1077,8 +1081,8 @@ impl Machine {
             }
             AddressingMode::IndirectY => {
                 let ptr = self.current_instruction.value() as u16;
-                let value =
-                    self.read_memory(ptr)? as u16 + ((self.read_memory(ptr + 1)? as u16) << 8);
+                let value = self.read_memory(ptr, true)? as u16
+                    + ((self.read_memory(ptr + 1, true)? as u16) << 8);
                 Ok(value as usize + self.y as usize)
             }
             _ => {
