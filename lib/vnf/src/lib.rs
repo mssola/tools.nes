@@ -1012,11 +1012,19 @@ impl Machine {
             self.pc - val.wrapping_neg() as usize
         };
 
+        // If the next PC results in crossing the page boundary compared to the
+        // old PC, then there is a page penalty to be accounted. That is,
+        // branch instructions are defined with a base 'cycles' count, and then
+        // needs to be increased either by 1 or 2 depending on whether there was
+        // a page penalty or not. We could have easily defined the base 'cycles'
+        // with an increased value of 1 and then only increase by one on page
+        // penalty, but the definition tries to be close to the 6502
+        // specification, which is defined like so. Hence, we keep this quirk.
         if (next & 0xFF00) == (self.pc & 0xFF00) {
+            self.extra_cycles += 1;
+        } else {
             self.extra_cycles += 2;
             self.page_penalty += 1;
-        } else {
-            self.extra_cycles += 1;
         }
         self.pc = next;
         // TODO
