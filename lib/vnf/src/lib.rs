@@ -556,7 +556,7 @@ impl Machine {
 
     /// Run until the program counter reaches the given 'address'.
     pub fn until_address(&mut self, address: u16) -> Result<(), String> {
-        while self.pc != address as usize {
+        while self.pc != address as usize && self.active {
             self.next_iteration()?;
         }
 
