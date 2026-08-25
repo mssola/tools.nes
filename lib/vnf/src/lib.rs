@@ -899,7 +899,12 @@ impl Machine {
                     return Err("invalid jump!".to_string());
                 }
 
-                let next_address = self.pc + self.current_instruction.size as usize;
+                // NOTE: as per 6502 specification, the address should be - 1
+                // because the 'rts'/'rti' instruction will be the one in charge
+                // of adding its size to the end PC upon execution. This is kind
+                // of pedantic but in the end we record the address being pushed
+                // onto the stack and that should be precise.
+                let next_address = self.pc + self.current_instruction.size as usize - 1;
                 let low = (next_address as u16 & 0x00FF) as u8;
                 let high = ((next_address as u16 & 0xFF00) >> 8) as u8;
 
@@ -958,12 +963,15 @@ impl Machine {
                     return Ok(());
                 }
 
-                // Pull the previous address from the stack and jump there. Note
-                // that we have to subtract the current instruction's size
-                // because it will be re-added after the call to `execute`.
+                // Pull the previous address from the stack and jump there.
+                //
+                // NOTE: as per 6502 specification, the address saved onto the
+                // stack was the next instruction before the call, but the size
+                // of the 'rts/rti' should also be accounted. Hence the + 1 to
+                // the resulting PC.
                 let low = self.pop_stack(false)? as u16;
                 let high = (self.pop_stack(false)? as u16) << 8;
-                self.pc = (high + low) as usize;
+                self.pc = (high + low) as usize + 1;
                 self.skip_pc = true;
             }
 
