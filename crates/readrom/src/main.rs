@@ -25,15 +25,15 @@ fn print_help() {
     println!("Display information about NES/Famicom ROM files.\n");
     println!("usage: readrom [OPTIONS] <FILE>\n");
     println!("Options:");
-    println!("  -a, --disassemble-all\tDisassemble everything from the ROM file.");
+    println!("  -a, --disassemble-all\t\tDisassemble everything from the ROM file.");
     println!(
-        "  -c, --config <FILE>\tLinker configuration to be used, whether an identifier or a file path."
+        "  -c, --config <FILE>\t\tLinker configuration to be used, whether an identifier or a file path."
     );
     println!("  -d, --disassemble <ADDRESS>\tDisassemble starting from the given ADDRESS.");
     println!("  -h, --help\t\t\tPrint this message.");
     println!("  -H, --header\t\t\tJust print the ROM header and quit.");
-    println!("  -m, --mapping <NAME>\t\t\tDisassemble the mapped segments as referenced by NAME.");
-    println!("  -n, --nasm <PATH>\tPath to the .nasm/ directory.");
+    println!("  -m, --mapping <NAME>\t\tDisassemble the mapped segments as referenced by NAME.");
+    println!("  -n, --nasm <PATH>\t\tPath to the .nasm/ directory.");
     println!("  -r, --raw\t\t\tPrint bytes with no formatting at all when disassembling.");
     println!("  -v, --version\t\t\tPrint the version of this program.");
     std::process::exit(0);

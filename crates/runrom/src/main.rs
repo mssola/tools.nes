@@ -22,12 +22,12 @@ fn print_help() {
     println!("Run an NES/Famicom ROM to test its code under a set of conditions.\n");
     println!("usage: runrom [OPTIONS] <FILE>\n");
     println!("Options:");
-    println!("  -d, --dump-memory\tShow the memory that has changed after a run.");
-    println!("  -f, --function\tRun the code by assuming it's a function.");
-    println!("  -h, --help\t\tPrint this message and quit.");
+    println!("  -d, --dump-memory\t\tShow the memory that has changed after a run.");
+    println!("  -f, --function\t\tRun the code by assuming it's a function.");
+    println!("  -h, --help\t\t\tPrint this message and quit.");
     println!("  -n, --nasm-directory <PATH>\tPath to the .nasm/ directory.");
-    println!("  -s, --start\t\tAddress from where to start (default: reset vector).");
-    println!("  -v, --version\t\tPrint version information.");
+    println!("  -s, --start\t\t\tAddress from where to start (default: reset vector).");
+    println!("  -v, --version\t\t\tPrint version information.");
     std::process::exit(0);
 }
 
