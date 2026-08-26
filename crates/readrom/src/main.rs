@@ -33,7 +33,7 @@ fn print_help() {
     println!("  -h, --help\t\t\tPrint this message.");
     println!("  -H, --header\t\t\tJust print the ROM header and quit.");
     println!("  -m, --mapping <NAME>\t\t\tDisassemble the mapped segments as referenced by NAME.");
-    println!("  -n, --nasm-directory <PATH>\tPath to the .nasm/ directory.");
+    println!("  -n, --nasm <PATH>\tPath to the .nasm/ directory.");
     println!("  -r, --raw\t\t\tPrint bytes with no formatting at all when disassembling.");
     println!("  -v, --version\t\t\tPrint the version of this program.");
     std::process::exit(0);
@@ -409,7 +409,7 @@ fn do_disassemble(
 
     // Otherwise, print the full range if possible.
     if !is_nasm_path {
-        Err("you need to use the '-n/--nasm-directory' on disassembly".to_string())
+        Err("you need to use the '-n/--nasm' on disassembly".to_string())
     } else if addresses.is_empty() {
         Err("failed to open the .nasm/addresses.txt file".to_string())
     } else {
