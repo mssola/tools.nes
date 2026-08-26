@@ -3,3 +3,4 @@
 tests/out/*.nes
 tests/out/*.txt
 TODO
+.nasm

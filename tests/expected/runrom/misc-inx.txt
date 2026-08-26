@@ -1,0 +1,2 @@
+<start>		PC: $8006, cycles: 7, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----I--
+inx		PC: $8007, cycles: 9, registers: [a: $00, x: $01, y: $00, sp: $FD], status: ----I--

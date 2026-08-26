@@ -1,0 +1,527 @@
+<start>		PC: $8000, cycles: 7, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----I--
+		[STACK]: 80 00 00 
+		[STACK]: 02 80 00 00 
+jsr $8004	PC: $8004, cycles: 13, registers: [a: $00, x: $00, y: $00, sp: $FB], status: ----I--
+ldx #$00	PC: $8006, cycles: 15, registers: [a: $00, x: $00, y: $00, sp: $FB], status: ----IZ-
+inx		PC: $8007, cycles: 17, registers: [a: $00, x: $01, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 20, registers: [a: $00, x: $01, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 22, registers: [a: $00, x: $02, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 25, registers: [a: $00, x: $02, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 27, registers: [a: $00, x: $03, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 30, registers: [a: $00, x: $03, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 32, registers: [a: $00, x: $04, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 35, registers: [a: $00, x: $04, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 37, registers: [a: $00, x: $05, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 40, registers: [a: $00, x: $05, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 42, registers: [a: $00, x: $06, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 45, registers: [a: $00, x: $06, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 47, registers: [a: $00, x: $07, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 50, registers: [a: $00, x: $07, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 52, registers: [a: $00, x: $08, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 55, registers: [a: $00, x: $08, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 57, registers: [a: $00, x: $09, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 60, registers: [a: $00, x: $09, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 62, registers: [a: $00, x: $0A, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 65, registers: [a: $00, x: $0A, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 67, registers: [a: $00, x: $0B, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 70, registers: [a: $00, x: $0B, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 72, registers: [a: $00, x: $0C, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 75, registers: [a: $00, x: $0C, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 77, registers: [a: $00, x: $0D, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 80, registers: [a: $00, x: $0D, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 82, registers: [a: $00, x: $0E, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 85, registers: [a: $00, x: $0E, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 87, registers: [a: $00, x: $0F, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 90, registers: [a: $00, x: $0F, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 92, registers: [a: $00, x: $10, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 95, registers: [a: $00, x: $10, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 97, registers: [a: $00, x: $11, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 100, registers: [a: $00, x: $11, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 102, registers: [a: $00, x: $12, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 105, registers: [a: $00, x: $12, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 107, registers: [a: $00, x: $13, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 110, registers: [a: $00, x: $13, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 112, registers: [a: $00, x: $14, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 115, registers: [a: $00, x: $14, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 117, registers: [a: $00, x: $15, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 120, registers: [a: $00, x: $15, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 122, registers: [a: $00, x: $16, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 125, registers: [a: $00, x: $16, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 127, registers: [a: $00, x: $17, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 130, registers: [a: $00, x: $17, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 132, registers: [a: $00, x: $18, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 135, registers: [a: $00, x: $18, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 137, registers: [a: $00, x: $19, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 140, registers: [a: $00, x: $19, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 142, registers: [a: $00, x: $1A, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 145, registers: [a: $00, x: $1A, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 147, registers: [a: $00, x: $1B, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 150, registers: [a: $00, x: $1B, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 152, registers: [a: $00, x: $1C, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 155, registers: [a: $00, x: $1C, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 157, registers: [a: $00, x: $1D, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 160, registers: [a: $00, x: $1D, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 162, registers: [a: $00, x: $1E, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 165, registers: [a: $00, x: $1E, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 167, registers: [a: $00, x: $1F, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 170, registers: [a: $00, x: $1F, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 172, registers: [a: $00, x: $20, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 175, registers: [a: $00, x: $20, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 177, registers: [a: $00, x: $21, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 180, registers: [a: $00, x: $21, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 182, registers: [a: $00, x: $22, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 185, registers: [a: $00, x: $22, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 187, registers: [a: $00, x: $23, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 190, registers: [a: $00, x: $23, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 192, registers: [a: $00, x: $24, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 195, registers: [a: $00, x: $24, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 197, registers: [a: $00, x: $25, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 200, registers: [a: $00, x: $25, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 202, registers: [a: $00, x: $26, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 205, registers: [a: $00, x: $26, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 207, registers: [a: $00, x: $27, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 210, registers: [a: $00, x: $27, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 212, registers: [a: $00, x: $28, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 215, registers: [a: $00, x: $28, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 217, registers: [a: $00, x: $29, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 220, registers: [a: $00, x: $29, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 222, registers: [a: $00, x: $2A, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 225, registers: [a: $00, x: $2A, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 227, registers: [a: $00, x: $2B, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 230, registers: [a: $00, x: $2B, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 232, registers: [a: $00, x: $2C, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 235, registers: [a: $00, x: $2C, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 237, registers: [a: $00, x: $2D, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 240, registers: [a: $00, x: $2D, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 242, registers: [a: $00, x: $2E, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 245, registers: [a: $00, x: $2E, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 247, registers: [a: $00, x: $2F, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 250, registers: [a: $00, x: $2F, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 252, registers: [a: $00, x: $30, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 255, registers: [a: $00, x: $30, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 257, registers: [a: $00, x: $31, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 260, registers: [a: $00, x: $31, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 262, registers: [a: $00, x: $32, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 265, registers: [a: $00, x: $32, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 267, registers: [a: $00, x: $33, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 270, registers: [a: $00, x: $33, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 272, registers: [a: $00, x: $34, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 275, registers: [a: $00, x: $34, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 277, registers: [a: $00, x: $35, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 280, registers: [a: $00, x: $35, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 282, registers: [a: $00, x: $36, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 285, registers: [a: $00, x: $36, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 287, registers: [a: $00, x: $37, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 290, registers: [a: $00, x: $37, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 292, registers: [a: $00, x: $38, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 295, registers: [a: $00, x: $38, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 297, registers: [a: $00, x: $39, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 300, registers: [a: $00, x: $39, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 302, registers: [a: $00, x: $3A, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 305, registers: [a: $00, x: $3A, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 307, registers: [a: $00, x: $3B, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 310, registers: [a: $00, x: $3B, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 312, registers: [a: $00, x: $3C, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 315, registers: [a: $00, x: $3C, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 317, registers: [a: $00, x: $3D, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 320, registers: [a: $00, x: $3D, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 322, registers: [a: $00, x: $3E, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 325, registers: [a: $00, x: $3E, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 327, registers: [a: $00, x: $3F, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 330, registers: [a: $00, x: $3F, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 332, registers: [a: $00, x: $40, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 335, registers: [a: $00, x: $40, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 337, registers: [a: $00, x: $41, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 340, registers: [a: $00, x: $41, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 342, registers: [a: $00, x: $42, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 345, registers: [a: $00, x: $42, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 347, registers: [a: $00, x: $43, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 350, registers: [a: $00, x: $43, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 352, registers: [a: $00, x: $44, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 355, registers: [a: $00, x: $44, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 357, registers: [a: $00, x: $45, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 360, registers: [a: $00, x: $45, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 362, registers: [a: $00, x: $46, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 365, registers: [a: $00, x: $46, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 367, registers: [a: $00, x: $47, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 370, registers: [a: $00, x: $47, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 372, registers: [a: $00, x: $48, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 375, registers: [a: $00, x: $48, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 377, registers: [a: $00, x: $49, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 380, registers: [a: $00, x: $49, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 382, registers: [a: $00, x: $4A, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 385, registers: [a: $00, x: $4A, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 387, registers: [a: $00, x: $4B, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 390, registers: [a: $00, x: $4B, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 392, registers: [a: $00, x: $4C, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 395, registers: [a: $00, x: $4C, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 397, registers: [a: $00, x: $4D, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 400, registers: [a: $00, x: $4D, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 402, registers: [a: $00, x: $4E, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 405, registers: [a: $00, x: $4E, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 407, registers: [a: $00, x: $4F, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 410, registers: [a: $00, x: $4F, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 412, registers: [a: $00, x: $50, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 415, registers: [a: $00, x: $50, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 417, registers: [a: $00, x: $51, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 420, registers: [a: $00, x: $51, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 422, registers: [a: $00, x: $52, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 425, registers: [a: $00, x: $52, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 427, registers: [a: $00, x: $53, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 430, registers: [a: $00, x: $53, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 432, registers: [a: $00, x: $54, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 435, registers: [a: $00, x: $54, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 437, registers: [a: $00, x: $55, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 440, registers: [a: $00, x: $55, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 442, registers: [a: $00, x: $56, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 445, registers: [a: $00, x: $56, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 447, registers: [a: $00, x: $57, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 450, registers: [a: $00, x: $57, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 452, registers: [a: $00, x: $58, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 455, registers: [a: $00, x: $58, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 457, registers: [a: $00, x: $59, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 460, registers: [a: $00, x: $59, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 462, registers: [a: $00, x: $5A, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 465, registers: [a: $00, x: $5A, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 467, registers: [a: $00, x: $5B, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 470, registers: [a: $00, x: $5B, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 472, registers: [a: $00, x: $5C, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 475, registers: [a: $00, x: $5C, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 477, registers: [a: $00, x: $5D, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 480, registers: [a: $00, x: $5D, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 482, registers: [a: $00, x: $5E, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 485, registers: [a: $00, x: $5E, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 487, registers: [a: $00, x: $5F, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 490, registers: [a: $00, x: $5F, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 492, registers: [a: $00, x: $60, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 495, registers: [a: $00, x: $60, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 497, registers: [a: $00, x: $61, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 500, registers: [a: $00, x: $61, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 502, registers: [a: $00, x: $62, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 505, registers: [a: $00, x: $62, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 507, registers: [a: $00, x: $63, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 510, registers: [a: $00, x: $63, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 512, registers: [a: $00, x: $64, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 515, registers: [a: $00, x: $64, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 517, registers: [a: $00, x: $65, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 520, registers: [a: $00, x: $65, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 522, registers: [a: $00, x: $66, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 525, registers: [a: $00, x: $66, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 527, registers: [a: $00, x: $67, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 530, registers: [a: $00, x: $67, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 532, registers: [a: $00, x: $68, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 535, registers: [a: $00, x: $68, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 537, registers: [a: $00, x: $69, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 540, registers: [a: $00, x: $69, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 542, registers: [a: $00, x: $6A, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 545, registers: [a: $00, x: $6A, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 547, registers: [a: $00, x: $6B, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 550, registers: [a: $00, x: $6B, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 552, registers: [a: $00, x: $6C, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 555, registers: [a: $00, x: $6C, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 557, registers: [a: $00, x: $6D, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 560, registers: [a: $00, x: $6D, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 562, registers: [a: $00, x: $6E, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 565, registers: [a: $00, x: $6E, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 567, registers: [a: $00, x: $6F, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 570, registers: [a: $00, x: $6F, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 572, registers: [a: $00, x: $70, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 575, registers: [a: $00, x: $70, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 577, registers: [a: $00, x: $71, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 580, registers: [a: $00, x: $71, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 582, registers: [a: $00, x: $72, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 585, registers: [a: $00, x: $72, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 587, registers: [a: $00, x: $73, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 590, registers: [a: $00, x: $73, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 592, registers: [a: $00, x: $74, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 595, registers: [a: $00, x: $74, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 597, registers: [a: $00, x: $75, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 600, registers: [a: $00, x: $75, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 602, registers: [a: $00, x: $76, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 605, registers: [a: $00, x: $76, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 607, registers: [a: $00, x: $77, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 610, registers: [a: $00, x: $77, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 612, registers: [a: $00, x: $78, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 615, registers: [a: $00, x: $78, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 617, registers: [a: $00, x: $79, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 620, registers: [a: $00, x: $79, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 622, registers: [a: $00, x: $7A, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 625, registers: [a: $00, x: $7A, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 627, registers: [a: $00, x: $7B, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 630, registers: [a: $00, x: $7B, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 632, registers: [a: $00, x: $7C, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 635, registers: [a: $00, x: $7C, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 637, registers: [a: $00, x: $7D, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 640, registers: [a: $00, x: $7D, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 642, registers: [a: $00, x: $7E, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 645, registers: [a: $00, x: $7E, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 647, registers: [a: $00, x: $7F, y: $00, sp: $FB], status: ----I--
+bne $FD		PC: $8006, cycles: 650, registers: [a: $00, x: $7F, y: $00, sp: $FB], status: ----I--
+inx		PC: $8007, cycles: 652, registers: [a: $00, x: $80, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 655, registers: [a: $00, x: $80, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 657, registers: [a: $00, x: $81, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 660, registers: [a: $00, x: $81, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 662, registers: [a: $00, x: $82, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 665, registers: [a: $00, x: $82, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 667, registers: [a: $00, x: $83, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 670, registers: [a: $00, x: $83, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 672, registers: [a: $00, x: $84, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 675, registers: [a: $00, x: $84, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 677, registers: [a: $00, x: $85, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 680, registers: [a: $00, x: $85, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 682, registers: [a: $00, x: $86, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 685, registers: [a: $00, x: $86, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 687, registers: [a: $00, x: $87, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 690, registers: [a: $00, x: $87, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 692, registers: [a: $00, x: $88, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 695, registers: [a: $00, x: $88, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 697, registers: [a: $00, x: $89, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 700, registers: [a: $00, x: $89, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 702, registers: [a: $00, x: $8A, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 705, registers: [a: $00, x: $8A, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 707, registers: [a: $00, x: $8B, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 710, registers: [a: $00, x: $8B, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 712, registers: [a: $00, x: $8C, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 715, registers: [a: $00, x: $8C, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 717, registers: [a: $00, x: $8D, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 720, registers: [a: $00, x: $8D, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 722, registers: [a: $00, x: $8E, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 725, registers: [a: $00, x: $8E, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 727, registers: [a: $00, x: $8F, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 730, registers: [a: $00, x: $8F, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 732, registers: [a: $00, x: $90, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 735, registers: [a: $00, x: $90, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 737, registers: [a: $00, x: $91, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 740, registers: [a: $00, x: $91, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 742, registers: [a: $00, x: $92, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 745, registers: [a: $00, x: $92, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 747, registers: [a: $00, x: $93, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 750, registers: [a: $00, x: $93, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 752, registers: [a: $00, x: $94, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 755, registers: [a: $00, x: $94, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 757, registers: [a: $00, x: $95, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 760, registers: [a: $00, x: $95, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 762, registers: [a: $00, x: $96, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 765, registers: [a: $00, x: $96, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 767, registers: [a: $00, x: $97, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 770, registers: [a: $00, x: $97, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 772, registers: [a: $00, x: $98, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 775, registers: [a: $00, x: $98, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 777, registers: [a: $00, x: $99, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 780, registers: [a: $00, x: $99, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 782, registers: [a: $00, x: $9A, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 785, registers: [a: $00, x: $9A, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 787, registers: [a: $00, x: $9B, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 790, registers: [a: $00, x: $9B, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 792, registers: [a: $00, x: $9C, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 795, registers: [a: $00, x: $9C, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 797, registers: [a: $00, x: $9D, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 800, registers: [a: $00, x: $9D, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 802, registers: [a: $00, x: $9E, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 805, registers: [a: $00, x: $9E, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 807, registers: [a: $00, x: $9F, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 810, registers: [a: $00, x: $9F, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 812, registers: [a: $00, x: $A0, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 815, registers: [a: $00, x: $A0, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 817, registers: [a: $00, x: $A1, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 820, registers: [a: $00, x: $A1, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 822, registers: [a: $00, x: $A2, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 825, registers: [a: $00, x: $A2, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 827, registers: [a: $00, x: $A3, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 830, registers: [a: $00, x: $A3, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 832, registers: [a: $00, x: $A4, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 835, registers: [a: $00, x: $A4, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 837, registers: [a: $00, x: $A5, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 840, registers: [a: $00, x: $A5, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 842, registers: [a: $00, x: $A6, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 845, registers: [a: $00, x: $A6, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 847, registers: [a: $00, x: $A7, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 850, registers: [a: $00, x: $A7, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 852, registers: [a: $00, x: $A8, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 855, registers: [a: $00, x: $A8, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 857, registers: [a: $00, x: $A9, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 860, registers: [a: $00, x: $A9, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 862, registers: [a: $00, x: $AA, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 865, registers: [a: $00, x: $AA, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 867, registers: [a: $00, x: $AB, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 870, registers: [a: $00, x: $AB, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 872, registers: [a: $00, x: $AC, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 875, registers: [a: $00, x: $AC, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 877, registers: [a: $00, x: $AD, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 880, registers: [a: $00, x: $AD, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 882, registers: [a: $00, x: $AE, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 885, registers: [a: $00, x: $AE, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 887, registers: [a: $00, x: $AF, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 890, registers: [a: $00, x: $AF, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 892, registers: [a: $00, x: $B0, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 895, registers: [a: $00, x: $B0, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 897, registers: [a: $00, x: $B1, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 900, registers: [a: $00, x: $B1, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 902, registers: [a: $00, x: $B2, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 905, registers: [a: $00, x: $B2, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 907, registers: [a: $00, x: $B3, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 910, registers: [a: $00, x: $B3, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 912, registers: [a: $00, x: $B4, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 915, registers: [a: $00, x: $B4, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 917, registers: [a: $00, x: $B5, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 920, registers: [a: $00, x: $B5, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 922, registers: [a: $00, x: $B6, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 925, registers: [a: $00, x: $B6, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 927, registers: [a: $00, x: $B7, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 930, registers: [a: $00, x: $B7, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 932, registers: [a: $00, x: $B8, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 935, registers: [a: $00, x: $B8, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 937, registers: [a: $00, x: $B9, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 940, registers: [a: $00, x: $B9, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 942, registers: [a: $00, x: $BA, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 945, registers: [a: $00, x: $BA, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 947, registers: [a: $00, x: $BB, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 950, registers: [a: $00, x: $BB, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 952, registers: [a: $00, x: $BC, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 955, registers: [a: $00, x: $BC, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 957, registers: [a: $00, x: $BD, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 960, registers: [a: $00, x: $BD, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 962, registers: [a: $00, x: $BE, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 965, registers: [a: $00, x: $BE, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 967, registers: [a: $00, x: $BF, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 970, registers: [a: $00, x: $BF, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 972, registers: [a: $00, x: $C0, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 975, registers: [a: $00, x: $C0, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 977, registers: [a: $00, x: $C1, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 980, registers: [a: $00, x: $C1, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 982, registers: [a: $00, x: $C2, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 985, registers: [a: $00, x: $C2, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 987, registers: [a: $00, x: $C3, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 990, registers: [a: $00, x: $C3, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 992, registers: [a: $00, x: $C4, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 995, registers: [a: $00, x: $C4, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 997, registers: [a: $00, x: $C5, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1000, registers: [a: $00, x: $C5, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1002, registers: [a: $00, x: $C6, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1005, registers: [a: $00, x: $C6, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1007, registers: [a: $00, x: $C7, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1010, registers: [a: $00, x: $C7, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1012, registers: [a: $00, x: $C8, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1015, registers: [a: $00, x: $C8, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1017, registers: [a: $00, x: $C9, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1020, registers: [a: $00, x: $C9, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1022, registers: [a: $00, x: $CA, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1025, registers: [a: $00, x: $CA, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1027, registers: [a: $00, x: $CB, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1030, registers: [a: $00, x: $CB, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1032, registers: [a: $00, x: $CC, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1035, registers: [a: $00, x: $CC, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1037, registers: [a: $00, x: $CD, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1040, registers: [a: $00, x: $CD, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1042, registers: [a: $00, x: $CE, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1045, registers: [a: $00, x: $CE, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1047, registers: [a: $00, x: $CF, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1050, registers: [a: $00, x: $CF, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1052, registers: [a: $00, x: $D0, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1055, registers: [a: $00, x: $D0, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1057, registers: [a: $00, x: $D1, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1060, registers: [a: $00, x: $D1, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1062, registers: [a: $00, x: $D2, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1065, registers: [a: $00, x: $D2, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1067, registers: [a: $00, x: $D3, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1070, registers: [a: $00, x: $D3, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1072, registers: [a: $00, x: $D4, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1075, registers: [a: $00, x: $D4, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1077, registers: [a: $00, x: $D5, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1080, registers: [a: $00, x: $D5, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1082, registers: [a: $00, x: $D6, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1085, registers: [a: $00, x: $D6, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1087, registers: [a: $00, x: $D7, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1090, registers: [a: $00, x: $D7, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1092, registers: [a: $00, x: $D8, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1095, registers: [a: $00, x: $D8, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1097, registers: [a: $00, x: $D9, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1100, registers: [a: $00, x: $D9, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1102, registers: [a: $00, x: $DA, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1105, registers: [a: $00, x: $DA, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1107, registers: [a: $00, x: $DB, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1110, registers: [a: $00, x: $DB, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1112, registers: [a: $00, x: $DC, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1115, registers: [a: $00, x: $DC, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1117, registers: [a: $00, x: $DD, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1120, registers: [a: $00, x: $DD, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1122, registers: [a: $00, x: $DE, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1125, registers: [a: $00, x: $DE, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1127, registers: [a: $00, x: $DF, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1130, registers: [a: $00, x: $DF, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1132, registers: [a: $00, x: $E0, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1135, registers: [a: $00, x: $E0, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1137, registers: [a: $00, x: $E1, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1140, registers: [a: $00, x: $E1, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1142, registers: [a: $00, x: $E2, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1145, registers: [a: $00, x: $E2, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1147, registers: [a: $00, x: $E3, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1150, registers: [a: $00, x: $E3, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1152, registers: [a: $00, x: $E4, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1155, registers: [a: $00, x: $E4, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1157, registers: [a: $00, x: $E5, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1160, registers: [a: $00, x: $E5, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1162, registers: [a: $00, x: $E6, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1165, registers: [a: $00, x: $E6, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1167, registers: [a: $00, x: $E7, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1170, registers: [a: $00, x: $E7, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1172, registers: [a: $00, x: $E8, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1175, registers: [a: $00, x: $E8, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1177, registers: [a: $00, x: $E9, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1180, registers: [a: $00, x: $E9, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1182, registers: [a: $00, x: $EA, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1185, registers: [a: $00, x: $EA, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1187, registers: [a: $00, x: $EB, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1190, registers: [a: $00, x: $EB, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1192, registers: [a: $00, x: $EC, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1195, registers: [a: $00, x: $EC, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1197, registers: [a: $00, x: $ED, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1200, registers: [a: $00, x: $ED, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1202, registers: [a: $00, x: $EE, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1205, registers: [a: $00, x: $EE, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1207, registers: [a: $00, x: $EF, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1210, registers: [a: $00, x: $EF, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1212, registers: [a: $00, x: $F0, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1215, registers: [a: $00, x: $F0, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1217, registers: [a: $00, x: $F1, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1220, registers: [a: $00, x: $F1, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1222, registers: [a: $00, x: $F2, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1225, registers: [a: $00, x: $F2, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1227, registers: [a: $00, x: $F3, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1230, registers: [a: $00, x: $F3, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1232, registers: [a: $00, x: $F4, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1235, registers: [a: $00, x: $F4, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1237, registers: [a: $00, x: $F5, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1240, registers: [a: $00, x: $F5, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1242, registers: [a: $00, x: $F6, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1245, registers: [a: $00, x: $F6, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1247, registers: [a: $00, x: $F7, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1250, registers: [a: $00, x: $F7, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1252, registers: [a: $00, x: $F8, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1255, registers: [a: $00, x: $F8, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1257, registers: [a: $00, x: $F9, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1260, registers: [a: $00, x: $F9, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1262, registers: [a: $00, x: $FA, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1265, registers: [a: $00, x: $FA, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1267, registers: [a: $00, x: $FB, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1270, registers: [a: $00, x: $FB, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1272, registers: [a: $00, x: $FC, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1275, registers: [a: $00, x: $FC, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1277, registers: [a: $00, x: $FD, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1280, registers: [a: $00, x: $FD, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1282, registers: [a: $00, x: $FE, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1285, registers: [a: $00, x: $FE, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1287, registers: [a: $00, x: $FF, y: $00, sp: $FB], status: N---I--
+bne $FD		PC: $8006, cycles: 1290, registers: [a: $00, x: $FF, y: $00, sp: $FB], status: N---I--
+inx		PC: $8007, cycles: 1292, registers: [a: $00, x: $00, y: $00, sp: $FB], status: ----IZ-
+bne $FD		PC: $8009, cycles: 1294, registers: [a: $00, x: $00, y: $00, sp: $FB], status: ----IZ-
+		[STACK]: 80 00 00 
+		[STACK]: 00 00 
+rts		PC: $8003, cycles: 1300, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----IZ-
+rts		PC: $8004, cycles: 1306, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----IZ-
+<end>
+
+== Memory dump ==
+
+[$2FC] = $02 [reads=0, writes=1]
+[$2FD] = $80 [reads=0, writes=1]

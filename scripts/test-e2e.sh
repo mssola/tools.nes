@@ -282,6 +282,20 @@ echo "test: runrom => arithlog.nes"
 diff tests/out/arithlog.txt tests/expected/runrom/arithlog.txt
 exit_code=$((exit_code + $?))
 
+echo "test: runrom => misc.nes"
+./target/debug/nasm -Werror --asan --write-info --allow-unused --out tests/out/misc.nes tests/runrom/misc.s
+./target/debug/runrom --nasm .nasm --dump-memory --function tests/out/misc.nes > tests/out/misc-all.txt
+diff tests/out/misc-all.txt tests/expected/runrom/misc-all.txt
+exit_code=$((exit_code + $?))
+
+./target/debug/runrom --nasm .nasm --dump-memory --function --start 'foo::@loop' --until-address '$8007' tests/out/misc.nes > tests/out/misc-inx.txt
+diff tests/out/misc-inx.txt tests/expected/runrom/misc-inx.txt
+exit_code=$((exit_code + $?))
+
+./target/debug/runrom --nasm .nasm --dump-memory --function --start foo --until-address foo::@end_loop tests/out/misc.nes > tests/out/misc-foo.txt
+diff tests/out/misc-foo.txt tests/expected/runrom/misc-foo.txt
+exit_code=$((exit_code + $?))
+
 ##
 # Done!
 
