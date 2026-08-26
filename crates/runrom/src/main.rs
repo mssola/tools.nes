@@ -13,7 +13,7 @@ struct Args {
     file: String,
     start: Option<u16>,
     assume_function: bool,
-    nasm: Option<String>,
+    nasm: Option<PathBuf>,
     dump_memory: bool,
     until_address: u16,
 }
@@ -72,7 +72,7 @@ fn parse_hex_argument(given: &str) -> Result<u16, String> {
 // Fetch the address mapping from the .nasm/addresses.txt file. You need to pass
 // the full 'path' to the .nasm/ directory for the project (i.e. the '-n/--nasm'
 // option).
-fn fetch_addresses(path: PathBuf) -> Result<HashMap<String, usize>, String> {
+fn fetch_addresses(path: &PathBuf) -> Result<HashMap<String, usize>, String> {
     let mut addresses: HashMap<String, usize> = HashMap::default();
 
     if let Ok(file) = File::open(path.join("addresses.txt")) {
@@ -100,7 +100,7 @@ fn fetch_addresses(path: PathBuf) -> Result<HashMap<String, usize>, String> {
 // directory.
 fn parse_hex_or_reference(
     val: String,
-    nasm: &Option<String>,
+    nasm: &Option<PathBuf>,
     addresses: &mut HashMap<String, usize>,
 ) -> u16 {
     match parse_hex_argument(&val) {
@@ -108,7 +108,7 @@ fn parse_hex_or_reference(
         Err(e) => match nasm {
             Some(nasm_path) => {
                 if addresses.is_empty() {
-                    *addresses = match fetch_addresses(PathBuf::from(nasm_path)) {
+                    *addresses = match fetch_addresses(nasm_path) {
                         Ok(addr) => addr,
                         Err(err) => die(err),
                     };
@@ -151,7 +151,16 @@ fn parse_arguments() -> Args {
                 res.assume_function = true;
             }
             "-n" | "--nasm" => match args.next() {
-                Some(a) => res.nasm = Some(a),
+                Some(a) => {
+                    let pb = PathBuf::from(a.clone());
+                    if !pb.exists() {
+                        die(format!("directory '{a}' does not exist"));
+                    }
+                    if !pb.is_dir() {
+                        die(format!("path '{a}' does not point to a directory"));
+                    }
+                    res.nasm = Some(pb);
+                }
                 None => die("you need to specify a file for the '-n/--nasm' flag".to_string()),
             },
             "--until-address" => {

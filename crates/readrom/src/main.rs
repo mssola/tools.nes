@@ -16,7 +16,7 @@ struct Args {
     all: bool,
     disassemble: Option<String>,
     mapping: Option<String>,
-    nasm: Option<String>,
+    nasm: Option<PathBuf>,
     raw: bool,
     config: Option<String>,
 }
@@ -75,7 +75,16 @@ fn parse_arguments() -> Args {
                 }
             },
             "-n" | "--nasm" => match args.next() {
-                Some(a) => res.nasm = Some(a),
+                Some(a) => {
+                    let pb = PathBuf::from(a.clone());
+                    if !pb.exists() {
+                        die(format!("directory '{a}' does not exist"));
+                    }
+                    if !pb.is_dir() {
+                        die(format!("path '{a}' does not point to a directory"));
+                    }
+                    res.nasm = Some(pb);
+                }
                 None => die("you need to specify a file for the '-n/--nasm' flag".to_string()),
             },
             "-r" | "--raw" => res.raw = true,
@@ -336,7 +345,7 @@ fn parse_hex_value(address: &str) -> Option<usize> {
 fn do_disassemble(
     bytes: &[u8],
     address: Option<&str>,
-    nasm_path: &Option<String>,
+    nasm_path: &Option<PathBuf>,
     mut start: Option<usize>,
     mut end: Option<usize>,
     raw: bool,
@@ -347,7 +356,7 @@ fn do_disassemble(
 
     // Fill up the 'addresses' and the 'memories' maps.
     if let Some(path) = nasm_path {
-        if let Ok(file) = File::open(PathBuf::from(path).join("addresses.txt")) {
+        if let Ok(file) = File::open(path.join("addresses.txt")) {
             let reader = BufReader::new(file);
             for line in reader.lines() {
                 let line = line.map_err(|e| e.to_string())?;
