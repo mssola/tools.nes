@@ -613,8 +613,9 @@ impl Machine {
         println!();
     }
 
-    // Push the given 'value' to the stack.
-    fn push_stack(&mut self, value: u8) -> Result<(), String> {
+    // Push the given 'value' to the stack. Set 'report' to true if you want the
+    // output from verbose mode.
+    fn push_stack(&mut self, value: u8, report: bool) -> Result<(), String> {
         // Write the given value onto the stack.
         let address = 0x200 + self.s as u16;
         self.write_memory(address, value)?;
@@ -625,22 +626,23 @@ impl Machine {
             return Err("stack underflow!".to_string());
         }
 
-        if self.verbose {
+        if self.verbose && report {
             self.put_stack();
         }
 
         Ok(())
     }
 
-    // Pop the stack once and return the value that was found.
-    fn pop_stack(&mut self, account_read: bool) -> Result<u8, String> {
+    // Pop the stack once and return the value that was found. Set 'report' to
+    // true if you want the output from verbose mode.
+    fn pop_stack(&mut self, account_read: bool, report: bool) -> Result<u8, String> {
         if self.s == self.initial_stack_value {
             return Err("stack overflow!".to_string());
         }
 
         self.s += 1;
 
-        if self.verbose {
+        if self.verbose && report {
             self.put_stack();
         }
 
@@ -908,8 +910,8 @@ impl Machine {
                 let low = (next_address as u16 & 0x00FF) as u8;
                 let high = ((next_address as u16 & 0xFF00) >> 8) as u8;
 
-                self.push_stack(high)?;
-                self.push_stack(low)?;
+                self.push_stack(high, false)?;
+                self.push_stack(low, true)?;
 
                 self.pc = address;
                 self.skip_pc = true;
@@ -969,8 +971,8 @@ impl Machine {
                 // stack was the next instruction before the call, but the size
                 // of the 'rts/rti' should also be accounted. Hence the + 1 to
                 // the resulting PC.
-                let low = self.pop_stack(false)? as u16;
-                let high = (self.pop_stack(false)? as u16) << 8;
+                let low = self.pop_stack(false, false)? as u16;
+                let high = (self.pop_stack(false, true)? as u16) << 8;
                 self.pc = (high + low) as usize + 1;
                 self.skip_pc = true;
             }

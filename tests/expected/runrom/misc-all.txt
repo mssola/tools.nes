@@ -1,5 +1,4 @@
 <start>		PC: $8000, cycles: 7, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----I--
-		[STACK]: 80 00 00 
 		[STACK]: 02 80 00 00 
 jsr $8004	PC: $8004, cycles: 13, registers: [a: $00, x: $00, y: $00, sp: $FB], status: ----I--
 ldx #$00	PC: $8006, cycles: 15, registers: [a: $00, x: $00, y: $00, sp: $FB], status: ----IZ-
@@ -515,7 +514,6 @@ inx		PC: $8007, cycles: 1287, registers: [a: $00, x: $FF, y: $00, sp: $FB], stat
 bne $FD		PC: $8006, cycles: 1290, registers: [a: $00, x: $FF, y: $00, sp: $FB], status: N---I--
 inx		PC: $8007, cycles: 1292, registers: [a: $00, x: $00, y: $00, sp: $FB], status: ----IZ-
 bne $FD		PC: $8009, cycles: 1294, registers: [a: $00, x: $00, y: $00, sp: $FB], status: ----IZ-
-		[STACK]: 80 00 00 
 		[STACK]: 00 00 
 rts		PC: $8003, cycles: 1300, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----IZ-
 rts		PC: $8004, cycles: 1306, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----IZ-
@@ -523,5 +521,5 @@ rts		PC: $8004, cycles: 1306, registers: [a: $00, x: $00, y: $00, sp: $FD], stat
 
 == Memory dump ==
 
-[$2FC] = $02 [reads=0, writes=1]
-[$2FD] = $80 [reads=0, writes=1]
+[$2FC] = $02 [reads=1, writes=1]
+[$2FD] = $80 [reads=1, writes=1]
