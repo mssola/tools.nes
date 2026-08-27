@@ -771,10 +771,6 @@ impl Machine {
         self.status_register.overflow = false;
 
         match self.current_instruction.identifier {
-            // TODO
-            InstructionIdentifier::Bvc => todo!(),
-            InstructionIdentifier::Bvs => todo!(),
-
             // Flag instructions.
             InstructionIdentifier::Sec => self.status_register.carry = true,
             InstructionIdentifier::Clc => self.status_register.carry = false,
@@ -1042,6 +1038,17 @@ impl Machine {
                     self.branch();
                 }
             }
+            InstructionIdentifier::Bvc => {
+                if !self.status_register.overflow {
+                    self.branch();
+                }
+            }
+            InstructionIdentifier::Bvs => {
+                if self.status_register.overflow {
+                    self.branch();
+                }
+            }
+
             InstructionIdentifier::Rts => {
                 // If the stack is empty but we were just running a function,
                 // then assume that the machine is done.
