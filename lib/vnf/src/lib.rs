@@ -307,7 +307,7 @@ fn init_memory(policy: &MemoryPolicy) -> Vec<MemoryCell> {
         vec.push(MemoryCell {
             value: match policy.initial_value {
                 MemoryInitialValue::Fixed(n) => n,
-                MemoryInitialValue::Random => todo!(),
+                MemoryInitialValue::Random => rand::random(),
             },
             write_allowed,
             read_allowed,
@@ -369,7 +369,6 @@ impl Machine {
             }
         }
 
-        // TODO: allow for randomized initialization.
         Ok(Self {
             active: true,
             run_function_mode: false,

@@ -8,3 +8,4 @@ authors.workspace = true
 [dependencies]
 header.workspace = true
 xixanta.workspace = true
+rand = "0.10"
