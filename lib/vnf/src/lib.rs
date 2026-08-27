@@ -1331,10 +1331,3 @@ impl Machine {
         Ok(())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    // use super::*;
-
-    // TODO
-}
