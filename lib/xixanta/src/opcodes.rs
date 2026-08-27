@@ -109,7 +109,6 @@ pub struct ShortEntry {
     pub cycles: u8,
     pub opcode: u8,
     pub size: u8,
-    pub affected_on_page: bool,
 }
 
 /// An Instruction from the Ricoh 2A03 chip. This is mainly used in the
@@ -121,7 +120,6 @@ pub struct Instruction {
     pub cycles: u8,
     pub opcode: u8,
     pub size: u8,
-    pub affected_on_page: bool,
     pub bytes: [u8; 2],
 }
 
@@ -352,7 +350,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 2,
                 opcode: 0x69,
-                affected_on_page: false,
             },
         );
         adc.insert(
@@ -361,7 +358,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 3,
                 size: 2,
                 opcode: 0x65,
-                affected_on_page: false,
             },
         );
         adc.insert(
@@ -370,7 +366,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 2,
                 opcode: 0x75,
-                affected_on_page: false,
             },
         );
         adc.insert(
@@ -379,7 +374,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0x6D,
-                affected_on_page: false,
             },
         );
         adc.insert(
@@ -388,7 +382,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0x7D,
-                affected_on_page: true,
             },
         );
         adc.insert(
@@ -397,7 +390,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0x79,
-                affected_on_page: true,
             },
         );
         adc.insert(
@@ -406,7 +398,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 6,
                 size: 2,
                 opcode: 0x61,
-                affected_on_page: false,
             },
         );
         adc.insert(
@@ -415,7 +406,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 5,
                 size: 2,
                 opcode: 0x71,
-                affected_on_page: true,
             },
         );
         instrs.insert(String::from("adc"), adc);
@@ -428,7 +418,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 2,
                 opcode: 0x29,
-                affected_on_page: false,
             },
         );
         and.insert(
@@ -437,7 +426,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 3,
                 size: 2,
                 opcode: 0x25,
-                affected_on_page: false,
             },
         );
         and.insert(
@@ -446,7 +434,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 2,
                 opcode: 0x35,
-                affected_on_page: false,
             },
         );
         and.insert(
@@ -455,7 +442,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0x2D,
-                affected_on_page: false,
             },
         );
         and.insert(
@@ -464,7 +450,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0x3D,
-                affected_on_page: true,
             },
         );
         and.insert(
@@ -473,7 +458,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0x39,
-                affected_on_page: true,
             },
         );
         and.insert(
@@ -482,7 +466,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 6,
                 size: 2,
                 opcode: 0x21,
-                affected_on_page: false,
             },
         );
         and.insert(
@@ -491,7 +474,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 5,
                 size: 2,
                 opcode: 0x31,
-                affected_on_page: true,
             },
         );
         instrs.insert(String::from("and"), and);
@@ -504,7 +486,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 1,
                 opcode: 0x0A,
-                affected_on_page: false,
             },
         );
         asl.insert(
@@ -513,7 +494,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 5,
                 size: 2,
                 opcode: 0x06,
-                affected_on_page: false,
             },
         );
         asl.insert(
@@ -522,7 +502,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 6,
                 size: 2,
                 opcode: 0x16,
-                affected_on_page: false,
             },
         );
         asl.insert(
@@ -531,7 +510,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 6,
                 size: 3,
                 opcode: 0x0E,
-                affected_on_page: false,
             },
         );
         asl.insert(
@@ -540,7 +518,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 7,
                 size: 3,
                 opcode: 0x1E,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("asl"), asl);
@@ -553,7 +530,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 2,
                 opcode: 0x90,
-                affected_on_page: true,
             },
         );
         instrs.insert(String::from("bcc"), bcc);
@@ -566,7 +542,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 2,
                 opcode: 0xB0,
-                affected_on_page: true,
             },
         );
         instrs.insert(String::from("bcs"), bcs);
@@ -579,7 +554,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 2,
                 opcode: 0xF0,
-                affected_on_page: true,
             },
         );
         instrs.insert(String::from("beq"), beq);
@@ -592,7 +566,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 3,
                 size: 2,
                 opcode: 0x24,
-                affected_on_page: false,
             },
         );
         bit.insert(
@@ -601,7 +574,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0x2C,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("bit"), bit);
@@ -614,7 +586,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 2,
                 opcode: 0x30,
-                affected_on_page: true,
             },
         );
         instrs.insert(String::from("bmi"), bmi);
@@ -627,7 +598,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 2,
                 opcode: 0xD0,
-                affected_on_page: true,
             },
         );
         instrs.insert(String::from("bne"), bne);
@@ -640,7 +610,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 2,
                 opcode: 0x10,
-                affected_on_page: true,
             },
         );
         instrs.insert(String::from("bpl"), bpl);
@@ -653,7 +622,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 7,
                 size: 1,
                 opcode: 0x00,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("brk"), brk);
@@ -666,7 +634,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 2,
                 opcode: 0x50,
-                affected_on_page: true,
             },
         );
         instrs.insert(String::from("bvc"), bvc);
@@ -679,7 +646,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 2,
                 opcode: 0x70,
-                affected_on_page: true,
             },
         );
         instrs.insert(String::from("bvs"), bvs);
@@ -692,7 +658,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 1,
                 opcode: 0x18,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("clc"), clc);
@@ -705,7 +670,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 1,
                 opcode: 0xD8,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("cld"), cld);
@@ -718,7 +682,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 1,
                 opcode: 0x58,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("cli"), cli);
@@ -731,7 +694,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 1,
                 opcode: 0xB8,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("clv"), clv);
@@ -744,7 +706,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 2,
                 opcode: 0xC9,
-                affected_on_page: false,
             },
         );
         cmp.insert(
@@ -753,7 +714,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 3,
                 size: 2,
                 opcode: 0xC5,
-                affected_on_page: false,
             },
         );
         cmp.insert(
@@ -762,7 +722,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 2,
                 opcode: 0xD5,
-                affected_on_page: false,
             },
         );
         cmp.insert(
@@ -771,7 +730,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0xCD,
-                affected_on_page: false,
             },
         );
         cmp.insert(
@@ -780,7 +738,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0xDD,
-                affected_on_page: true,
             },
         );
         cmp.insert(
@@ -789,7 +746,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0xD9,
-                affected_on_page: true,
             },
         );
         cmp.insert(
@@ -798,7 +754,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 6,
                 size: 2,
                 opcode: 0xC1,
-                affected_on_page: false,
             },
         );
         cmp.insert(
@@ -807,7 +762,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 5,
                 size: 2,
                 opcode: 0xD1,
-                affected_on_page: true,
             },
         );
         instrs.insert(String::from("cmp"), cmp);
@@ -820,7 +774,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 2,
                 opcode: 0xE0,
-                affected_on_page: false,
             },
         );
         cpx.insert(
@@ -829,7 +782,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 3,
                 size: 2,
                 opcode: 0xE4,
-                affected_on_page: false,
             },
         );
         cpx.insert(
@@ -838,7 +790,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0xEC,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("cpx"), cpx);
@@ -851,7 +802,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 2,
                 opcode: 0xC0,
-                affected_on_page: false,
             },
         );
         cpy.insert(
@@ -860,7 +810,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 3,
                 size: 2,
                 opcode: 0xC4,
-                affected_on_page: false,
             },
         );
         cpy.insert(
@@ -869,7 +818,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0xCC,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("cpy"), cpy);
@@ -882,7 +830,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 5,
                 size: 2,
                 opcode: 0xC6,
-                affected_on_page: false,
             },
         );
         dec.insert(
@@ -891,7 +838,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 6,
                 size: 2,
                 opcode: 0xD6,
-                affected_on_page: false,
             },
         );
         dec.insert(
@@ -900,7 +846,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 6,
                 size: 3,
                 opcode: 0xCE,
-                affected_on_page: false,
             },
         );
         dec.insert(
@@ -909,7 +854,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 7,
                 size: 3,
                 opcode: 0xDE,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("dec"), dec);
@@ -922,7 +866,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 1,
                 opcode: 0xCA,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("dex"), dex);
@@ -935,7 +878,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 1,
                 opcode: 0x88,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("dey"), dey);
@@ -948,7 +890,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 2,
                 opcode: 0x49,
-                affected_on_page: false,
             },
         );
         eor.insert(
@@ -957,7 +898,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 3,
                 size: 2,
                 opcode: 0x45,
-                affected_on_page: false,
             },
         );
         eor.insert(
@@ -966,7 +906,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 2,
                 opcode: 0x55,
-                affected_on_page: false,
             },
         );
         eor.insert(
@@ -975,7 +914,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0x4D,
-                affected_on_page: false,
             },
         );
         eor.insert(
@@ -984,7 +922,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0x5D,
-                affected_on_page: true,
             },
         );
         eor.insert(
@@ -993,7 +930,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0x59,
-                affected_on_page: true,
             },
         );
         eor.insert(
@@ -1002,7 +938,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 6,
                 size: 2,
                 opcode: 0x41,
-                affected_on_page: false,
             },
         );
         eor.insert(
@@ -1011,7 +946,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 5,
                 size: 2,
                 opcode: 0x51,
-                affected_on_page: true,
             },
         );
         instrs.insert(String::from("eor"), eor);
@@ -1024,7 +958,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 5,
                 size: 2,
                 opcode: 0xE6,
-                affected_on_page: false,
             },
         );
         inc.insert(
@@ -1033,7 +966,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 6,
                 size: 2,
                 opcode: 0xF6,
-                affected_on_page: false,
             },
         );
         inc.insert(
@@ -1042,7 +974,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 6,
                 size: 3,
                 opcode: 0xEE,
-                affected_on_page: false,
             },
         );
         inc.insert(
@@ -1051,7 +982,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 7,
                 size: 3,
                 opcode: 0xFE,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("inc"), inc);
@@ -1064,7 +994,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 1,
                 opcode: 0xE8,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("inx"), inx);
@@ -1077,7 +1006,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 1,
                 opcode: 0xC8,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("iny"), iny);
@@ -1090,7 +1018,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 3,
                 size: 3,
                 opcode: 0x4C,
-                affected_on_page: false,
             },
         );
         jmp.insert(
@@ -1099,7 +1026,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 5,
                 size: 3,
                 opcode: 0x6C,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("jmp"), jmp);
@@ -1112,7 +1038,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 6,
                 size: 3,
                 opcode: 0x20,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("jsr"), jsr);
@@ -1125,7 +1050,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 2,
                 opcode: 0xA9,
-                affected_on_page: false,
             },
         );
         lda.insert(
@@ -1134,7 +1058,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 3,
                 size: 2,
                 opcode: 0xA5,
-                affected_on_page: false,
             },
         );
         lda.insert(
@@ -1143,7 +1066,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 2,
                 opcode: 0xB5,
-                affected_on_page: false,
             },
         );
         lda.insert(
@@ -1152,7 +1074,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0xAD,
-                affected_on_page: false,
             },
         );
         lda.insert(
@@ -1161,7 +1082,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0xBD,
-                affected_on_page: true,
             },
         );
         lda.insert(
@@ -1170,7 +1090,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0xB9,
-                affected_on_page: true,
             },
         );
         lda.insert(
@@ -1179,7 +1098,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 6,
                 size: 2,
                 opcode: 0xA1,
-                affected_on_page: false,
             },
         );
         lda.insert(
@@ -1188,7 +1106,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 5,
                 size: 2,
                 opcode: 0xB1,
-                affected_on_page: true,
             },
         );
         instrs.insert(String::from("lda"), lda);
@@ -1201,7 +1118,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 2,
                 opcode: 0xA2,
-                affected_on_page: false,
             },
         );
         ldx.insert(
@@ -1210,7 +1126,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 3,
                 size: 2,
                 opcode: 0xA6,
-                affected_on_page: false,
             },
         );
         ldx.insert(
@@ -1219,7 +1134,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 2,
                 opcode: 0xB6,
-                affected_on_page: false,
             },
         );
         ldx.insert(
@@ -1228,7 +1142,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0xAE,
-                affected_on_page: false,
             },
         );
         ldx.insert(
@@ -1237,7 +1150,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0xBE,
-                affected_on_page: true,
             },
         );
         instrs.insert(String::from("ldx"), ldx);
@@ -1250,7 +1162,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 2,
                 opcode: 0xA0,
-                affected_on_page: false,
             },
         );
         ldy.insert(
@@ -1259,7 +1170,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 3,
                 size: 2,
                 opcode: 0xA4,
-                affected_on_page: false,
             },
         );
         ldy.insert(
@@ -1268,7 +1178,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 2,
                 opcode: 0xB4,
-                affected_on_page: false,
             },
         );
         ldy.insert(
@@ -1277,7 +1186,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0xAC,
-                affected_on_page: false,
             },
         );
         ldy.insert(
@@ -1286,7 +1194,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0xBC,
-                affected_on_page: true,
             },
         );
         instrs.insert(String::from("ldy"), ldy);
@@ -1299,7 +1206,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 1,
                 opcode: 0x4A,
-                affected_on_page: false,
             },
         );
         lsr.insert(
@@ -1308,7 +1214,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 5,
                 size: 2,
                 opcode: 0x46,
-                affected_on_page: false,
             },
         );
         lsr.insert(
@@ -1317,7 +1222,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 6,
                 size: 2,
                 opcode: 0x56,
-                affected_on_page: false,
             },
         );
         lsr.insert(
@@ -1326,7 +1230,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 6,
                 size: 3,
                 opcode: 0x4E,
-                affected_on_page: false,
             },
         );
         lsr.insert(
@@ -1335,7 +1238,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 7,
                 size: 3,
                 opcode: 0x5E,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("lsr"), lsr);
@@ -1348,7 +1250,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 1,
                 opcode: 0xEA,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("nop"), nop);
@@ -1361,7 +1262,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 2,
                 opcode: 0x09,
-                affected_on_page: false,
             },
         );
         ora.insert(
@@ -1370,7 +1270,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 3,
                 size: 2,
                 opcode: 0x05,
-                affected_on_page: false,
             },
         );
         ora.insert(
@@ -1379,7 +1278,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 2,
                 opcode: 0x15,
-                affected_on_page: false,
             },
         );
         ora.insert(
@@ -1388,7 +1286,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0x0D,
-                affected_on_page: false,
             },
         );
         ora.insert(
@@ -1397,7 +1294,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0x1D,
-                affected_on_page: true,
             },
         );
         ora.insert(
@@ -1406,7 +1302,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0x19,
-                affected_on_page: true,
             },
         );
         ora.insert(
@@ -1415,7 +1310,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 6,
                 size: 2,
                 opcode: 0x01,
-                affected_on_page: false,
             },
         );
         ora.insert(
@@ -1424,7 +1318,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 5,
                 size: 2,
                 opcode: 0x11,
-                affected_on_page: true,
             },
         );
         instrs.insert(String::from("ora"), ora);
@@ -1437,7 +1330,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 3,
                 size: 1,
                 opcode: 0x48,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("pha"), pha);
@@ -1450,7 +1342,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 3,
                 size: 1,
                 opcode: 0x08,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("php"), php);
@@ -1463,7 +1354,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 1,
                 opcode: 0x68,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("pla"), pla);
@@ -1476,7 +1366,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 1,
                 opcode: 0x28,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("plp"), plp);
@@ -1489,7 +1378,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 1,
                 opcode: 0x2A,
-                affected_on_page: false,
             },
         );
         rol.insert(
@@ -1498,7 +1386,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 5,
                 size: 2,
                 opcode: 0x26,
-                affected_on_page: false,
             },
         );
         rol.insert(
@@ -1507,7 +1394,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 6,
                 size: 2,
                 opcode: 0x36,
-                affected_on_page: false,
             },
         );
         rol.insert(
@@ -1516,7 +1402,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 6,
                 size: 3,
                 opcode: 0x2E,
-                affected_on_page: false,
             },
         );
         rol.insert(
@@ -1525,7 +1410,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 7,
                 size: 3,
                 opcode: 0x3E,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("rol"), rol);
@@ -1538,7 +1422,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 1,
                 opcode: 0x6A,
-                affected_on_page: false,
             },
         );
         ror.insert(
@@ -1547,7 +1430,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 5,
                 size: 2,
                 opcode: 0x66,
-                affected_on_page: false,
             },
         );
         ror.insert(
@@ -1556,7 +1438,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 6,
                 size: 2,
                 opcode: 0x76,
-                affected_on_page: false,
             },
         );
         ror.insert(
@@ -1565,7 +1446,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 6,
                 size: 3,
                 opcode: 0x6E,
-                affected_on_page: false,
             },
         );
         ror.insert(
@@ -1574,7 +1454,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 7,
                 size: 3,
                 opcode: 0x7E,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("ror"), ror);
@@ -1587,7 +1466,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 6,
                 size: 1,
                 opcode: 0x40,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("rti"), rti);
@@ -1600,7 +1478,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 6,
                 size: 1,
                 opcode: 0x60,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("rts"), rts);
@@ -1613,7 +1490,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 2,
                 opcode: 0xE9,
-                affected_on_page: false,
             },
         );
         sbc.insert(
@@ -1622,7 +1498,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 3,
                 size: 2,
                 opcode: 0xE5,
-                affected_on_page: false,
             },
         );
         sbc.insert(
@@ -1631,7 +1506,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 2,
                 opcode: 0xF5,
-                affected_on_page: false,
             },
         );
         sbc.insert(
@@ -1640,7 +1514,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0xED,
-                affected_on_page: false,
             },
         );
         sbc.insert(
@@ -1649,7 +1522,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0xFD,
-                affected_on_page: true,
             },
         );
         sbc.insert(
@@ -1658,7 +1530,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0xF9,
-                affected_on_page: true,
             },
         );
         sbc.insert(
@@ -1667,7 +1538,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 6,
                 size: 2,
                 opcode: 0xE1,
-                affected_on_page: false,
             },
         );
         sbc.insert(
@@ -1676,7 +1546,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 5,
                 size: 2,
                 opcode: 0xF1,
-                affected_on_page: true,
             },
         );
         instrs.insert(String::from("sbc"), sbc);
@@ -1689,7 +1558,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 1,
                 opcode: 0x38,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("sec"), sec);
@@ -1702,7 +1570,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 1,
                 opcode: 0xF8,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("sed"), sed);
@@ -1715,7 +1582,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 1,
                 opcode: 0x78,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("sei"), sei);
@@ -1728,7 +1594,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 3,
                 size: 2,
                 opcode: 0x85,
-                affected_on_page: false,
             },
         );
         sta.insert(
@@ -1737,7 +1602,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 2,
                 opcode: 0x95,
-                affected_on_page: false,
             },
         );
         sta.insert(
@@ -1746,7 +1610,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0x8D,
-                affected_on_page: false,
             },
         );
         sta.insert(
@@ -1755,7 +1618,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 5,
                 size: 3,
                 opcode: 0x9D,
-                affected_on_page: false,
             },
         );
         sta.insert(
@@ -1764,7 +1626,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 5,
                 size: 3,
                 opcode: 0x99,
-                affected_on_page: false,
             },
         );
         sta.insert(
@@ -1773,7 +1634,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 6,
                 size: 2,
                 opcode: 0x81,
-                affected_on_page: false,
             },
         );
         sta.insert(
@@ -1782,7 +1642,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 6,
                 size: 2,
                 opcode: 0x91,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("sta"), sta);
@@ -1795,7 +1654,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 3,
                 size: 2,
                 opcode: 0x86,
-                affected_on_page: false,
             },
         );
         stx.insert(
@@ -1804,7 +1662,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 2,
                 opcode: 0x96,
-                affected_on_page: false,
             },
         );
         stx.insert(
@@ -1813,7 +1670,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0x8E,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("stx"), stx);
@@ -1826,7 +1682,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 3,
                 size: 2,
                 opcode: 0x84,
-                affected_on_page: false,
             },
         );
         sty.insert(
@@ -1835,7 +1690,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 2,
                 opcode: 0x94,
-                affected_on_page: false,
             },
         );
         sty.insert(
@@ -1844,7 +1698,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 4,
                 size: 3,
                 opcode: 0x8C,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("sty"), sty);
@@ -1857,7 +1710,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 1,
                 opcode: 0xAA,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("tax"), tax);
@@ -1870,7 +1722,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 1,
                 opcode: 0xA8,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("tay"), tay);
@@ -1883,7 +1734,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 1,
                 opcode: 0xBA,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("tsx"), tsx);
@@ -1896,7 +1746,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 1,
                 opcode: 0x8A,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("txa"), txa);
@@ -1909,7 +1758,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 1,
                 opcode: 0x9A,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("txs"), txs);
@@ -1922,7 +1770,6 @@ pub static INSTRUCTIONS: LazyLock<HashMap<String, HashMap<AddressingMode, ShortE
                 cycles: 2,
                 size: 1,
                 opcode: 0x98,
-                affected_on_page: false,
             },
         );
         instrs.insert(String::from("tya"), tya);
@@ -2341,7 +2188,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0x69,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2353,7 +2199,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 3,
             opcode: 0x65,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2365,7 +2210,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0x75,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2377,7 +2221,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0x6D,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2389,7 +2232,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0x7D,
             size: 3,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -2401,7 +2243,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0x79,
             size: 3,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -2413,7 +2254,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 6,
             opcode: 0x61,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2425,7 +2265,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 5,
             opcode: 0x71,
             size: 2,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -2439,7 +2278,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0x29,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2451,7 +2289,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 3,
             opcode: 0x25,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2463,7 +2300,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0x35,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2475,7 +2311,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0x2D,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2487,7 +2322,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0x3D,
             size: 3,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -2499,7 +2333,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0x39,
             size: 3,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -2511,7 +2344,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 6,
             opcode: 0x21,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2523,7 +2355,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 5,
             opcode: 0x31,
             size: 2,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -2537,7 +2368,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0x0A,
             size: 1,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2549,7 +2379,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 5,
             opcode: 0x06,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2561,7 +2390,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 6,
             opcode: 0x16,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2573,7 +2401,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 6,
             opcode: 0x0E,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2586,7 +2413,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 7,
             opcode: 0x1E,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2600,7 +2426,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 3,
             opcode: 0x24,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2612,7 +2437,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0x2C,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2626,7 +2450,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0x90,
             size: 2,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -2640,7 +2463,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0xB0,
             size: 2,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -2654,7 +2476,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0xF0,
             size: 2,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -2668,7 +2489,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0xD0,
             size: 2,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -2682,7 +2502,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0x10,
             size: 2,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -2696,7 +2515,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0x30,
             size: 2,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -2710,7 +2528,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 7,
             size: 1,
             opcode: 0x00,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2724,7 +2541,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0x70,
             size: 2,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -2738,7 +2554,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0x50,
             size: 2,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -2752,7 +2567,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0x18,
             size: 1,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2766,7 +2580,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0xD8,
             size: 1,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2780,7 +2593,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0x58,
             size: 1,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2794,7 +2606,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0xB8,
             size: 1,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2808,7 +2619,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0xC9,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2820,7 +2630,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 3,
             opcode: 0xC5,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2832,7 +2641,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0xD5,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2844,7 +2652,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0xCD,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2856,7 +2663,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0xDD,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2868,7 +2674,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0xD9,
             size: 3,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -2880,7 +2685,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 6,
             opcode: 0xC1,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2892,7 +2696,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 5,
             opcode: 0xD1,
             size: 2,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -2906,7 +2709,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0xE0,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2918,7 +2720,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 3,
             opcode: 0xE4,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2930,7 +2731,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0xEC,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2944,7 +2744,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0xC0,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2956,7 +2755,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 3,
             opcode: 0xC4,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2968,7 +2766,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0xCC,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2982,7 +2779,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 5,
             opcode: 0xC6,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -2994,7 +2790,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 6,
             opcode: 0xD6,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3006,7 +2801,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 6,
             opcode: 0xCE,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3018,7 +2812,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 7,
             opcode: 0xDE,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3032,7 +2825,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0xCA,
             size: 1,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3046,7 +2838,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0x88,
             size: 1,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3060,7 +2851,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0x49,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3072,7 +2862,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 3,
             opcode: 0x45,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3084,7 +2873,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0x55,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3096,7 +2884,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0x4D,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3108,7 +2895,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0x5D,
             size: 3,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -3120,7 +2906,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0x59,
             size: 3,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -3132,7 +2917,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 6,
             opcode: 0x41,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3144,7 +2928,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 5,
             opcode: 0x51,
             size: 2,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -3158,7 +2941,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 5,
             opcode: 0xE6,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3170,7 +2952,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 6,
             opcode: 0xF6,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3182,7 +2963,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 6,
             opcode: 0xEE,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3194,7 +2974,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 7,
             opcode: 0xFE,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3208,7 +2987,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0xE8,
             size: 1,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3222,7 +3000,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0xC8,
             size: 1,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3236,7 +3013,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 3,
             opcode: 0x4C,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3250,7 +3026,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 6,
             opcode: 0x20,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3264,7 +3039,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0xA9,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3276,7 +3050,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 3,
             opcode: 0xA5,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3288,7 +3061,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0xB5,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3300,7 +3072,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0xAD,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3312,7 +3083,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0xBD,
             size: 3,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -3324,7 +3094,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0xB9,
             size: 3,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -3336,7 +3105,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 6,
             opcode: 0xA1,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3348,7 +3116,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 5,
             opcode: 0xB1,
             size: 2,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -3362,7 +3129,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0xA2,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3374,7 +3140,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 3,
             opcode: 0xA6,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3386,7 +3151,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0xB6,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3398,7 +3162,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0xAE,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3410,7 +3173,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0xBE,
             size: 3,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -3424,7 +3186,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0xA0,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3436,7 +3197,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 3,
             opcode: 0xA4,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3448,7 +3208,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0xB4,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3460,7 +3219,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0xAC,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3472,7 +3230,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0xBC,
             size: 3,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -3486,7 +3243,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0x4A,
             size: 1,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3498,7 +3254,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 5,
             opcode: 0x46,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3510,7 +3265,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 6,
             opcode: 0x56,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3522,7 +3276,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 6,
             opcode: 0x4E,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3535,7 +3288,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 7,
             opcode: 0x5E,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3549,7 +3301,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0xEA,
             size: 1,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3563,7 +3314,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0x09,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3575,7 +3325,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 3,
             opcode: 0x05,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3587,7 +3336,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0x15,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3599,7 +3347,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0x0D,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3611,7 +3358,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0x1D,
             size: 3,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -3623,7 +3369,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0x19,
             size: 3,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -3635,7 +3380,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 6,
             opcode: 0x01,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3647,7 +3391,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 5,
             opcode: 0x11,
             size: 2,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -3661,7 +3404,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 3,
             size: 1,
             opcode: 0x48,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3675,7 +3417,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 3,
             size: 1,
             opcode: 0x08,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3689,7 +3430,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             size: 1,
             opcode: 0x68,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3703,7 +3443,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             size: 1,
             opcode: 0x28,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3717,7 +3456,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0x2A,
             size: 1,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3729,7 +3467,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 5,
             opcode: 0x26,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3741,7 +3478,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 6,
             opcode: 0x36,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3753,7 +3489,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 6,
             opcode: 0x2E,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3765,7 +3500,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 7,
             opcode: 0x3E,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3779,7 +3513,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0x6A,
             size: 1,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3791,7 +3524,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 5,
             opcode: 0x66,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3803,7 +3535,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 6,
             opcode: 0x76,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3815,7 +3546,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 6,
             opcode: 0x6E,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3827,7 +3557,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 7,
             opcode: 0x7E,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3841,7 +3570,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 6,
             opcode: 0x40,
             size: 1,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3855,7 +3583,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 6,
             opcode: 0x60,
             size: 1,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3869,7 +3596,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0xE9,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3881,7 +3607,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 3,
             opcode: 0xE5,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3893,7 +3618,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0xF5,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3905,7 +3629,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0xED,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3917,7 +3640,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0xFD,
             size: 3,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -3929,7 +3651,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0xF9,
             size: 3,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -3941,7 +3662,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 6,
             opcode: 0xE1,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3953,7 +3673,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 5,
             opcode: 0xF1,
             size: 2,
-            affected_on_page: true,
             bytes: [0, 0],
         },
     );
@@ -3967,7 +3686,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0x38,
             size: 1,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3981,7 +3699,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             size: 1,
             opcode: 0xF8,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -3995,7 +3712,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0x78,
             size: 1,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -4009,7 +3725,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 3,
             opcode: 0x85,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -4021,7 +3736,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0x95,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -4033,7 +3747,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0x8D,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -4045,7 +3758,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 5,
             opcode: 0x9D,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -4057,7 +3769,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 5,
             opcode: 0x99,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -4069,7 +3780,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 6,
             opcode: 0x81,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -4081,7 +3791,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 6,
             opcode: 0x91,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -4095,7 +3804,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 3,
             opcode: 0x86,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -4107,7 +3815,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0x96,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -4119,7 +3826,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0x8E,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -4133,7 +3839,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 3,
             opcode: 0x84,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -4145,7 +3850,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0x94,
             size: 2,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -4157,7 +3861,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 4,
             opcode: 0x8C,
             size: 3,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -4171,7 +3874,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0xAA,
             size: 1,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -4185,7 +3887,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0xA8,
             size: 1,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -4199,7 +3900,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0xBA,
             size: 1,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -4213,7 +3913,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0x8A,
             size: 1,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -4227,7 +3926,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0x9A,
             size: 1,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );
@@ -4241,7 +3939,6 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
             cycles: 2,
             opcode: 0x98,
             size: 1,
-            affected_on_page: false,
             bytes: [0, 0],
         },
     );

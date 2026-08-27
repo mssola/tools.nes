@@ -387,7 +387,6 @@ impl Machine {
                 cycles: 0,
                 opcode: 0,
                 size: 0,
-                affected_on_page: false,
                 bytes: [0, 0],
             },
             a: 0,

@@ -25,9 +25,6 @@ pub struct Bundle {
     /// the CPU to actually execute it.
     pub cycles: u8,
 
-    /// Whether the cost in cycles is affected when crossing a page boundary.
-    pub affected_on_page: bool,
-
     /// Whether the bytes on `bytes` contain the final value or not. This is
     /// used for internal purposes only.
     pub resolved: bool,
@@ -69,7 +66,6 @@ impl Bundle {
             size: 1,
             address: 0,
             cycles: 0,
-            affected_on_page: false,
             resolved: true,
             safe: false,
             negative: false,

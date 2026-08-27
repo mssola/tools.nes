@@ -914,7 +914,6 @@ impl<'a> Assembler<'a> {
                 size: 2,
                 address: 0,
                 cycles: 0,
-                affected_on_page: false,
                 resolved: false,
                 negative: false,
                 safe: false,
@@ -2087,7 +2086,6 @@ impl<'a> Assembler<'a> {
                 size: 2,
                 address: 0,
                 cycles: 0,
-                affected_on_page: false,
                 resolved: false,
                 negative: false,
                 safe: false,
@@ -2174,7 +2172,6 @@ impl<'a> Assembler<'a> {
             size,
             address: 0,
             cycles: 0,
-            affected_on_page: false,
             resolved: true,
             negative: false,
             safe: false,
@@ -2241,7 +2238,6 @@ impl<'a> Assembler<'a> {
             size: 1,
             address: 0,
             cycles: 0,
-            affected_on_page: false,
             resolved: true,
             negative: false,
             safe: false,
@@ -2329,7 +2325,6 @@ impl<'a> Assembler<'a> {
             size: if value > 255 { 2 } else { 1 },
             address: 0,
             cycles: 0,
-            affected_on_page: false,
             resolved: true,
             negative: false,
             safe: false,
@@ -2842,7 +2837,6 @@ impl<'a> Assembler<'a> {
             size: 2,
             address: 0,
             cycles: 0,
-            affected_on_page: false,
             resolved: true,
             negative: false,
             safe: false,
@@ -3196,7 +3190,6 @@ impl<'a> Assembler<'a> {
                 Some(values) => {
                     bundle.cycles = values.cycles;
                     bundle.size = values.size;
-                    bundle.affected_on_page = values.affected_on_page;
                     bundle.bytes[2] = bundle.bytes[1];
                     bundle.bytes[1] = bundle.bytes[0];
                     bundle.bytes[0] = values.opcode.to_le_bytes()[0];
