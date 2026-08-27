@@ -3686,7 +3686,7 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
         Instruction {
             identifier: InstructionIdentifier::Pla,
             addressing_mode: AddressingMode::Implied,
-            cycles: 3,
+            cycles: 4,
             size: 1,
             opcode: 0x68,
             affected_on_page: false,
@@ -3700,7 +3700,7 @@ pub static OPCODES: LazyLock<HashMap<u8, Instruction>> = LazyLock::new(|| {
         Instruction {
             identifier: InstructionIdentifier::Plp,
             addressing_mode: AddressingMode::Implied,
-            cycles: 3,
+            cycles: 4,
             size: 1,
             opcode: 0x28,
             affected_on_page: false,
