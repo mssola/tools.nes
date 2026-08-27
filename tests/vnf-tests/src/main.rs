@@ -53,9 +53,7 @@ fn parse_arguments() -> Args {
 
 fn run_break_mark_test(path: &String) -> Result<(), String> {
     let rom = PathBuf::from(path).join("out/stack.nes");
-    let roms: String = rom.to_string_lossy().into_owned().to_string();
-
-    let mut machine = Machine::from(&roms, 0x8000, MemoryPolicy::default())?;
+    let mut machine = Machine::from(&rom, 0x8000, MemoryPolicy::default())?;
 
     // Get out of <start>
     let _ = machine.next_iteration();

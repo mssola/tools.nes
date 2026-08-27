@@ -255,7 +255,7 @@ fn start_from_reset_vector(file: &String) -> u16 {
 }
 
 fn run(
-    file: &String,
+    file: &Path,
     start: u16,
     end: u16,
     assume_function: bool,
@@ -295,9 +295,10 @@ fn main() {
         Some(s) => s,
         None => start_from_reset_vector(&args.file),
     };
+    let file = PathBuf::from(args.file.clone());
 
     match run(
-        &args.file,
+        &file,
         start,
         args.until_address,
         args.assume_function,

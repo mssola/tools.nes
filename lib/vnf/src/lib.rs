@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{ErrorKind, Read};
 use std::ops::Range;
+use std::path::Path;
 use xixanta::opcodes::AddressingMode;
 use xixanta::opcodes::{Instruction, InstructionIdentifier, OPCODES};
 
@@ -337,9 +338,12 @@ impl Machine {
     /// Initialize a Machine object by reading the ROM file located at
     /// 'file'. The machine should be initialized to start from the 'start'
     /// address, and the memory should be initialized with the given 'policy'.
-    pub fn from(file: &String, start: u16, policy: MemoryPolicy) -> Result<Self, String> {
+    pub fn from(file: &Path, start: u16, policy: MemoryPolicy) -> Result<Self, String> {
         let Ok(mut input) = File::open(file) else {
-            return Err(format!("failed to open the given file '{}'", file));
+            return Err(format!(
+                "failed to open the given file '{}'",
+                file.display()
+            ));
         };
 
         // Read the header in order to detect the PRG ROM size.
