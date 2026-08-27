@@ -2,7 +2,7 @@ use header::Header;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, ErrorKind, Read, Seek, SeekFrom};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use vnf::{Machine, MemoryInitialValue, MemoryPolicy};
 
 /// Version for this program.
@@ -72,7 +72,7 @@ fn parse_hex_argument(given: &str) -> Result<u16, String> {
 // Fetch the address mapping from the .nasm/addresses.txt file. You need to pass
 // the full 'path' to the .nasm/ directory for the project (i.e. the '-n/--nasm'
 // option).
-fn fetch_addresses(path: &PathBuf) -> Result<HashMap<String, usize>, String> {
+fn fetch_addresses(path: &Path) -> Result<HashMap<String, usize>, String> {
     let mut addresses: HashMap<String, usize> = HashMap::default();
 
     if let Ok(file) = File::open(path.join("addresses.txt")) {
@@ -235,7 +235,7 @@ fn start_from_reset_vector(file: &String) -> u16 {
     // The two bytes of the reset address are located as follows:
     //   1. Skip the ROM header, guaranteed to be exactly 0x10 bytes long.
     //   2. Go to the end of PRG ROM.
-    //   3. -6: NMI addres; -4: reset addres; -2: IRQ address.
+    //   3. -6: NMI address; -4: reset address; -2: IRQ address.
     let offset: u64 = (0x10 + (header.prg_rom_size * 16 * 1024) - 4)
         .try_into()
         .unwrap();
