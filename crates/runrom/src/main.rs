@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, ErrorKind, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use vnf::{Machine, MemoryInitialValue, MemoryPolicy};
+use vnf::{Machine, MemoryPolicy};
 
 /// Version for this program.
 const VERSION: &str = "0.1.0";
@@ -261,17 +261,7 @@ fn run(
     assume_function: bool,
     dump_memory: bool,
 ) -> Result<(), String> {
-    let mut machine = Machine::from(
-        file,
-        start,
-        #[allow(clippy::single_range_in_vec_init)]
-        MemoryPolicy {
-            initial_value: MemoryInitialValue::Fixed(0),
-            allowed_reads: vec![(0..0x800)],
-            allowed_writes: vec![(0..0x800)],
-            minimum_stack_value: 0,
-        },
-    )?;
+    let mut machine = Machine::from(file, start, MemoryPolicy::default())?;
 
     machine.verbose = true;
     machine.run_function_mode = assume_function;

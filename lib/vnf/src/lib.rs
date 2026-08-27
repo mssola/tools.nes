@@ -143,6 +143,17 @@ pub struct MemoryPolicy {
     pub minimum_stack_value: u8,
 }
 
+impl Default for MemoryPolicy {
+    fn default() -> Self {
+        Self {
+            initial_value: MemoryInitialValue::Fixed(0),
+            allowed_reads: vec![(0..0x800)],
+            allowed_writes: vec![(0..0x800)],
+            minimum_stack_value: 0,
+        }
+    }
+}
+
 /// The state of the Joypad handshake process.
 #[derive(Copy, Clone, Debug, Default)]
 pub enum JoypadState {
