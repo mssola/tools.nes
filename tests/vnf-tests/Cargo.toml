@@ -1,0 +1,10 @@
+[package]
+name = "vnf-tests"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+vnf.workspace = true
+xixanta.workspace = true

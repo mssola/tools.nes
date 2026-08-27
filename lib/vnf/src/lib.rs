@@ -17,6 +17,9 @@ pub struct StatusRegister {
     pub interrupt: bool,
     pub zero: bool,
     pub carry: bool,
+
+    /// The byte after a 'brk' instruction.
+    pub break_mark: u8,
 }
 
 impl Default for StatusRegister {
@@ -29,11 +32,24 @@ impl Default for StatusRegister {
             interrupt: true,
             zero: false,
             carry: false,
+            break_mark: 0,
         }
     }
 }
 
 impl StatusRegister {
+    // Bitmap constants for how the different bools are laid out on the Status
+    // Register. These are defined like so: (from most to least significant):
+    //   N V - B D I Z C
+    pub const CARRY: u8 = 1 << 0;
+    pub const ZERO: u8 = 1 << 1;
+    pub const INTERRUPT: u8 = 1 << 2;
+    pub const DECIMAL: u8 = 1 << 3;
+    pub const BRK: u8 = 1 << 4;
+    // NOTE: bit 5 unused.
+    pub const OVERFLOW: u8 = 1 << 6;
+    pub const NEGATIVE: u8 = 1 << 7;
+
     /// Returns a string with the initial letter for each status bit that is
     /// set. Otherwise, for unset bits, a '-' is given.
     fn humanize(&self) -> String {
@@ -145,6 +161,7 @@ pub struct MemoryPolicy {
 
 impl Default for MemoryPolicy {
     fn default() -> Self {
+        #[allow(clippy::single_range_in_vec_init)]
         Self {
             initial_value: MemoryInitialValue::Fixed(0),
             allowed_reads: vec![(0..0x800)],
@@ -297,6 +314,11 @@ fn init_memory(policy: &MemoryPolicy) -> Vec<MemoryCell> {
             writes: 0,
         });
     }
+
+    // Force these initial stack values as these should be the values regardless
+    // of the memory policy, as it's per 6502 specification..
+    vec[0x2FF].value = 0x00;
+    vec[0x2FE].value = 0x00;
 
     vec
 }
@@ -661,6 +683,67 @@ impl Machine {
         self.read_memory(address, account_read)
     }
 
+    // Push the given address onto the stack.
+    fn push_address(&mut self, address: usize) -> Result<(), String> {
+        let low = (address as u16 & 0x00FF) as u8;
+        let high = ((address as u16 & 0xFF00) >> 8) as u8;
+
+        self.push_stack(high, false)?;
+        self.push_stack(low, true)?;
+
+        Ok(())
+    }
+
+    // Push the status register onto the stack.
+    fn push_status_register(&mut self) -> Result<(), String> {
+        // brk flag and bit 5 are always set on 'php'/'brk' as per 6502
+        // specification.
+        let mut val = 0b00110000;
+        self.status_register.brk = true;
+
+        if self.status_register.carry {
+            val |= StatusRegister::CARRY;
+        }
+        if self.status_register.zero {
+            val |= StatusRegister::ZERO;
+        }
+        if self.status_register.interrupt {
+            val |= StatusRegister::INTERRUPT;
+        }
+        if self.status_register.decimal {
+            val |= StatusRegister::DECIMAL;
+        }
+        if self.status_register.overflow {
+            val |= StatusRegister::OVERFLOW;
+        }
+        if self.status_register.negative {
+            val |= StatusRegister::NEGATIVE;
+        }
+        self.push_stack(val, true)?;
+        Ok(())
+    }
+
+    // Pull the status register from the stack.
+    fn pop_status_register(&mut self) -> Result<(), String> {
+        let val = self.pop_stack(true, true)?;
+
+        self.status_register.carry = (val & StatusRegister::CARRY) == StatusRegister::CARRY;
+        self.status_register.zero = (val & StatusRegister::ZERO) == StatusRegister::ZERO;
+        self.status_register.interrupt =
+            (val & StatusRegister::INTERRUPT) == StatusRegister::INTERRUPT;
+        self.status_register.decimal = (val & StatusRegister::DECIMAL) == StatusRegister::DECIMAL;
+        self.status_register.overflow =
+            (val & StatusRegister::OVERFLOW) == StatusRegister::OVERFLOW;
+        self.status_register.negative =
+            (val & StatusRegister::NEGATIVE) == StatusRegister::NEGATIVE;
+
+        // BRK is always cleared. We also clear the break mark now.
+        self.status_register.brk = false;
+        self.status_register.break_mark = 0;
+
+        Ok(())
+    }
+
     // Returns true of the stack is empty, false otherwise. Note that this
     // just means that the value of the 's' register is the one set as its
     // initial value.
@@ -686,14 +769,8 @@ impl Machine {
 
         match self.current_instruction.identifier {
             // TODO
-            InstructionIdentifier::Brk => todo!(),
             InstructionIdentifier::Bvc => todo!(),
             InstructionIdentifier::Bvs => todo!(),
-            InstructionIdentifier::Pha => todo!(),
-            InstructionIdentifier::Pla => todo!(),
-            InstructionIdentifier::Php => todo!(),
-            InstructionIdentifier::Plp => todo!(),
-            InstructionIdentifier::Rti => todo!(),
 
             // Flag instructions.
             InstructionIdentifier::Sec => self.status_register.carry = true,
@@ -913,16 +990,12 @@ impl Machine {
                 }
 
                 // NOTE: as per 6502 specification, the address should be - 1
-                // because the 'rts'/'rti' instruction will be the one in charge
-                // of adding its size to the end PC upon execution. This is kind
-                // of pedantic but in the end we record the address being pushed
+                // because the 'rts' instruction will be the one in charge of
+                // adding its size to the end PC upon execution. This is kind of
+                // pedantic but in the end we record the address being pushed
                 // onto the stack and that should be precise.
                 let next_address = self.pc + self.current_instruction.size as usize - 1;
-                let low = (next_address as u16 & 0x00FF) as u8;
-                let high = ((next_address as u16 & 0xFF00) >> 8) as u8;
-
-                self.push_stack(high, false)?;
-                self.push_stack(low, true)?;
+                self.push_address(next_address)?;
 
                 self.pc = address;
                 self.skip_pc = true;
@@ -980,24 +1053,84 @@ impl Machine {
                 //
                 // NOTE: as per 6502 specification, the address saved onto the
                 // stack was the next instruction before the call, but the size
-                // of the 'rts/rti' should also be accounted. Hence the + 1 to
-                // the resulting PC.
-                let low = self.pop_stack(false, false)? as u16;
-                let high = (self.pop_stack(false, true)? as u16) << 8;
+                // of the 'rts' should also be accounted. Hence the + 1 to the
+                // resulting PC.
+                let low = self.pop_stack(true, false)? as u16;
+                let high = (self.pop_stack(true, true)? as u16) << 8;
                 self.pc = (high + low) as usize + 1;
                 self.skip_pc = true;
             }
 
+            // Stack
+            InstructionIdentifier::Pha => self.push_stack(self.a, true)?,
+            InstructionIdentifier::Pla => self.a = self.pop_stack(true, true)?,
+            InstructionIdentifier::Php => self.push_status_register()?,
+            InstructionIdentifier::Plp => self.pop_status_register()?,
+
+            InstructionIdentifier::Brk => {
+                // The next address after a 'brk' is: pc + size of 'brk' (1) +
+                // break mark (1).
+                let next_address = self.pc + 2;
+                self.push_address(next_address)?;
+                self.push_status_register()?;
+
+                // The break mark is basically the byte which is in current PC +
+                // 1. If that's not possible, then we have a 'brk' as the last
+                // instruction with no break mark or something like that, which
+                // is just nonsense.
+                self.status_register.break_mark = *self
+                    .prg_rom
+                    .get(self.pc - 0x8000 + 1)
+                    .expect("you need to reserve a byte for the break mark");
+
+                // TODO: the next PC is the advertized IRQ one. This one is
+                // picked as the last byte from PRG-ROM, but depending on how
+                // bank mapping is done, this is not necessarily true.
+                let len = self.prg_rom.len();
+                let high = &(self.prg_rom[len - 1] as usize) << 8;
+                let low = &(self.prg_rom[len - 2] as usize);
+                self.pc = high + low;
+                self.skip_pc = true;
+            }
+            InstructionIdentifier::Rti => {
+                self.pop_status_register()?;
+
+                let low = self.pop_stack(true, false)? as usize;
+                let high = (self.pop_stack(true, true)? as usize) << 8;
+                self.pc = high + low;
+                self.skip_pc = true;
+            }
+
             // transfer
-            InstructionIdentifier::Tax => self.x = self.a,
-            InstructionIdentifier::Tay => self.y = self.a,
-            InstructionIdentifier::Tsx => self.x = self.s,
-            InstructionIdentifier::Txa => self.a = self.x,
+            InstructionIdentifier::Tax => {
+                self.x = self.a;
+                self.status_register.zero = self.x == 0;
+                self.status_register.negative = (self.x & 0x80) == 0x80;
+            }
+            InstructionIdentifier::Tay => {
+                self.y = self.a;
+                self.status_register.zero = self.y == 0;
+                self.status_register.negative = (self.y & 0x80) == 0x80;
+            }
+            InstructionIdentifier::Tsx => {
+                self.x = self.s;
+                self.status_register.zero = self.x == 0;
+                self.status_register.negative = (self.x & 0x80) == 0x80;
+            }
+            InstructionIdentifier::Txa => {
+                self.a = self.x;
+                self.status_register.zero = self.a == 0;
+                self.status_register.negative = (self.a & 0x80) == 0x80;
+            }
             InstructionIdentifier::Txs => {
                 self.s = self.x;
                 self.initial_stack_value = self.x;
             }
-            InstructionIdentifier::Tya => self.a = self.y,
+            InstructionIdentifier::Tya => {
+                self.a = self.y;
+                self.status_register.zero = self.a == 0;
+                self.status_register.negative = (self.a & 0x80) == 0x80;
+            }
 
             // other
             InstructionIdentifier::Bit => {

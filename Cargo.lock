@@ -39,6 +39,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "vnf-tests"
+version = "0.1.0"
+dependencies = [
+ "vnf",
+ "xixanta",
+]
+
+[[package]]
 name = "xa65"
 version = "0.1.0"
 

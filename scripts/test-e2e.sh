@@ -282,6 +282,12 @@ echo "test: runrom => arithlog.nes"
 diff tests/out/arithlog.txt tests/expected/runrom/arithlog.txt
 exit_code=$((exit_code + $?))
 
+echo "test: runrom => stack.nes"
+./target/debug/nasm -Werror -o tests/out/stack.nes tests/runrom/stack.s
+./target/debug/runrom --function --dump-memory tests/out/stack.nes > tests/out/stack.txt
+diff tests/out/stack.txt tests/expected/runrom/stack.txt
+exit_code=$((exit_code + $?))
+
 echo "test: runrom => misc.nes"
 ./target/debug/nasm -Werror --asan --write-info --allow-unused --out tests/out/misc.nes tests/runrom/misc.s
 ./target/debug/runrom --nasm .nasm --dump-memory --function tests/out/misc.nes > tests/out/misc-all.txt
@@ -295,6 +301,12 @@ exit_code=$((exit_code + $?))
 ./target/debug/runrom --nasm .nasm --dump-memory --function --start foo --until-address foo::@end_loop tests/out/misc.nes > tests/out/misc-foo.txt
 diff tests/out/misc-foo.txt tests/expected/runrom/misc-foo.txt
 exit_code=$((exit_code + $?))
+
+##
+# vnf-tests
+
+echo "test: vnf-tests"
+cargo run --bin vnf-tests tests/
 
 ##
 # Done!

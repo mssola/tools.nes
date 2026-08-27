@@ -1,0 +1,44 @@
+<start>		PC: $8000, cycles: 7, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----I--
+		[STACK]: 02 80 00 00 
+		[STACK]: 34 02 80 00 00 
+brk		PC: $8003, cycles: 14, registers: [a: $00, x: $00, y: $00, sp: $FA], status: --B-I--
+		[STACK]: 00 34 02 80 00 00 
+pha		PC: $8004, cycles: 17, registers: [a: $00, x: $00, y: $00, sp: $F9], status: --B-I--
+txa		PC: $8005, cycles: 19, registers: [a: $00, x: $00, y: $00, sp: $F9], status: --B-IZ-
+		[STACK]: 00 00 34 02 80 00 00 
+pha		PC: $8006, cycles: 22, registers: [a: $00, x: $00, y: $00, sp: $F8], status: --B-IZ-
+tya		PC: $8007, cycles: 24, registers: [a: $00, x: $00, y: $00, sp: $F8], status: --B-IZ-
+		[STACK]: 00 00 00 34 02 80 00 00 
+pha		PC: $8008, cycles: 27, registers: [a: $00, x: $00, y: $00, sp: $F7], status: --B-IZ-
+		[STACK]: 36 00 00 00 34 02 80 00 00 
+php		PC: $8009, cycles: 30, registers: [a: $00, x: $00, y: $00, sp: $F6], status: --B-IZ-
+lda #$01	PC: $800B, cycles: 32, registers: [a: $01, x: $00, y: $00, sp: $F6], status: --B-I--
+ldy #$02	PC: $800D, cycles: 34, registers: [a: $01, x: $00, y: $02, sp: $F6], status: --B-I--
+ldx #$FF	PC: $800F, cycles: 36, registers: [a: $01, x: $FF, y: $02, sp: $F6], status: N-B-I--
+inx		PC: $8010, cycles: 38, registers: [a: $01, x: $00, y: $02, sp: $F6], status: --B-IZ-
+inx		PC: $8011, cycles: 40, registers: [a: $01, x: $01, y: $02, sp: $F6], status: --B-I--
+		[STACK]: 00 00 00 34 02 80 00 00 
+plp		PC: $8012, cycles: 44, registers: [a: $01, x: $01, y: $02, sp: $F7], status: ----IZ-
+		[STACK]: 00 00 34 02 80 00 00 
+pla		PC: $8013, cycles: 48, registers: [a: $00, x: $01, y: $02, sp: $F8], status: ----IZ-
+tay		PC: $8014, cycles: 50, registers: [a: $00, x: $01, y: $00, sp: $F8], status: ----IZ-
+		[STACK]: 00 34 02 80 00 00 
+pla		PC: $8015, cycles: 54, registers: [a: $00, x: $01, y: $00, sp: $F9], status: ----IZ-
+tax		PC: $8016, cycles: 56, registers: [a: $00, x: $00, y: $00, sp: $F9], status: ----IZ-
+		[STACK]: 34 02 80 00 00 
+pla		PC: $8017, cycles: 60, registers: [a: $00, x: $00, y: $00, sp: $FA], status: ----IZ-
+		[STACK]: 02 80 00 00 
+		[STACK]: 00 00 
+rti		PC: $8002, cycles: 66, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----I--
+rts		PC: $8003, cycles: 72, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----I--
+<end>
+
+== Memory dump ==
+
+[$2F7] = $36 [reads=1, writes=1]
+[$2F8] = $00 [reads=1, writes=1]
+[$2F9] = $00 [reads=1, writes=1]
+[$2FA] = $00 [reads=1, writes=1]
+[$2FB] = $34 [reads=1, writes=1]
+[$2FC] = $02 [reads=1, writes=1]
+[$2FD] = $80 [reads=1, writes=1]
