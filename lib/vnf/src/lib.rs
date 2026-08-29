@@ -173,31 +173,92 @@ impl Default for MemoryPolicy {
 }
 
 /// The state of the Joypad handshake process.
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Debug)]
 pub enum JoypadState {
-    #[default]
+    /// The Joypad is waiting for the read handshake to happen.
     Waiting,
+
+    /// The joypad received the first byte on the read handshake. Now it's
+    /// waiting for the other byte to be written to switch to the 'Sending'
+    /// state.
     Received,
+
+    /// The joypad can be read and has data available to it.
     Sending,
 }
 
 /// The state of a Joypad.
-#[derive(Copy, Clone, Debug, Default)]
+///
+/// NOTE: for now only the standard joypad is supported.
+#[derive(Debug)]
 pub struct Joypad {
+    /// The current state of the joypad.
     pub state: JoypadState,
-    pub value: u8,
+
+    /// Queue of pending input values.
+    pub values: Vec<u8>,
+
+    /// The shift register. Whenever the joypad goes from the 'Received' state
+    /// to 'Sending', the first input in 'values' is removed and set to this
+    /// register. Then all reads will directly happen from this register.
     pub shift: u8,
+
+    /// How many times the shift register has been read. When reaching its
+    /// limit, any subsequent reads will fail.
     pub reads: u8,
 }
 
+impl Default for Joypad {
+    fn default() -> Self {
+        Self {
+            state: JoypadState::Waiting,
+            values: vec![],
+            shift: 0,
+            reads: 0,
+        }
+    }
+}
+
 impl Joypad {
-    /// Initialize the Joypad so it's ready to accept reads.
-    pub fn prepare_for_reads(&mut self) {
-        // TODO: I still have to prepare a proper interface to interact with
-        // joypads.
-        self.value = 0;
-        self.shift = self.value;
+    /// Use these constants to prepare the inputs for functions such as
+    /// push_inputs().
+    ///
+    /// NOTE: the specific values here are sorted in reverse order. That is
+    /// because the consumer expects to get each bit from the shift chip in
+    /// reverse order: from least to most significant bits.
+    pub const BUTTON_RIGHT: u8 = 1 << 7;
+    pub const BUTTON_LEFT: u8 = 1 << 6;
+    pub const BUTTON_DOWN: u8 = 1 << 5;
+    pub const BUTTON_UP: u8 = 1 << 4;
+    pub const BUTTON_START: u8 = 1 << 3;
+    pub const BUTTON_SELECT: u8 = 1 << 2;
+    pub const BUTTON_B: u8 = 1 << 1;
+    pub const BUTTON_A: u8 = 1 << 0;
+
+    /// Initialize the Joypad so it's ready to accept reads. Call this function
+    /// whenever the read handshake has been completed.
+    pub fn prepare_for_reads(&mut self) -> Result<(), String> {
+        if self.values.is_empty() {
+            return Err("no more input on the queue".to_string());
+        }
         self.reads = 0;
+
+        // NOTE: flip the bits as the consumer actually expects a 1 for
+        // unpressed and a 0 for pressed. This is not done directly in the
+        // 'BUTTON_*' constants out of convenience from the API point of view.
+        self.shift = !self.values.remove(0);
+
+        Ok(())
+    }
+
+    /// Push the given 'inputs' to the queue.
+    pub fn push_inputs(&mut self, inputs: &[u8]) {
+        self.values.extend_from_slice(inputs);
+    }
+
+    /// Remove all pending inputs from the queue.
+    pub fn clear(&mut self) {
+        self.values.clear();
     }
 }
 
@@ -401,8 +462,17 @@ impl Machine {
             should_report_apu: false,
             should_report_ppu: false,
             policy,
-            joypads: [Joypad::default(); 2],
+            joypads: [Joypad::default(), Joypad::default()],
         })
+    }
+
+    /// Push the given 'inputs' to the controller identified by 'id'.
+    ///
+    /// NOTE: for now only standard controllers 0 and 1 are supported.
+    pub fn push_inputs_to(&mut self, id: usize, inputs: &[u8]) {
+        assert!(matches!(id, 0 | 1));
+
+        self.joypads[id].push_inputs(inputs);
     }
 
     // Report to the standard output the current status of the machine.
@@ -472,14 +542,16 @@ impl Machine {
                 Err("joypad is not ready to send data!".to_string())
             }
             JoypadState::Sending => {
+                // Increase the number of reads, and go back to 'Waiting'
+                // whenever the whole register has been read.
                 jp.reads += 1;
-                if jp.reads > 7 {
-                    Err("too many reads for the joypad state".to_string())
-                } else {
-                    let val = jp.shift & 0x01; // TODO: actually more bits are to be sent
-                    jp.shift >>= 1;
-                    Ok(val)
+                if jp.reads == 8 {
+                    jp.state = JoypadState::Waiting;
                 }
+
+                let val = jp.shift & 0x01;
+                jp.shift >>= 1;
+                Ok(val)
             }
         }
     }
@@ -508,7 +580,7 @@ impl Machine {
                 if value != 0 {
                     return Err(format!("expecting exacly a '0', '{}' received", value));
                 }
-                jp.prepare_for_reads();
+                jp.prepare_for_reads()?;
                 jp.state = JoypadState::Sending;
                 Ok(())
             }
@@ -756,8 +828,10 @@ impl Machine {
     // Compare the given 'value' with the one from the current instruction. Then
     // set the proper bits from the status register.
     fn compare(&mut self, value: i16) -> Result<(), String> {
-        let res = value - self.current_instruction.value() as i16;
+        let memory = self.load()? as i16;
+        let res = value - memory;
 
+        // And set flags accordingly.
         self.status_register.zero = res == 0;
         self.status_register.negative = (res as u8 & 0x80) == 0x80;
         self.status_register.carry = (res as u16 & 0xFF00) != 0;

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use vnf::{Machine, MemoryPolicy};
+use vnf::{Joypad, Machine, MemoryPolicy};
 use xixanta::opcodes::InstructionIdentifier;
 
 #[derive(Default)]
@@ -92,6 +92,41 @@ fn run_break_mark_test(path: &String) -> Result<(), String> {
     Ok(())
 }
 
+fn run_joypad_test(path: &String) -> Result<(), String> {
+    let rom = PathBuf::from(path).join("out/joypad.nes");
+    let mut machine = Machine::from(&rom, 0x8000, MemoryPolicy::default())?;
+
+    // Manually change the PC to the reset function.
+    let len = machine.prg_rom.len();
+    let high = (machine.prg_rom[len - 1] as u16) << 8;
+    let low = machine.prg_rom[len - 2] as u16;
+    machine.pc = (high + low) as usize;
+
+    // Due to the code of joypad.s, there is a repeating read algorithm. Hence,
+    // we can to repeat each button combination.
+    machine.push_inputs_to(
+        0,
+        &[
+            // First read.
+            (Joypad::BUTTON_DOWN | Joypad::BUTTON_B),
+            (Joypad::BUTTON_DOWN | Joypad::BUTTON_B),
+            // Second read.
+            (Joypad::BUTTON_DOWN | Joypad::BUTTON_B),
+            (Joypad::BUTTON_DOWN | Joypad::BUTTON_B),
+        ],
+    );
+    machine.run_function_mode = true;
+    machine.until_address(0xFFFF)?;
+
+    assert_eq!(machine.ram[0x00].value, 2);
+    assert_eq!(machine.ram[0x01].value, 0);
+    assert_eq!(machine.ram[0x02].value, 1);
+    assert_eq!(machine.ram[0x03].value, 0);
+    assert_eq!(machine.ram[0x04].value, 1);
+
+    Ok(())
+}
+
 fn main() {
     let args = parse_arguments();
     let file = PathBuf::from(args.file.clone());
@@ -101,6 +136,9 @@ fn main() {
     }
 
     if let Err(e) = run_break_mark_test(&args.file) {
+        die(e)
+    }
+    if let Err(e) = run_joypad_test(&args.file) {
         die(e)
     }
 }

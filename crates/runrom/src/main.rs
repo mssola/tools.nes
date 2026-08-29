@@ -27,6 +27,7 @@ fn print_help() {
     println!("  -h, --help\t\t\tPrint this message and quit.");
     println!("  -n, --nasm-directory <PATH>\tPath to the .nasm/ directory.");
     println!("  -s, --start\t\t\tAddress from where to start (default: reset vector).");
+    println!("  -u, --until-address\t\tRun until the given address is met.");
     println!("  -v, --version\t\t\tPrint version information.");
     std::process::exit(0);
 }
@@ -163,7 +164,7 @@ fn parse_arguments() -> Args {
                 }
                 None => die("you need to specify a file for the '-n/--nasm' flag".to_string()),
             },
-            "--until-address" => {
+            "-u" | "--until-address" => {
                 until_address = args.next();
                 if until_address.is_none() {
                     die("you need to specify a value for the --until-address flag!".to_string());
