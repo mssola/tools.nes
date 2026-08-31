@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use vnf::{Joypad, Machine, MemoryPolicy};
 use xixanta::opcodes::InstructionIdentifier;
@@ -51,13 +51,17 @@ fn parse_arguments() -> Args {
     res
 }
 
-// Returns true if the test identified by 'id' should be run.
-fn should_run(id: &str) -> bool {
+fn prepare_run(id: &str, rom_name: &str, path: &Path) -> Option<PathBuf> {
     let value = std::env::var("VNF_TEST")
         .unwrap_or_else(|_| "".to_string())
         .to_lowercase();
 
-    value.is_empty() || value == id
+    if value.is_empty() || value == id {
+        println!("[vnf tests] :: Running '{id}'");
+        return Some(path.join(format!("out/{rom_name}")));
+    }
+
+    None
 }
 
 // Returns true if the 'VERBOSE' environment variable is either set to 'true'
@@ -70,9 +74,8 @@ fn verbose() -> bool {
     value == "true" || value == "1"
 }
 
-fn run_break_mark_test(path: &String) -> Result<(), String> {
-    let rom = PathBuf::from(path).join("out/stack.nes");
-    let mut machine = Machine::from(&rom, 0x8000, MemoryPolicy::default())?;
+fn run_break_mark_test(path: &Path) -> Result<(), String> {
+    let mut machine = Machine::from(path, 0x8000, MemoryPolicy::default())?;
     machine.verbose = verbose();
 
     // Get out of <start>
@@ -112,9 +115,8 @@ fn run_break_mark_test(path: &String) -> Result<(), String> {
     Ok(())
 }
 
-fn run_joypad_test(path: &String) -> Result<(), String> {
-    let rom = PathBuf::from(path).join("out/joypad.nes");
-    let mut machine = Machine::from(&rom, 0x8000, MemoryPolicy::default())?;
+fn run_joypad_test(path: &Path) -> Result<(), String> {
+    let mut machine = Machine::from(path, 0x8000, MemoryPolicy::default())?;
 
     // Manually change the PC to the reset function.
     let len = machine.prg_rom.len();
@@ -158,14 +160,14 @@ fn main() {
 
     // And tests!
 
-    if should_run("break_mark") {
-        if let Err(e) = run_break_mark_test(&args.file) {
-            die(e)
-        }
+    if let Some(path) = prepare_run("break_mark", "stack.nes", &file)
+        && let Err(e) = run_break_mark_test(&path)
+    {
+        die(e)
     }
-    if should_run("joypad") {
-        if let Err(e) = run_joypad_test(&args.file) {
-            die(e)
-        }
+    if let Some(path) = prepare_run("joypad", "joypad.nes", &file)
+        && let Err(e) = run_joypad_test(&path)
+    {
+        die(e)
     }
 }
