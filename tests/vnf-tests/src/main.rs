@@ -51,6 +51,15 @@ fn parse_arguments() -> Args {
     res
 }
 
+// Returns true if the test identified by 'id' should be run.
+fn should_run(id: &str) -> bool {
+    let value = std::env::var("VNF_TEST")
+        .unwrap_or_else(|_| "".to_string())
+        .to_lowercase();
+
+    value.is_empty() || value == id
+}
+
 // Returns true if the 'VERBOSE' environment variable is either set to 'true'
 // or '1', false otherwise.
 fn verbose() -> bool {
@@ -147,10 +156,16 @@ fn main() {
         die("you have to provide a path to the tests/ directory".to_string());
     }
 
-    if let Err(e) = run_break_mark_test(&args.file) {
-        die(e)
+    // And tests!
+
+    if should_run("break_mark") {
+        if let Err(e) = run_break_mark_test(&args.file) {
+            die(e)
+        }
     }
-    if let Err(e) = run_joypad_test(&args.file) {
-        die(e)
+    if should_run("joypad") {
+        if let Err(e) = run_joypad_test(&args.file) {
+            die(e)
+        }
     }
 }
