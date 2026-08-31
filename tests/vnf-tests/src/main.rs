@@ -51,9 +51,20 @@ fn parse_arguments() -> Args {
     res
 }
 
+// Returns true if the 'VERBOSE' environment variable is either set to 'true'
+// or '1', false otherwise.
+fn verbose() -> bool {
+    let value = std::env::var("VNF_TESTS_VERBOSE")
+        .unwrap_or_else(|_| "0".to_string())
+        .to_lowercase();
+
+    value == "true" || value == "1"
+}
+
 fn run_break_mark_test(path: &String) -> Result<(), String> {
     let rom = PathBuf::from(path).join("out/stack.nes");
     let mut machine = Machine::from(&rom, 0x8000, MemoryPolicy::default())?;
+    machine.verbose = verbose();
 
     // Get out of <start>
     let _ = machine.next_iteration();
@@ -116,6 +127,7 @@ fn run_joypad_test(path: &String) -> Result<(), String> {
         ],
     );
     machine.run_function_mode = true;
+    machine.verbose = verbose();
     machine.until_address(0xFFFF)?;
 
     assert_eq!(machine.ram[0x00].value, 2);
