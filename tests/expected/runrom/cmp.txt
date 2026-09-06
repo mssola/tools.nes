@@ -1,0 +1,18 @@
+<start>		PC: $8000, cycles: 7, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----I--
+lda #$00	PC: $8002, cycles: 9, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----IZ-
+sta $00		PC: $8004, cycles: 12, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----IZ-
+cmp $00		PC: $8006, cycles: 15, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----IZC
+inc $00		PC: $8008, cycles: 20, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----I-C
+cmp $00		PC: $800A, cycles: 23, registers: [a: $00, x: $00, y: $00, sp: $FD], status: N---I--
+lda #$02	PC: $800C, cycles: 25, registers: [a: $02, x: $00, y: $00, sp: $FD], status: ----I--
+cmp $00		PC: $800E, cycles: 28, registers: [a: $02, x: $00, y: $00, sp: $FD], status: ----I-C
+lda #$01	PC: $8010, cycles: 30, registers: [a: $01, x: $00, y: $00, sp: $FD], status: ----I-C
+cmp $00		PC: $8012, cycles: 33, registers: [a: $01, x: $00, y: $00, sp: $FD], status: ----IZC
+lda #$FF	PC: $8014, cycles: 35, registers: [a: $FF, x: $00, y: $00, sp: $FD], status: N---I-C
+cmp $00		PC: $8016, cycles: 38, registers: [a: $FF, x: $00, y: $00, sp: $FD], status: N---I-C
+rts		PC: $8017, cycles: 44, registers: [a: $FF, x: $00, y: $00, sp: $FD], status: N---I-C
+<end>
+
+== Memory dump ==
+
+[$0] = $01 [reads=6, writes=2]

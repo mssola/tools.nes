@@ -834,7 +834,7 @@ impl Machine {
         // And set flags accordingly.
         self.status_register.zero = res == 0;
         self.status_register.negative = (res as u8 & 0x80) == 0x80;
-        self.status_register.carry = (res as u16 & 0xFF00) != 0;
+        self.status_register.carry = res >= 0;
 
         Ok(())
     }
