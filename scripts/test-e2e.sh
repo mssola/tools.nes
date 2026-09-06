@@ -294,6 +294,12 @@ echo "test: runrom => cmp.nes"
 diff tests/out/cmp.txt tests/expected/runrom/cmp.txt
 exit_code=$((exit_code + $?))
 
+echo "test: runrom => branching.nes"
+./target/debug/nasm -Werror --asan -o tests/out/branching.nes tests/runrom/branching.s
+./target/debug/runrom --function --dump-memory tests/out/branching.nes > tests/out/branching.txt
+diff tests/out/branching.txt tests/expected/runrom/branching.txt
+exit_code=$((exit_code + $?))
+
 echo "test: runrom => misc.nes"
 ./target/debug/nasm -Werror --asan --write-info --allow-unused --out tests/out/misc.nes tests/runrom/misc.s
 ./target/debug/runrom --nasm .nasm --dump-memory --function tests/out/misc.nes > tests/out/misc-all.txt

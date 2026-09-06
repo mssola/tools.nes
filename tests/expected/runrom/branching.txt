@@ -1,0 +1,71 @@
+<start>		PC: $8000, cycles: 7, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----I--
+ldx #$0A	PC: $8002, cycles: 9, registers: [a: $00, x: $0A, y: $00, sp: $FD], status: ----I--
+ldy #$05	PC: $8004, cycles: 11, registers: [a: $00, x: $0A, y: $05, sp: $FD], status: ----I--
+lda $030C, y	PC: $8007, cycles: 15, registers: [a: $00, x: $0A, y: $05, sp: $FD], status: ----IZ-
+cmp $0300, x	PC: $800A, cycles: 19, registers: [a: $00, x: $0A, y: $05, sp: $FD], status: ----IZC
+bcc $1F		PC: $800C, cycles: 21, registers: [a: $00, x: $0A, y: $05, sp: $FD], status: ----IZC
+dex		PC: $800D, cycles: 23, registers: [a: $00, x: $09, y: $05, sp: $FD], status: ----I-C
+dex		PC: $800E, cycles: 25, registers: [a: $00, x: $08, y: $05, sp: $FD], status: ----I-C
+dey		PC: $800F, cycles: 27, registers: [a: $00, x: $08, y: $04, sp: $FD], status: ----I-C
+cpy #$FF	PC: $8011, cycles: 29, registers: [a: $00, x: $08, y: $04, sp: $FD], status: ----I--
+bne $F1		PC: $8004, cycles: 32, registers: [a: $00, x: $08, y: $04, sp: $FD], status: ----I--
+lda $030C, y	PC: $8007, cycles: 36, registers: [a: $00, x: $08, y: $04, sp: $FD], status: ----IZ-
+cmp $0300, x	PC: $800A, cycles: 40, registers: [a: $00, x: $08, y: $04, sp: $FD], status: ----IZC
+bcc $1F		PC: $800C, cycles: 42, registers: [a: $00, x: $08, y: $04, sp: $FD], status: ----IZC
+dex		PC: $800D, cycles: 44, registers: [a: $00, x: $07, y: $04, sp: $FD], status: ----I-C
+dex		PC: $800E, cycles: 46, registers: [a: $00, x: $06, y: $04, sp: $FD], status: ----I-C
+dey		PC: $800F, cycles: 48, registers: [a: $00, x: $06, y: $03, sp: $FD], status: ----I-C
+cpy #$FF	PC: $8011, cycles: 50, registers: [a: $00, x: $06, y: $03, sp: $FD], status: ----I--
+bne $F1		PC: $8004, cycles: 53, registers: [a: $00, x: $06, y: $03, sp: $FD], status: ----I--
+lda $030C, y	PC: $8007, cycles: 57, registers: [a: $00, x: $06, y: $03, sp: $FD], status: ----IZ-
+cmp $0300, x	PC: $800A, cycles: 61, registers: [a: $00, x: $06, y: $03, sp: $FD], status: ----IZC
+bcc $1F		PC: $800C, cycles: 63, registers: [a: $00, x: $06, y: $03, sp: $FD], status: ----IZC
+dex		PC: $800D, cycles: 65, registers: [a: $00, x: $05, y: $03, sp: $FD], status: ----I-C
+dex		PC: $800E, cycles: 67, registers: [a: $00, x: $04, y: $03, sp: $FD], status: ----I-C
+dey		PC: $800F, cycles: 69, registers: [a: $00, x: $04, y: $02, sp: $FD], status: ----I-C
+cpy #$FF	PC: $8011, cycles: 71, registers: [a: $00, x: $04, y: $02, sp: $FD], status: ----I--
+bne $F1		PC: $8004, cycles: 74, registers: [a: $00, x: $04, y: $02, sp: $FD], status: ----I--
+lda $030C, y	PC: $8007, cycles: 78, registers: [a: $00, x: $04, y: $02, sp: $FD], status: ----IZ-
+cmp $0300, x	PC: $800A, cycles: 82, registers: [a: $00, x: $04, y: $02, sp: $FD], status: ----IZC
+bcc $1F		PC: $800C, cycles: 84, registers: [a: $00, x: $04, y: $02, sp: $FD], status: ----IZC
+dex		PC: $800D, cycles: 86, registers: [a: $00, x: $03, y: $02, sp: $FD], status: ----I-C
+dex		PC: $800E, cycles: 88, registers: [a: $00, x: $02, y: $02, sp: $FD], status: ----I-C
+dey		PC: $800F, cycles: 90, registers: [a: $00, x: $02, y: $01, sp: $FD], status: ----I-C
+cpy #$FF	PC: $8011, cycles: 92, registers: [a: $00, x: $02, y: $01, sp: $FD], status: ----I--
+bne $F1		PC: $8004, cycles: 95, registers: [a: $00, x: $02, y: $01, sp: $FD], status: ----I--
+lda $030C, y	PC: $8007, cycles: 99, registers: [a: $00, x: $02, y: $01, sp: $FD], status: ----IZ-
+cmp $0300, x	PC: $800A, cycles: 103, registers: [a: $00, x: $02, y: $01, sp: $FD], status: ----IZC
+bcc $1F		PC: $800C, cycles: 105, registers: [a: $00, x: $02, y: $01, sp: $FD], status: ----IZC
+dex		PC: $800D, cycles: 107, registers: [a: $00, x: $01, y: $01, sp: $FD], status: ----I-C
+dex		PC: $800E, cycles: 109, registers: [a: $00, x: $00, y: $01, sp: $FD], status: ----IZC
+dey		PC: $800F, cycles: 111, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----IZC
+cpy #$FF	PC: $8011, cycles: 113, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----I--
+bne $F1		PC: $8004, cycles: 116, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----I--
+lda $030C, y	PC: $8007, cycles: 120, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----IZ-
+cmp $0300, x	PC: $800A, cycles: 124, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----IZC
+bcc $1F		PC: $800C, cycles: 126, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----IZC
+dex		PC: $800D, cycles: 128, registers: [a: $00, x: $FF, y: $00, sp: $FD], status: ----I-C
+dex		PC: $800E, cycles: 130, registers: [a: $00, x: $FE, y: $00, sp: $FD], status: N---I-C
+dey		PC: $800F, cycles: 132, registers: [a: $00, x: $FE, y: $FF, sp: $FD], status: ----I-C
+cpy #$FF	PC: $8011, cycles: 134, registers: [a: $00, x: $FE, y: $FF, sp: $FD], status: ----IZC
+bne $F1		PC: $8013, cycles: 136, registers: [a: $00, x: $FE, y: $FF, sp: $FD], status: ----IZC
+bit $27		PC: $8015, cycles: 139, registers: [a: $00, x: $FE, y: $FF, sp: $FD], status: ----IZC
+bpl $2F		PC: $8046, cycles: 142, registers: [a: $00, x: $FE, y: $FF, sp: $FD], status: ----IZC
+rts		PC: $8047, cycles: 148, registers: [a: $00, x: $FE, y: $FF, sp: $FD], status: ----IZC
+<end>
+
+== Memory dump ==
+
+[$27] = $00 [reads=1, writes=0]
+[$300] = $00 [reads=1, writes=0]
+[$302] = $00 [reads=1, writes=0]
+[$304] = $00 [reads=1, writes=0]
+[$306] = $00 [reads=1, writes=0]
+[$308] = $00 [reads=1, writes=0]
+[$30A] = $00 [reads=1, writes=0]
+[$30C] = $00 [reads=1, writes=0]
+[$30D] = $00 [reads=1, writes=0]
+[$30E] = $00 [reads=1, writes=0]
+[$30F] = $00 [reads=1, writes=0]
+[$310] = $00 [reads=1, writes=0]
+[$311] = $00 [reads=1, writes=0]
