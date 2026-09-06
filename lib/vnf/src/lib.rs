@@ -1237,23 +1237,24 @@ impl Machine {
             self.pc - val.wrapping_neg() as usize
         };
 
-        // If the next PC results in crossing the page boundary compared to the
-        // old PC, then there is a page penalty to be accounted. That is,
-        // branch instructions are defined with a base 'cycles' count, and then
-        // needs to be increased either by 1 or 2 depending on whether there was
-        // a page penalty or not. We could have easily defined the base 'cycles'
-        // with an increased value of 1 and then only increase by one on page
-        // penalty, but the definition tries to be close to the 6502
-        // specification, which is defined like so. Hence, we keep this quirk.
+        // Branch instructions have a base 'cycle' count which is the one to be
+        // considered if the branch is not taken. If we are in this function,
+        // then we are taking a branch, so let's add to the PC the extra cycles
+        // to be applied to the base one. If the next PC results in crossing the
+        // page boundary compared to the old PC, then there is a page penalty to
+        // be accounted (with an extra cycle to boot).
         if (next & 0xFF00) == (self.pc & 0xFF00) {
             self.extra_cycles += 1;
         } else {
             self.extra_cycles += 2;
             self.page_penalty += 1;
         }
+
+        // NOTE: even though we are modifying the PC here, we don't set
+        // 'skip_pc' to true as we do in other 'jump' sections as the next
+        // address also accounts the size of the current branch
+        // instruction.
         self.pc = next;
-        // TODO
-        // self.skip_pc = true;
     }
 
     // Perform a load instruction and return the read value.
