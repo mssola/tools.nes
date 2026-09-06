@@ -309,7 +309,8 @@ exit_code=$((exit_code + $?))
 ./target/debug/nasm --asan -Werror -w -o tests/out/joypad.nes tests/runrom/joypad.s
 
 echo "test: vnf-tests"
-cargo run --bin vnf-tests tests/
+cargo run --bin vnf-tests -- tests/
+exit_code=$((exit_code + $?))
 
 ##
 # Done!
