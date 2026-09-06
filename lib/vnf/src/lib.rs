@@ -242,11 +242,7 @@ impl Joypad {
             return Err("no more input on the queue".to_string());
         }
         self.reads = 0;
-
-        // NOTE: flip the bits as the consumer actually expects a 1 for
-        // unpressed and a 0 for pressed. This is not done directly in the
-        // 'BUTTON_*' constants out of convenience from the API point of view.
-        self.shift = !self.values.remove(0);
+        self.shift = self.values.remove(0);
 
         Ok(())
     }
