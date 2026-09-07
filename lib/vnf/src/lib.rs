@@ -384,9 +384,14 @@ pub struct Machine {
     pub halt_on_brk: bool,
 }
 
-// Returns a vector of MemoryCell representing the RAM for a Machine, which
-// follows the memory policy as defined in 'policy'.
-fn init_memory(policy: &MemoryPolicy) -> Vec<MemoryCell> {
+// On success, returns a vector of MemoryCell representing the RAM for a
+// Machine, which follows the memory policy as defined in 'policy'. Otherwie it
+// returns a string error.
+fn init_memory(policy: &MemoryPolicy) -> Result<Vec<MemoryCell>, String> {
+    if policy.minimum_stack_value > 0xFD {
+        return Err("minimum stack value is too high".to_string());
+    }
+
     let mut vec = Vec::with_capacity(0x800);
 
     for i in 0..0x800 {
@@ -410,7 +415,7 @@ fn init_memory(policy: &MemoryPolicy) -> Vec<MemoryCell> {
     vec[0x2FF].value = 0x00;
     vec[0x2FE].value = 0x00;
 
-    vec
+    Ok(vec)
 }
 
 /// For a given u16 expression, return a tuple formatted like so:
@@ -482,7 +487,7 @@ impl Machine {
             y: 0,
             s: 0xFD, // NOTE: as per 6502 initialization process.
             initial_stack_value: 0xFD,
-            ram: init_memory(&policy),
+            ram: init_memory(&policy)?,
             status_register: StatusRegister::default(),
             apu: APU::default(),
             ppu: PPU::default(),
