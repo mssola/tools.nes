@@ -288,6 +288,12 @@ echo "test: runrom => stack.nes"
 diff tests/out/stack.txt tests/expected/runrom/stack.txt
 exit_code=$((exit_code + $?))
 
+echo "test: runrom => halt.nes"
+./target/debug/nasm -Werror -o tests/out/halt.nes tests/runrom/halt.s
+./target/debug/runrom --dump-memory tests/out/halt.nes > tests/out/halt.txt
+diff tests/out/halt.txt tests/expected/runrom/halt.txt
+exit_code=$((exit_code + $?))
+
 echo "test: runrom => cmp.nes"
 ./target/debug/nasm -Werror --asan -o tests/out/cmp.nes tests/runrom/cmp.s
 ./target/debug/runrom --function --dump-memory tests/out/cmp.nes > tests/out/cmp.txt

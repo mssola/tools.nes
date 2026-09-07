@@ -1,0 +1,11 @@
+<start>		PC: $8000, cycles: 7, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----I--
+		[STACK]: 02 80 00 00 
+		[STACK]: 34 02 80 00 00 
+brk		PC: $8000, cycles: 14, registers: [a: $00, x: $00, y: $00, sp: $FA], status: --B-I--
+<end> (break mark = $42)
+
+== Memory dump ==
+
+[$2FB] = $34 [reads=0, writes=1]
+[$2FC] = $02 [reads=0, writes=1]
+[$2FD] = $80 [reads=0, writes=1]

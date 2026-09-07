@@ -577,7 +577,15 @@ impl Machine {
         }
 
         if !self.active {
-            println!("<end>");
+            if matches!(
+                self.current_instruction.identifier,
+                InstructionIdentifier::Brk
+            ) && let Some(brk) = self.status_register.break_mark
+            {
+                println!("<end> (break mark = ${:02X})", brk);
+            } else {
+                println!("<end>");
+            }
         }
     }
 
