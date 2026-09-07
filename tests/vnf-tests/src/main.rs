@@ -88,10 +88,10 @@ fn run_break_mark_test(path: &Path) -> Result<(), String> {
     ));
 
     // Before vs after running 'brk'.
-    assert_eq!(machine.status_register.break_mark, 0);
+    assert!(machine.status_register.break_mark.is_none());
     assert!(!machine.status_register.brk);
     let _ = machine.next_iteration();
-    assert_eq!(machine.status_register.break_mark, 0x42);
+    assert_eq!(machine.status_register.break_mark.unwrap(), 0x42);
     assert!(machine.status_register.brk);
 
     // Skip instructions we don't care about here.
@@ -104,12 +104,12 @@ fn run_break_mark_test(path: &Path) -> Result<(), String> {
         machine.current_instruction.identifier,
         InstructionIdentifier::Plp
     ));
-    assert_eq!(machine.status_register.break_mark, 0x42);
+    assert_eq!(machine.status_register.break_mark.unwrap(), 0x42);
     assert!(machine.status_register.brk);
 
     // After running 'plp'.
     let _ = machine.next_iteration();
-    assert_eq!(machine.status_register.break_mark, 0x00);
+    assert!(machine.status_register.break_mark.is_none());
     assert!(!machine.status_register.brk);
 
     Ok(())

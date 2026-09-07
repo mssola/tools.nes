@@ -44,8 +44,8 @@ pub struct StatusRegister {
     pub zero: bool,
     pub carry: bool,
 
-    /// The byte after a 'brk' instruction.
-    pub break_mark: u8,
+    /// The byte after the a 'brk' instruction.
+    pub break_mark: Option<u8>,
 }
 
 impl Default for StatusRegister {
@@ -58,7 +58,7 @@ impl Default for StatusRegister {
             interrupt: true,
             zero: false,
             carry: false,
-            break_mark: 0,
+            break_mark: None,
         }
     }
 }
@@ -857,7 +857,7 @@ impl Machine {
 
         // BRK is always cleared. We also clear the break mark now.
         self.status_register.brk = false;
-        self.status_register.break_mark = 0;
+        self.status_register.break_mark = None;
 
         Ok(())
     }
@@ -1205,10 +1205,12 @@ impl Machine {
                 // 1. If that's not possible, then we have a 'brk' as the last
                 // instruction with no break mark or something like that, which
                 // is just nonsense.
-                self.status_register.break_mark = *self
-                    .prg_rom
-                    .get(self.pc - 0x8000 + 1)
-                    .expect("you need to reserve a byte for the break mark");
+                self.status_register.break_mark = Some(
+                    *self
+                        .prg_rom
+                        .get(self.pc - 0x8000 + 1)
+                        .expect("you need to reserve a byte for the break mark"),
+                );
 
                 // TODO: the next PC is the advertized IRQ one. This one is
                 // picked as the last byte from PRG-ROM, but depending on how
