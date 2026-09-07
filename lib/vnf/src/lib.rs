@@ -1,3 +1,26 @@
+//! # Virtual NES/Famicom
+//!
+//! This library provides all the needed interfaces in order to run an
+//! NES/Famicom ROM programmatically. It allows any developer to pick up a ROM
+//! file, start execution from a given address and stop it at any point. Along
+//! the way, developers can poke for memory accesses, joypad inputs, etc.; and
+//! they can check all the state of the instantiated Virtual Machine to validate
+//! that the code runs as expected. The state also considers chips like the PPU
+//! and the APU, but it does not produce graphics nor sound. This is done in
+//! purpose, as this is all meant to be headless, so it can be run in CI/CD
+//! environments without the hassle of coming up with solutions for
+//! graphics/sound support.
+//!
+//! All in all, the goal of this library is twofold:
+//!
+//!   1. Support [`runrom`](../runrom/index.html) in any way so all the desired
+//!      features can be implemented.
+//!   2. Provide a sane API with regards to running and inspecting an
+//!      NES/Famicom emulator.
+//!
+//! This way, NES/Famicom developers can write tests for their NES/Famicom
+//! games, checking on specific hot spots for how registers and the memory are
+//! modified.
 use header::Header;
 use std::assert_matches;
 use std::collections::HashMap;
@@ -8,7 +31,9 @@ use std::path::Path;
 use xixanta::opcodes::AddressingMode;
 use xixanta::opcodes::{Instruction, InstructionIdentifier, OPCODES};
 
-/// Values on the 'status' register converted to bools for easier use.
+/// The 'status' register from the CPU. All flags are set as booleans for easier
+/// use, and the 'break_mark' byte contains the break mark from the last 'brk'
+/// instruction.
 #[derive(Debug)]
 pub struct StatusRegister {
     pub negative: bool,
@@ -116,7 +141,7 @@ pub struct PPU {
     pub oam_dma: u8,
 }
 
-/// A byte from the memory, which other than the actual value, also contains
+/// A byte from memory, which other than the actual value, also contains
 /// different stats for it.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MemoryCell {
@@ -144,7 +169,10 @@ pub enum MemoryInitialValue {
 }
 
 /// Allows users to define a policy for how the memory should be initialized for
-/// the given Machine.
+/// the given Machine. This is one of the parameters to be passed on the
+/// initialization of [`Machine`]. This policy will tell the machine how memory
+/// should be initialized, which sectors are allowed to be read/written, and
+/// what's the lowest point that the stack pointer can reach.
 #[derive(Debug)]
 pub struct MemoryPolicy {
     /// The initial value to be given for each cell.
@@ -462,7 +490,27 @@ impl Machine {
         })
     }
 
-    /// Push the given 'inputs' to the controller identified by 'id'.
+    /// Push the given 'inputs' to the controller identified by 'id'. In order
+    /// to set the 'inputs' parameter, refer to the constants from
+    /// [`Joypad`]. This way, after initializing a [`Machine`] object, one could
+    /// set the inputs to be considered like so:
+    ///
+    /// ```
+    /// machine.push_inputs_to(
+    ///     0,
+    ///     &[
+    ///         (Joypad::BUTTON_DOWN | Joypad::BUTTON_B),
+    ///         (Joypad::BUTTON_UP | Joypad::BUTTON_A),
+    ///         Joypad::BUTTON_A,
+    ///     ],
+    /// );
+    /// ```
+    ///
+    /// Then, these values will be the ones being passed whenever the joypad 0
+    /// is read.
+    ///
+    /// Be mindful on the amount of inputs being read by the code, as they will
+    /// be consumed upon use.
     ///
     /// NOTE: for now only standard controllers 0 and 1 are supported.
     pub fn push_inputs_to(&mut self, id: usize, inputs: &[u8]) {
@@ -836,7 +884,7 @@ impl Machine {
     }
 
     /// Execute the current instruction.
-    pub fn execute(&mut self) -> Result<(), String> {
+    fn execute(&mut self) -> Result<(), String> {
         self.status_register.overflow = false;
 
         match self.current_instruction.identifier {

@@ -30,10 +30,14 @@ information about it. Read more about it in
 
 `runrom` is an NES/Famicom emulator that doesn't attempt to run a ROM
 graphically. Instead, it just runs code and exposes the data on memory,
-registers, etc. for a given run. Thus, `runrom` is a tool to run an NES/Famicom
-programatically, so developers can use it to test their ROM files under certain
-conditions. Read more about it in
-[./crates/runrom/README.md](./crates/runrom/README.md).
+registers, etc. for a given run. This is all done via the [vnf](./lib/vnf)
+library, which allows a developer to programatically run a ROM file from a given
+address, poke memory addresses, submit joypad inputs, etc. For some uses,
+running `runrom` will be fine to get a glimpse of the execution of a piece of
+code, but in some other cases (e.g. unit tests for a specific function on your
+NES game), using `vnf` will be a better fit. In any case, you can read more
+about all of this on [runrom's documentation](./crates/runrom/README.md), and on
+[vnf's documentation](./lib/vnf/README.md).
 
 ## License
 
