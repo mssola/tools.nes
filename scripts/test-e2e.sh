@@ -284,7 +284,7 @@ exit_code=$((exit_code + $?))
 
 echo "test: runrom => stack.nes"
 ./target/debug/nasm -Werror -o tests/out/stack.nes tests/runrom/stack.s
-./target/debug/runrom --function --dump-memory tests/out/stack.nes > tests/out/stack.txt
+./target/debug/runrom --no-halting-brk --function --dump-memory tests/out/stack.nes > tests/out/stack.txt
 diff tests/out/stack.txt tests/expected/runrom/stack.txt
 exit_code=$((exit_code + $?))
 

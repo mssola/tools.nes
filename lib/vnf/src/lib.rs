@@ -378,6 +378,10 @@ pub struct Machine {
 
     /// The status of both Joypads.
     joypads: [Joypad; 2],
+
+    /// Whether execution should be halted _after_ a 'brk' instruction no matter
+    /// what. The break mark will be set accordingly.
+    pub halt_on_brk: bool,
 }
 
 // Returns a vector of MemoryCell representing the RAM for a Machine, which
@@ -487,6 +491,7 @@ impl Machine {
             should_report_ppu: false,
             policy,
             joypads: [Joypad::default(), Joypad::default()],
+            halt_on_brk: true,
         })
     }
 
@@ -1220,6 +1225,10 @@ impl Machine {
                 let low = &(self.prg_rom[len - 2] as usize);
                 self.pc = high + low;
                 self.skip_pc = true;
+
+                if self.halt_on_brk {
+                    self.active = false;
+                }
             }
             InstructionIdentifier::Rti => {
                 self.pop_status_register()?;

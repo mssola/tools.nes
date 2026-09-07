@@ -16,6 +16,7 @@ struct Args {
     nasm: Option<PathBuf>,
     dump_memory: bool,
     until_address: u16,
+    halt_on_brk: bool,
 }
 
 fn print_help() {
@@ -26,6 +27,7 @@ fn print_help() {
     println!("  -f, --function\t\tRun the code by assuming it's a function.");
     println!("  -h, --help\t\t\tPrint this message and quit.");
     println!("  -n, --nasm-directory <PATH>\tPath to the .nasm/ directory.");
+    println!("  --no-halting-brk\t\tDo not halt execution after a brk instruction.");
     println!("  -s, --start\t\t\tAddress from where to start (default: reset vector).");
     println!("  -u, --until-address\t\tRun until the given address is met.");
     println!("  -v, --version\t\t\tPrint version information.");
@@ -130,6 +132,8 @@ fn parse_arguments() -> Args {
     let mut start = None;
     let mut until_address = None;
 
+    res.halt_on_brk = true;
+
     // Skip command name.
     args.next();
 
@@ -164,6 +168,9 @@ fn parse_arguments() -> Args {
                 }
                 None => die("you need to specify a file for the '-n/--nasm' flag".to_string()),
             },
+            "--no-halting-brk" => {
+                res.halt_on_brk = false;
+            }
             "-u" | "--until-address" => {
                 until_address = args.next();
                 if until_address.is_none() {
@@ -260,12 +267,14 @@ fn run(
     start: u16,
     end: u16,
     assume_function: bool,
+    halt_on_brk: bool,
     dump_memory: bool,
 ) -> Result<(), String> {
     let mut machine = Machine::from(file, start, MemoryPolicy::default())?;
 
     machine.verbose = true;
     machine.run_function_mode = assume_function;
+    machine.halt_on_brk = halt_on_brk;
 
     machine.until_address(end)?;
 
@@ -303,6 +312,7 @@ fn main() {
         start,
         args.until_address,
         args.assume_function,
+        args.halt_on_brk,
         args.dump_memory,
     ) {
         Ok(m) => m,
