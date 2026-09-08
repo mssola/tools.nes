@@ -31,6 +31,20 @@ use std::path::Path;
 use xixanta::opcodes::AddressingMode;
 use xixanta::opcodes::{Instruction, InstructionIdentifier, OPCODES};
 
+/// Number of cycles from an NMI to the start of rendering on an NTSC system
+/// (round down).
+pub const NMI_NTSC_CYCLES: usize = 2273;
+
+/// Number of cycles to render a full frame on an NTSC system (round down).
+pub const FRAME_NTSC_CYCLES: usize = 29780;
+
+/// Number of cycles from an NMI to the start of rendering on a PAL system
+/// (round down).
+pub const NMI_PAL_CYCLES: usize = 7459;
+
+/// Number of cycles to render a full frame on a PAL system (round down).
+pub const FRAME_PAL_CYCLES: usize = 33247;
+
 /// The 'status' register from the CPU. All flags are set as booleans for easier
 /// use, and the 'break_mark' byte contains the break mark from the last 'brk'
 /// instruction.
@@ -382,6 +396,10 @@ pub struct Machine {
     /// Whether execution should be halted _after_ a 'brk' instruction no matter
     /// what. The break mark will be set accordingly.
     pub halt_on_brk: bool,
+
+    /// The maximum amount of cycles that the machine should reach before
+    /// halting.
+    pub cycle_limit: Option<usize>,
 }
 
 // On success, returns a vector of MemoryCell representing the RAM for a
@@ -497,6 +515,7 @@ impl Machine {
             policy,
             joypads: [Joypad::default(), Joypad::default()],
             halt_on_brk: true,
+            cycle_limit: None,
         })
     }
 
@@ -697,6 +716,17 @@ impl Machine {
         // the machine.
         if self.verbose {
             self.report();
+        }
+
+        // Did we reach the cycle limits?
+        if let Some(cl) = self.cycle_limit
+            && cl < self.cycles
+        {
+            self.active = false;
+            if self.verbose {
+                return Err("reached the limit of cycles available".to_string());
+            }
+            return Ok(());
         }
 
         // After moving the PC, is it out of bounds?

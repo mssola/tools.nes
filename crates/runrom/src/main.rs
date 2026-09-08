@@ -17,12 +17,16 @@ struct Args {
     dump_memory: bool,
     until_address: u16,
     halt_on_brk: bool,
+    cycle_limit: Option<usize>,
 }
 
 fn print_help() {
     println!("Run an NES/Famicom ROM to test its code under a set of conditions.\n");
     println!("usage: runrom [OPTIONS] <FILE>\n");
     println!("Options:");
+    println!(
+        "  -c, --cycle-limit\t\tSet the limit for how many cycles can be spent. See the allowed values below."
+    );
     println!("  -d, --dump-memory\t\tShow the memory that has changed after a run.");
     println!("  -f, --function\t\tRun the code by assuming it's a function.");
     println!("  -h, --help\t\t\tPrint this message and quit.");
@@ -31,6 +35,21 @@ fn print_help() {
     println!("  -s, --start\t\t\tAddress from where to start (default: reset vector).");
     println!("  -u, --until-address\t\tRun until the given address is met.");
     println!("  -v, --version\t\t\tPrint version information.");
+
+    println!("\nAvailable values:");
+    println!("  - <integer>\t\t\tA numerical value with the maximum amount of cycles");
+    println!(
+        "  - 'nmi-ntsc'\t\t\tNumber of cycles from an NMI to the start of rendering on an NTSC system (round down)."
+    );
+    println!(
+        "  - 'nmi-pal'\t\t\tNumber of cycles from an NMI to the start of rendering on a PAL system (round down)."
+    );
+    println!(
+        "  - 'frame-ntsc'\t\tNumber of cycles to render a full frame on an NTSC system (round down)."
+    );
+    println!(
+        "  - 'frame-pal'\t\t\tNumber of cycles to render a full frame on a PAL system (round down)."
+    );
     std::process::exit(0);
 }
 
@@ -140,6 +159,25 @@ fn parse_arguments() -> Args {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => print_help(),
+            "-c" | "--cycle-limit" => match args.next() {
+                Some(value) => {
+                    res.cycle_limit = Some(match value.as_str() {
+                        "nmi-ntsc" => vnf::NMI_NTSC_CYCLES,
+                        "nmi-pal" => vnf::NMI_PAL_CYCLES,
+                        "frame-ntsc" => vnf::FRAME_NTSC_CYCLES,
+                        "frame-pal" => vnf::FRAME_NTSC_CYCLES,
+                        _ => match value.parse::<usize>() {
+                            Ok(v) => v,
+                            Err(_) => die(format!(
+                                "invalid integer value '{value}' for the '-c/--cycle-limit' flag"
+                            )),
+                        },
+                    });
+                }
+                None => {
+                    die("you need to specify a value for the '-c/--cycle-limit' flag".to_string())
+                }
+            },
             "-s" | "--start" => {
                 if res.start.is_some() {
                     die("do not specify the '-s/--start' flag twice".to_string());
@@ -268,6 +306,7 @@ fn run(
     end: u16,
     assume_function: bool,
     halt_on_brk: bool,
+    cycle_limit: Option<usize>,
     dump_memory: bool,
 ) -> Result<(), String> {
     let mut machine = Machine::from(file, start, MemoryPolicy::default())?;
@@ -275,6 +314,7 @@ fn run(
     machine.verbose = true;
     machine.run_function_mode = assume_function;
     machine.halt_on_brk = halt_on_brk;
+    machine.cycle_limit = cycle_limit;
 
     machine.until_address(end)?;
 
@@ -313,6 +353,7 @@ fn main() {
         args.until_address,
         args.assume_function,
         args.halt_on_brk,
+        args.cycle_limit,
         args.dump_memory,
     ) {
         Ok(m) => m,
