@@ -77,6 +77,7 @@ fn verbose() -> bool {
 fn run_break_mark_test(path: &Path) -> Result<(), String> {
     let mut machine = Machine::from(path, 0x8000, MemoryPolicy::default())?;
     machine.verbose = verbose();
+    machine.halt_on_brk = false;
 
     // Get out of <start>
     let _ = machine.next_iteration();
