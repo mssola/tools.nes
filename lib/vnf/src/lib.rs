@@ -659,8 +659,20 @@ impl Machine {
         Ok(())
     }
 
-    /// Step the execution of the machine by one instruction.
+    /// Step the execution of the machine by one instruction. It will return an
+    /// error if the execution fails for whatever reason, but also if this
+    /// machine is no longer active. Hence, if the machine has been deactivated
+    /// for some reason (e.g. an unexpected 'brk' with 'Machine.halt_on_brk' set
+    /// to true), then it's up to the caller to create a new [`Machine`]
+    /// instance.
     pub fn next_iteration(&mut self) -> Result<(), String> {
+        // This is a public function, and so it can be called even if it doesn't
+        // make sense to do so. Let's make a sanity check and return an error
+        // whenever the machine is set to be inactive.
+        if !self.active {
+            return Err("the machine is no longer active, cannot iterate over it".to_string());
+        }
+
         // Perform a new iteration of the PPU and the CPU.
         self.next_ppu()?;
         self.execute()?;
