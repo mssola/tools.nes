@@ -2119,30 +2119,28 @@ impl<'a> Assembler<'a> {
     fn evaluate_hexadecimal(&mut self, node: &PNode) -> Result<Bundle, Error> {
         let mut chars = node.value.value.chars();
         let mut bytes = [0, 0, 0];
-        let size: u8;
-
-        match node.value.value.len() {
+        let size: u8 = match node.value.value.len() {
             1 => {
                 bytes[0] = self.char_to_hex(chars.next(), node)?;
-                size = 1;
+                1
             }
             2 => {
                 bytes[0] = self.char_to_hex(chars.next(), node)? * 16;
                 bytes[0] += self.char_to_hex(chars.next(), node)?;
-                size = 1;
+                1
             }
             3 => {
                 bytes[1] = self.char_to_hex(chars.next(), node)?;
                 bytes[0] = self.char_to_hex(chars.next(), node)? * 16;
                 bytes[0] += self.char_to_hex(chars.next(), node)?;
-                size = 2;
+                2
             }
             4 => {
                 bytes[1] = self.char_to_hex(chars.next(), node)? * 16;
                 bytes[1] += self.char_to_hex(chars.next(), node)?;
                 bytes[0] = self.char_to_hex(chars.next(), node)? * 16;
                 bytes[0] += self.char_to_hex(chars.next(), node)?;
-                size = 2;
+                2
             }
             _ => {
                 if self.evaluate_variable(node).is_ok() {
@@ -2165,7 +2163,7 @@ impl<'a> Assembler<'a> {
                     global: false,
                 });
             }
-        }
+        };
 
         Ok(Bundle {
             bytes,
