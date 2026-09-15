@@ -17,15 +17,15 @@ libfuzzer-sys = "0.4"
 path = ".."
 
 [[bin]]
-name = "fuzz_target_parser"
-path = "fuzz_targets/fuzz_target_parser.rs"
+name = "fuzz-target-parser"
+path = "fuzz_targets/fuzz-target-parser.rs"
 test = false
 doc = false
 bench = false
 
 [[bin]]
-name = "fuzz_target_assembler"
-path = "fuzz_targets/fuzz_target_assembler.rs"
+name = "fuzz-target-assembler"
+path = "fuzz_targets/fuzz-target-assembler.rs"
 test = false
 doc = false
 bench = false

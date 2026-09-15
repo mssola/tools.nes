@@ -17,8 +17,8 @@ libfuzzer-sys = "0.4"
 path = ".."
 
 [[bin]]
-name = "fuzz_target_header"
-path = "fuzz_targets/fuzz_target_header.rs"
+name = "fuzz-target-header"
+path = "fuzz_targets/fuzz-target-header.rs"
 test = false
 doc = false
 bench = false
