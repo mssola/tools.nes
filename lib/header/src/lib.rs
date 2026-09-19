@@ -45,6 +45,7 @@ pub enum Mapper {
     BnromCombo,
     BnromOnly,
     Cnrom,
+    Fme7,
     Mmc1,
     Mmc2,
     Mmc3Acc,
@@ -69,6 +70,7 @@ impl std::fmt::Display for Mapper {
             Mapper::BnromCombo => write!(f, "BNROM / NINA-001"),
             Mapper::BnromOnly => write!(f, "BNROM"),
             Mapper::Cnrom => write!(f, "CNROM"),
+            Mapper::Fme7 => write!(f, "Sunsoft FME-7"),
             Mapper::Mmc1 => write!(f, "MMC1"),
             Mapper::Mmc2 => write!(f, "MMC2"),
             Mapper::Mmc3Acc => write!(f, "MC-ACC"),
@@ -374,6 +376,7 @@ fn get_mapper_from_id(mapper_id: usize, submapper_id: u8) -> Mapper {
             2 => Mapper::Nina001,
             _ => Mapper::Unknown(Some(34), Some(submapper_id as usize)),
         },
+        69 => Mapper::Fme7,
         _ => Mapper::Unknown(Some(mapper_id), Some(submapper_id as usize)),
     }
 }
