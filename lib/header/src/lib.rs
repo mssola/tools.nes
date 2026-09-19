@@ -57,7 +57,7 @@ pub enum Mapper {
     Mmc6,
     Nina001,
     Nrom,
-    Unknown,
+    Unknown(Option<usize>, Option<usize>),
     Unrom512,
     Uxrom,
 }
@@ -81,7 +81,17 @@ impl std::fmt::Display for Mapper {
             Mapper::Mmc6 => write!(f, "MMC6"),
             Mapper::Nina001 => write!(f, "NINA 001"),
             Mapper::Nrom => write!(f, "NROM"),
-            Mapper::Unknown => write!(f, "unknown"),
+            Mapper::Unknown(mapper, sub) => match mapper {
+                Some(mid) => match sub {
+                    Some(sid) => write!(
+                        f,
+                        "<unknown> (mapper ID: 0x{:02X} - submapper ID: 0x{:02X})",
+                        mid, sid
+                    ),
+                    None => write!(f, "<unknown> (mapper ID: 0x{:02X})", mid),
+                },
+                None => write!(f, "<unknown>"),
+            },
             Mapper::Unrom512 => write!(f, "UNROM 512"),
             Mapper::Uxrom => write!(
                 f,
@@ -334,7 +344,7 @@ fn parse_mapper(sixth: Option<&u8>, seventh: Option<&u8>, eighth: Option<&u8>) -
                 get_mapper_from_id(result as usize, 0)
             }
         }
-        None => Mapper::Unknown,
+        None => Mapper::Unknown(None, None),
     }
 }
 
@@ -351,7 +361,7 @@ fn get_mapper_from_id(mapper_id: usize, submapper_id: u8) -> Mapper {
             3 => Mapper::Mmc3Acc,
             4 => Mapper::Mmc3Nec,
             5 => Mapper::Mmc3T9552,
-            _ => Mapper::Unknown,
+            _ => Mapper::Unknown(Some(4), Some(submapper_id as usize)),
         },
         5 => Mapper::Mmc5,
         7 => Mapper::Axrom,
@@ -362,9 +372,9 @@ fn get_mapper_from_id(mapper_id: usize, submapper_id: u8) -> Mapper {
             0 => Mapper::BnromCombo,
             1 => Mapper::BnromOnly,
             2 => Mapper::Nina001,
-            _ => Mapper::Unknown,
+            _ => Mapper::Unknown(Some(34), Some(submapper_id as usize)),
         },
-        _ => Mapper::Unknown,
+        _ => Mapper::Unknown(Some(mapper_id), Some(submapper_id as usize)),
     }
 }
 
