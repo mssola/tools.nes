@@ -395,10 +395,7 @@ fn main() {
                 // Open the file and truncate it if it already exists.
                 let file = match File::create(&path) {
                     Ok(f) => f,
-                    Err(e) => {
-                        eprintln!("error: could not create '{name}.out': {e}");
-                        std::process::exit(1);
-                    }
+                    Err(e) => die(format!("could not create '{name}.out': {e}")),
                 };
 
                 // And write the contents for this segment/file with
@@ -406,13 +403,11 @@ fn main() {
                 let mut writer = BufWriter::new(file);
                 for b in &segment.bundles {
                     if let Err(e) = writer.write_all(&b.bytes[..b.size as usize]) {
-                        eprintln!("error: could not write to '{name}.out': {e}");
-                        std::process::exit(1);
+                        die(format!("could not write to '{name}.out': {e}"));
                     }
                 }
                 if let Err(e) = writer.flush() {
-                    eprintln!("error: could not write to '{name}.out': {e}");
-                    std::process::exit(1);
+                    die(format!("could not write to '{name}.out': {e}"));
                 }
             }
         }
@@ -447,12 +442,10 @@ fn main() {
 
         for b in res.bundles {
             if let Err(e) = output.write_all(&b.bytes[..b.size as usize]) {
-                eprintln!("error: could not write result in '{output_name}': {e}");
-                std::process::exit(1);
+                die(format!("could not write result in '{output_name}': {e}"));
             }
             if let Err(e) = output.flush() {
-                eprintln!("error: could not write to '{output_name}': {e}");
-                std::process::exit(1);
+                die(format!("could not write to '{output_name}': {e}"));
             }
         }
     }
