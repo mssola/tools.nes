@@ -549,3 +549,15 @@ this flag on if PRG RAM is available. If there are memory accesses to PRG RAM
 but the programmer did not advertise that on the header flag, then `nasm` will
 error out as it cannot assume that these accesses are valid. This check will
 happen regardless of the `-a/--asan` flag.
+
+## Splitting segments
+
+You can also tell `nasm` to split each segment into its own file. This can be
+nice if you are debugging the resulting binary for some specific segments, or
+you want to further manipulate them individually. For that there is the
+`--split-segments` option. Use that and then a file `<segment name>.out` will be
+created for each segment.
+
+If you want to have these files into a specific directory, you can combine this
+option with `-o/--out`. This time, `-o/--out` assumes that the given path is the
+directory where each segment file should be placed in.
