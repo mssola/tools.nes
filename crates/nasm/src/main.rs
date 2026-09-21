@@ -328,7 +328,7 @@ fn main() {
     } else if args.split {
         (BufWriter::new(Box::new(io::stdout())), "<segments>")
     } else {
-        let name = args.out.unwrap_or(String::from("out.nes"));
+        let name = args.out.clone().unwrap_or(String::from("out.nes"));
         match File::create(&name) {
             Ok(f) => (BufWriter::new(Box::new(f)), args.file.as_str()),
             Err(_) => die(format!("could not create file '{name}'")),
@@ -371,16 +371,32 @@ fn main() {
     // case we have to deliver the segments into different files, or with
     // the regular output in which everything will be dumped into 'output'.
     if args.split {
+        // Check if the files are to be saved into a particular directory.
+        let dir_name = args.out.unwrap_or(String::from("."));
+        let dir = Path::new(&dir_name);
+        if dir.exists() {
+            if !dir.is_dir() {
+                die(format!("given path '{}' is not a directory", dir_name));
+            }
+        } else {
+            if let Err(e) = std::fs::create_dir_all(dir) {
+                die(format!(
+                    "could not create output directory '{}': {}",
+                    dir_name, e
+                ));
+            }
+        }
+
         for mapping in &res.mappings {
             for segment in &mapping.segments {
                 let name = &segment.name;
-                let path = format!("{name}.out");
+                let path = dir.join(format!("{name}.out"));
 
                 // Open the file and truncate it if it already exists.
                 let file = match File::create(&path) {
                     Ok(f) => f,
                     Err(e) => {
-                        eprintln!("error: could not create '{path}': {e}");
+                        eprintln!("error: could not create '{name}.out': {e}");
                         std::process::exit(1);
                     }
                 };
@@ -390,12 +406,12 @@ fn main() {
                 let mut writer = BufWriter::new(file);
                 for b in &segment.bundles {
                     if let Err(e) = writer.write_all(&b.bytes[..b.size as usize]) {
-                        eprintln!("error: could not write to '{path}': {e}");
+                        eprintln!("error: could not write to '{name}.out': {e}");
                         std::process::exit(1);
                     }
                 }
                 if let Err(e) = writer.flush() {
-                    eprintln!("error: could not write to '{path}': {e}");
+                    eprintln!("error: could not write to '{name}.out': {e}");
                     std::process::exit(1);
                 }
             }
