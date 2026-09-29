@@ -918,7 +918,7 @@ impl<'a> Assembler<'a> {
                 negative: false,
                 safe: false,
             },
-            node: None,
+            node: Some(node.clone()),
             mapping: self.current_mapping,
             segment: self.current_segment,
             object_type,
@@ -1459,8 +1459,25 @@ impl<'a> Assembler<'a> {
                         // badly formatted addresses. This will not happen at
                         // this point.
                         let resolved = self.context.resolve_label(&self.mappings, bundle).unwrap();
-
                         let val = resolved.bundle.value() as usize;
+
+                        // If this is an address, is it pointing out of bounds?
+                        if matches!(bundle.object_type, ObjectType::Address) {
+                            let mapping = &self.mappings[resolved.mapping];
+                            let filled_mapping = mapping.start as usize + mapping.offset;
+                            if val >= filled_mapping {
+                                self.warnings.push(Error {
+                                    line: resolved.node.as_ref().unwrap().value.line,
+                                    message: format!("label '{full_name}' is pointing to out of bounds"),
+                                    source: self.sources[0].clone(),
+                                    expanded_from: self.macro_context.clone(),
+                                    global: false,
+                                });
+                            }
+                        }
+
+                        // If not, then create a range out of this object and
+                        // push the address.
                         let end = match self.address_ends.get(&full_name) {
                             Some(v) => v,
                             None => &val,

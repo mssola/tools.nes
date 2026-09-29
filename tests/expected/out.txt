@@ -1,0 +1,1 @@
+error: label 'label' is pointing to out of bounds (out.s: line 12)
