@@ -169,6 +169,11 @@ fn print_header(header: &Header) {
 
 fn print_vectors(addrs: &[u8]) {
     println!("Vectors:");
+    if addrs.is_empty() {
+        println!("  Could not retrieve information on this ROM (bad file?)");
+        return;
+    }
+
     println!(
         "  NMI:\t\t\t{:#04x}",
         u16::from_le_bytes([addrs[0], addrs[1]])
