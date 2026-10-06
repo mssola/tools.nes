@@ -642,12 +642,12 @@ fn main() {
         die(e.to_string());
     }
 
-    let buf = bytes.get(0..0x10).unwrap_or(&[]);
+    let buf = bytes.get(0..0x10).unwrap_or(&[]).to_vec();
     if buf.is_empty() {
         die("malformed ROM file".to_string());
     }
 
-    let header = match Header::try_from(buf) {
+    let header = match Header::try_from(buf.as_slice()) {
         Ok(h) => h,
         Err(e) => die(e.to_string()),
     };
@@ -677,6 +677,11 @@ fn main() {
     // Nope. Then let's just print information about it. First the header.
 
     print_header(&header);
+    print!("  Raw:\t\t\t\t[");
+    for c in buf {
+        print!(" {:02X}", c);
+    }
+    println!(" ]");
     if args.header {
         std::process::exit(0);
     }
