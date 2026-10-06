@@ -274,6 +274,15 @@ echo "test: readrom: full NMI disassembling (jetpac.nes)"
 diff tests/out/jetpac-full-nmi.txt tests/expected/readrom/jetpac-full-nmi.txt
 exit_code=$((exit_code + $?))
 
+echo "test: readrom: full NMI disassembling on MMC3 project (code.nes)"
+./target/debug/nasm -c tests/code.nes/config/mmc3.cfg --asan --write-info -o tests/out/blink.nes tests/code.nes/fx/blink.s
+./target/debug/readrom -d nmi -n tests/code.nes/.nasm/ --mmc "kind=mmc3; prg_rom_mode=0; r6=0; r7=1" tests/out/blink.nes > tests/out/blink-nmi.txt
+diff tests/out/blink-nmi.txt tests/expected/readrom/blink-nmi.txt
+exit_code=$((exit_code + $?))
+
+# Remove the .nasm/ directory that has been created for code.nes.
+rm -r tests/code.nes/.nasm
+
 # Remove the dangling jetpac.nes ROM file.
 rm tests/out/jetpac.NTSC.nes
 

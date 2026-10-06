@@ -1,0 +1,30 @@
+$E138:	24 20		bit $20 
+$E13A:	10 2A		bpl @next 
+$E13C:	48		pha 
+$E13D:	8A		txa 
+$E13E:	48		pha 
+$E13F:	98		tya 
+$E140:	48		pha 
+$E141:	E6 00		inc Vars::zp_counter 
+$E143:	20 8B C0	jsr Diskun::nmi_update 
+$E146:	A9 00		lda #$00 
+$E148:	8D 03 20	sta $2003 
+$E14B:	A9 02		lda #$02 
+$E14D:	8D 14 40	sta $4014 
+$E150:	2C 02 20	bit $2002 
+$E153:	A9 00		lda #$00 
+$E155:	8D 05 20	sta $2005 
+$E158:	8D 05 20	sta $2005 
+$E15B:	A9 7F		lda #$7F 
+$E15D:	25 20		and $20 
+$E15F:	85 20		sta $20 
+$E161:	68		pla 
+$E162:	A8		tay 
+$E163:	68		pla 
+$E164:	AA		tax 
+$E165:	68		pla 
+
+  @next:
+$E166:	40		rti 
+
+  irq:

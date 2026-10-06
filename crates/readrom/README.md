@@ -134,3 +134,68 @@ $ readrom -d nmi -n .nasm/ --raw jetpac.NTSC.nes | hexdump -C
 000000b0  02 20 a9 00 8d 05 20 8d  05 20 20 1d 8b a9 7f 25  |. .... ..  ....%|
 000000c0  20 85 20 68 a8 68 aa 68  40                       | . h.h.h@|
 ```
+
+## Support for Memory Mapper Chips
+
+All of the above is fine but it only applies safely to NROM. That is, whenever
+the cartridge fits neatly on the basic 40KB size. But if the cartridge goes
+beyond that thanks to a Memory Mapper Chip, then it will happen that the code
+references addresses which might be from different banks of memory.
+
+For now, only [MMC3](https://www.nesdev.org/wiki/MMC3) is supported, and in
+order for things to work you have to provide the `--mmc` flag, which accepts a
+string with the following format: `kind=mmc3; prg_rom_mode=<0|1>; r6=<int>;
+r7=<int>`. That is, you need to specify:
+
+- How banks are going to be mapped via the `prg_rom_mode` bit.
+- The values for the registers `r6` and `r7`.
+
+With all of this, you can take
+[fx/blink.s](https://git.mssola.com/nes/code.nes/tree/fx/blink.s) and build it
+like so:
+
+```
+$ nasm -c config/mmc3.cfg --asan --write-info -o blink.nes fx/blink.s
+```
+
+And then, if you'd like to disassemble the `nmi` handler, you have to:
+
+- Provide the path to the `.nasm/` directory as before.
+- Set `prg_rom_mode` to 0, as that's the setting for this game.
+- Set `r6` to 0 and `r7` to 1, as that's what the game is expecting.
+
+Then:
+
+```
+$ readrom -d nmi -n .nasm/ --mmc "kind=mmc3; prg_rom_mode=0; r6=0; r7=1" blink.nes
+$E138:	24 20		bit $20
+$E13A:	10 2A		bpl @next
+$E13C:	48		pha
+$E13D:	8A		txa
+$E13E:	48		pha
+$E13F:	98		tya
+$E140:	48		pha
+$E141:	E6 00		inc Vars::zp_counter
+$E143:	20 8B C0	jsr Diskun::nmi_update
+$E146:	A9 00		lda #$00
+$E148:	8D 03 20	sta $2003
+$E14B:	A9 02		lda #$02
+$E14D:	8D 14 40	sta $4014
+$E150:	2C 02 20	bit $2002
+$E153:	A9 00		lda #$00
+$E155:	8D 05 20	sta $2005
+$E158:	8D 05 20	sta $2005
+$E15B:	A9 7F		lda #$7F
+$E15D:	25 20		and $20
+$E15F:	85 20		sta $20
+$E161:	68		pla
+$E162:	A8		tay
+$E163:	68		pla
+$E164:	AA		tax
+$E165:	68		pla
+
+  @next:
+$E166:	40		rti
+
+  irq:
+```

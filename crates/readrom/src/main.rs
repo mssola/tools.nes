@@ -9,6 +9,18 @@ use xixanta::opcodes::OPCODES;
 /// Version for this program.
 const VERSION: &str = "0.1.0";
 
+// Required configuration for the MMC3 chip.
+struct Mmc3 {
+    prg_rom_mode: bool,
+    r6: usize,
+    r7: usize,
+}
+
+// Accepted parameters for the '--mmc' flag.
+enum MemoryMapperChip {
+    Mmc3(Mmc3),
+}
+
 #[derive(Default)]
 struct Args {
     file: String,
@@ -18,6 +30,7 @@ struct Args {
     mapping: Option<String>,
     nasm: Option<PathBuf>,
     raw: bool,
+    mmc: Option<MemoryMapperChip>,
     config: Option<String>,
 }
 
@@ -33,10 +46,44 @@ fn print_help() {
     println!("  -h, --help\t\t\tPrint this message.");
     println!("  -H, --header\t\t\tJust print the ROM header and quit.");
     println!("  -m, --mapping <NAME>\t\tDisassemble the mapped segments as referenced by NAME.");
+    println!("  --mmc <CONFIG>\t\tProvide the configuration for a memory mapper chip.");
     println!("  -n, --nasm <PATH>\t\tPath to the .nasm/ directory.");
     println!("  -r, --raw\t\t\tPrint bytes with no formatting at all when disassembling.");
     println!("  -v, --version\t\t\tPrint the version of this program.");
     std::process::exit(0);
+}
+
+// Given an option line, parse it in order to fetch the configuration for a
+// memory mapper chip. If something goes wrong, it will simply call die().
+fn parse_mmc(line: &str) -> MemoryMapperChip {
+    let map: HashMap<String, String> = line
+        .split(';')
+        .filter_map(|pair| pair.split_once('='))
+        .map(|(k, v)| (k.trim().to_lowercase(), v.trim().to_lowercase()))
+        .collect();
+
+    match map.get("kind").map(|s| s.as_str()) {
+        Some("mmc3") => {
+            let parse_field = |key: &str| -> usize {
+                map.get(key)
+                    .unwrap_or_else(|| {
+                        die(format!("missing required field '{key}' in '--mmc' flag"))
+                    })
+                    .parse::<usize>()
+                    .unwrap_or_else(|_| die(format!("invalid integer for '{key}' in '--mmc' flag")))
+            };
+
+            MemoryMapperChip::Mmc3(Mmc3 {
+                prg_rom_mode: parse_field("prg_rom_mode") == 1,
+                r6: parse_field("r6"),
+                r7: parse_field("r7"),
+            })
+        }
+        Some(mmc) => die(format!(
+            "unknown memory mapper kind '{mmc}' in the '--mmc' flag"
+        )),
+        None => die("you need to specify the 'kind' in the '--mmc' flag".to_string()),
+    }
 }
 
 // Parse the arguments given to the program and returns an Args object with the
@@ -73,6 +120,10 @@ fn parse_arguments() -> Args {
                 None => {
                     die("you need to specify an address for the '-m/--mapping' flag".to_string())
                 }
+            },
+            "--mmc" => match args.next() {
+                Some(c) => res.mmc = Some(parse_mmc(&c)),
+                None => die("you need to specify a configuration for the '--mmc' flag".to_string()),
             },
             "-n" | "--nasm" => match args.next() {
                 Some(a) => {
@@ -212,11 +263,9 @@ fn print_range(
 ) -> Result<(), String> {
     // Put a lower and upper bounds to the bytes to be used for printing.
 
-    // NOTE: minus 0x8000 to account for non-ROM address, plus 0x10 to skip the
-    // header from the file.
+    // NOTE: minus 0x8000 to account for non-ROM address.
     let range_start = start
         .checked_sub(0x8000)
-        .map(|val| val + 0x10)
         .ok_or_else(|| format!("bad start address {:#x}", start))?;
 
     // The 'end' of the range depends on whether the user is just printing a
@@ -225,7 +274,6 @@ fn print_range(
         Some(e) => {
             let range_end = e
                 .checked_sub(0x8000)
-                .map(|val| val + 0x10)
                 .ok_or_else(|| format!("bad end address {:#x}", e))?;
             bytes.get(range_start..range_end).unwrap_or(&[])
         }
@@ -535,6 +583,53 @@ fn handle_disassembling_args(args: &Args, bytes: &[u8]) -> Result<bool, String> 
     Ok(false)
 }
 
+// Returns the same 'bytes' but reconstructed so it fits into the banking
+// configuration established in 'mmc'.
+fn reconstruct_from_mmc3(header: &Header, mmc: &Mmc3, bytes: &[u8]) -> Result<Vec<u8>, String> {
+    // We first grab the bytes for PRG ROM.
+    let rom_size = header.prg_rom_size * 16 * 1024;
+    let prg_rom = bytes.get(0x10..(rom_size + 0x10)).unwrap_or(&[]);
+    if prg_rom.is_empty() {
+        return Err("malformed ROM file: PRG ROM is empty".to_string());
+    }
+
+    // We split the PRG ROM into 8KB chunks, which are the base unit for PRG ROM
+    // bank switching. If PRG ROM cannot be divided into these chunks, there's
+    // something off with the ROM file.
+    let (chunks, remainder) = prg_rom.as_chunks::<{ 8 * 1024 }>();
+    if !remainder.is_empty() {
+        return Err("malformed ROM file: PRG ROM size is not a multiple of 8KB".to_string());
+    }
+
+    // Pair each chunk with the proper identifier.
+    let bank_r6 = *chunks.get(mmc.r6).ok_or("mmc3: invalid R6 bank index")?;
+    let bank_r7 = *chunks.get(mmc.r7).ok_or("mmc3: invalid R7 bank index")?;
+    let bank_second_last = *chunks
+        .get(chunks.len().saturating_sub(2))
+        .ok_or("mmc3: PRG ROM too small")?;
+    let bank_last = *chunks
+        .get(chunks.len().saturating_sub(1))
+        .ok_or("mmc3: PRG ROM too small")?;
+
+    // And then, according to the established PRG ROM mode, let's sort each
+    // register as expected by the MMC3 chip and push it into the vector we end
+    // up returning.
+    let mut ret = Vec::with_capacity(rom_size);
+    if mmc.prg_rom_mode {
+        ret.extend_from_slice(&bank_second_last);
+        ret.extend_from_slice(&bank_r7);
+        ret.extend_from_slice(&bank_r6);
+        ret.extend_from_slice(&bank_last);
+    } else {
+        ret.extend_from_slice(&bank_r6);
+        ret.extend_from_slice(&bank_r7);
+        ret.extend_from_slice(&bank_second_last);
+        ret.extend_from_slice(&bank_last);
+    }
+
+    Ok(ret)
+}
+
 fn main() {
     let args = parse_arguments();
 
@@ -546,6 +641,28 @@ fn main() {
     if let Err(e) = input.read_to_end(&mut bytes) {
         die(e.to_string());
     }
+
+    let buf = bytes.get(0..0x10).unwrap_or(&[]);
+    if buf.is_empty() {
+        die("malformed ROM file".to_string());
+    }
+
+    let header = match Header::try_from(buf) {
+        Ok(h) => h,
+        Err(e) => die(e.to_string()),
+    };
+
+    // If the ROM file is using a special mapper (e.g. MMC3), it may provide a
+    // memory mapper chip configuration. If that's the case, then 'bytes' might
+    // need to be re-constructed with the given mapper configuration. Otherwise,
+    // we remove the header part from the ROM, as it's no longer needed.
+    bytes = match &args.mmc {
+        Some(MemoryMapperChip::Mmc3(m)) => match reconstruct_from_mmc3(&header, m, &bytes) {
+            Ok(b) => b,
+            Err(e) => die(e),
+        },
+        None => bytes.get(0x10..).unwrap_or(&[]).to_vec(),
+    };
 
     // Check whether the user wanted to disassemble something.
     match handle_disassembling_args(&args, &bytes) {
@@ -559,24 +676,13 @@ fn main() {
 
     // Nope. Then let's just print information about it. First the header.
 
-    let buf = bytes.get(0..0x10).unwrap_or(&[]);
-    if buf.is_empty() {
-        die("malformed ROM file".to_string());
-    }
-
-    let header = match Header::try_from(buf) {
-        Ok(h) => h,
-        Err(e) => die(e.to_string()),
-    };
     print_header(&header);
-
     if args.header {
         std::process::exit(0);
     }
 
     // Vectors.
 
-    let rom_size = header.prg_rom_size * 16 * 1024;
-    let vectors = &bytes.get(0x10 + rom_size - 6..).unwrap_or(&[]);
+    let vectors = &bytes.get(0x7FFA..).unwrap_or(&[]);
     print_vectors(vectors);
 }
