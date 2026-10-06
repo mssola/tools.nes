@@ -154,6 +154,21 @@ exit_code=$((exit_code + $?))
 diff tests/out/out.nes tests/expected/out.nes
 exit_code=$((exit_code + $?))
 
+echo "test: custom => conditionally_include.nes"
+# No DEBUG
+./target/debug/nasm -c empty -Werror --asan -o tests/out/conditionally_include.nes tests/conditionally_include.s 2> tests/out/conditionally_include.txt
+diff tests/out/conditionally_include.txt tests/expected/conditionally_include.txt
+exit_code=$((exit_code + $?))
+diff tests/out/conditionally_include.nes tests/expected/conditionally_include.nes
+exit_code=$((exit_code + $?))
+
+# With DEBUG
+./target/debug/nasm -c empty -Werror --asan -o tests/out/conditionally_include_debug.nes -D DEBUG=1 tests/conditionally_include.s 2> tests/out/conditionally_include_debug.txt
+diff tests/out/conditionally_include_debug.txt tests/expected/conditionally_include_debug.txt
+exit_code=$((exit_code + $?))
+diff tests/out/conditionally_include_debug.nes tests/expected/conditionally_include_debug.nes
+exit_code=$((exit_code + $?))
+
 ##
 # code.nes
 
