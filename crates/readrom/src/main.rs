@@ -457,10 +457,12 @@ fn do_disassemble(
     }
 
     // If this is just a numeric value, take it as is.
-    if let Some(address) = address
-        && let Some(start) = parse_hex_value(address)
-    {
-        return print_range(bytes, start, None, memories, addresses, raw, None);
+    if let Some(address) = address {
+        let (start_addr, end_addr) = address.split_once('-').unwrap_or((address, ""));
+        if let Some(start) = parse_hex_value(start_addr) {
+            let end = parse_hex_value(end_addr);
+            return print_range(bytes, start, end, memories, addresses, raw, None);
+        }
     }
 
     // Otherwise, print the full range if possible.

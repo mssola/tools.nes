@@ -31,7 +31,19 @@ $A2F8:	24 20		bit $20
 
 Note that hexadecimal values can also be formatted like this `0xa2fb` or simply
 `a2fb`, whatever feels more convenient to use. In any case, they should be
-written as a 16-bit address.
+written as a 16-bit address. This flag also accepts ranges. Hence, we can also
+try the following:
+
+```
+$ readrom -d '$a2f8-$a300' jetpac.NTSC.nes
+# => output
+$A2F8:	24 20		bit $20
+$A2FA:	30 01		bmi $01
+$A2FC:	40		rti
+$A2FD:	48		pha
+$A2FE:	8A		txa
+$A2FF:	48		pha
+```
 
 All of that being said, poking for addresses can be tedious. That's why you can
 also pass names that you already know. For that, you will need to also pass the
@@ -168,6 +180,7 @@ Then:
 
 ```
 $ readrom -d nmi -n .nasm/ --mmc "kind=mmc3; prg_rom_mode=0; r6=0; r7=1" blink.nes
+# => output
 $E138:	24 20		bit $20
 $E13A:	10 2A		bpl @next
 $E13C:	48		pha
