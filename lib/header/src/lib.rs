@@ -146,6 +146,48 @@ impl std::fmt::Display for Timing {
     }
 }
 
+/// The default expansion device available on the NES 2.0 header.
+#[derive(Debug)]
+pub enum DefaultExpansionDevice {
+    Unknown,
+    StandardControllers,
+    FourScoreSatellite,
+    FamicomFourPlayersAdapter,
+    VsSystem4016,
+    VsSystem4017,
+    VsZapper,
+    Zapper,
+    TwoZappers,
+    PowerPadA,
+    PowerPadB,
+}
+
+impl std::fmt::Display for DefaultExpansionDevice {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Unknown => write!(f, "Unknown"),
+            Self::StandardControllers => write!(f, "Standard NES/Famicom controllers"),
+            Self::FourScoreSatellite => write!(
+                f,
+                "NES Four Score/Satellite with two additional standard controllers"
+            ),
+            Self::FamicomFourPlayersAdapter => {
+                write!(
+                    f,
+                    "Famicom Four Players Adapter with two additional standard controllers using the \"simple\" protocol"
+                )
+            }
+            Self::VsSystem4016 => write!(f, "Vs. System (1P via $4016)"),
+            Self::VsSystem4017 => write!(f, "Vs. System (1P via $4017)"),
+            Self::VsZapper => write!(f, "Vs. Zapper"),
+            Self::Zapper => write!(f, "Zapper ($4017)"),
+            Self::TwoZappers => write!(f, "Two Zappers"),
+            Self::PowerPadA => write!(f, "Power Pad Side A"),
+            Self::PowerPadB => write!(f, "Power Pad Side B"),
+        }
+    }
+}
+
 /// Information that has been parsed from an NES/Famicom ROM header. The
 /// `Header` struct implements the `TryFrom` trait. Hence, use
 /// `Header::try_from` in order to parse a header.
@@ -190,6 +232,10 @@ pub struct Header {
 
     /// The kind of the header.
     pub kind: Kind,
+
+    /// The default expansion device that can be specified in the NES 2.0
+    /// header. Used to specify the default way to experience a game.
+    pub default_expansion_device: Option<DefaultExpansionDevice>,
 }
 
 impl TryFrom<&[u8]> for Header {
@@ -219,8 +265,30 @@ impl TryFrom<&[u8]> for Header {
             prg_ram_definition: parse_ram_definition(&kind, bytes.get(10), has_persistent_memory),
             chr_ram_definition: parse_ram_definition(&kind, bytes.get(11), has_persistent_memory),
             timing: parse_timing(&kind, bytes.get(12)),
+            default_expansion_device: if matches!(kind, Kind::Nes20) {
+                Some(parse_default_expansion_device(bytes.get(15).unwrap_or(&0)))
+            } else {
+                None
+            },
             kind,
         })
+    }
+}
+
+// Returns the DefaultExpansionDevice for the given byte value.
+fn parse_default_expansion_device(byte: &u8) -> DefaultExpansionDevice {
+    match byte {
+        1 => DefaultExpansionDevice::StandardControllers,
+        2 => DefaultExpansionDevice::FourScoreSatellite,
+        3 => DefaultExpansionDevice::FamicomFourPlayersAdapter,
+        4 => DefaultExpansionDevice::VsSystem4016,
+        5 => DefaultExpansionDevice::VsSystem4017,
+        7 => DefaultExpansionDevice::VsZapper,
+        8 => DefaultExpansionDevice::Zapper,
+        9 => DefaultExpansionDevice::TwoZappers,
+        11 => DefaultExpansionDevice::PowerPadA,
+        12 => DefaultExpansionDevice::PowerPadB,
+        _ => DefaultExpansionDevice::Unknown,
     }
 }
 

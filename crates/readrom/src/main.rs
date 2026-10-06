@@ -175,47 +175,50 @@ fn print_header(header: &Header) {
     println!("Header:");
 
     match header.kind {
-        Kind::INes => println!("  Kind:\t\t\tiNES"),
-        Kind::Nes20 => println!("  Kind:\t\t\tNES 2.0"),
+        Kind::INes => println!("  Kind:\t\t\t\tiNES"),
+        Kind::Nes20 => println!("  Kind:\t\t\t\tNES 2.0"),
     }
 
     println!(
-        "  PRG ROM size:\t\t{} bytes ({}KB)",
+        "  PRG ROM size:\t\t\t{} bytes ({}KB)",
         header.prg_rom_size * 16 * 1024,
         header.prg_rom_size * 16
     );
     println!(
-        "  CHR ROM size:\t\t{} bytes ({}KB)",
+        "  CHR ROM size:\t\t\t{} bytes ({}KB)",
         header.chr_rom_size * 8 * 1024,
         header.chr_rom_size * 8
     );
 
     if let Some(def) = &header.prg_ram_definition {
         println!(
-            "  PRG-RAM size:\t\t{} bytes ({}KB); {}",
+            "  PRG-RAM size:\t\t\t{} bytes ({}KB); {}",
             def.size,
             def.size / 1024,
             def.kind
         );
     } else if header.has_persistent_memory {
-        println!("  PRG-RAM size:\t\t8192 bytes (8KB)");
+        println!("  PRG-RAM size:\t\t\t8192 bytes (8KB)");
     }
 
     if let Some(def) = &header.chr_ram_definition {
         println!(
-            "  CHR-RAM size:\t\t{} bytes ({}KB); {}",
+            "  CHR-RAM size:\t\t\t{} bytes ({}KB); {}",
             def.size,
             def.size / 1024,
             def.kind
         );
     }
 
-    println!("  Mapper:\t\t{}", header.mapper);
+    println!("  Mapper:\t\t\t{}", header.mapper);
     println!(
-        "  Mirroring:\t\t{}",
+        "  Mirroring:\t\t\t{}",
         capitalize(header.nametable_arrangement.mirroring())
     );
-    println!("  CPU/PPU timing:\t{}", header.timing);
+    println!("  CPU/PPU timing:\t\t{}", header.timing);
+    if let Some(ded) = header.default_expansion_device.as_ref() {
+        println!("  Default Expansion Device:\t{}", ded);
+    }
 }
 
 fn print_vectors(addrs: &[u8]) {
@@ -226,15 +229,15 @@ fn print_vectors(addrs: &[u8]) {
     }
 
     println!(
-        "  NMI:\t\t\t{:#04x}",
+        "  NMI:\t\t\t\t{:#04x}",
         u16::from_le_bytes([addrs[0], addrs[1]])
     );
     println!(
-        "  Reset:\t\t{:#04x}",
+        "  Reset:\t\t\t{:#04x}",
         u16::from_le_bytes([addrs[2], addrs[3]])
     );
     println!(
-        "  IRQ:\t\t\t{:#04x}",
+        "  IRQ:\t\t\t\t{:#04x}",
         u16::from_le_bytes([addrs[4], addrs[5]])
     );
 }
