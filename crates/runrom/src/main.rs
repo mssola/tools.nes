@@ -25,7 +25,7 @@ fn print_help() {
     println!("usage: runrom [OPTIONS] <FILE>\n");
     println!("Options:");
     println!(
-        "  -c, --cycle-limit\t\tSet the limit for how many cycles can be spent. See the allowed values below."
+        "  -c, --cycle-limit <VALUE>\tSet the limit for how many cycles can be spent. See below for the allowed VALUEs."
     );
     println!("  -d, --dump-memory\t\tShow the memory that has changed after a run.");
     println!("  -f, --function\t\tRun the code by assuming it's a function.");
