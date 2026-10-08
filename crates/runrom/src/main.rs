@@ -328,10 +328,17 @@ fn run(
                     title = true;
                 }
 
-                println!(
-                    "[${:X}] = ${:02X} [reads={}, writes={}]",
-                    idx, cell.value, cell.reads, cell.writes
-                );
+                if idx > 0xFF {
+                    println!(
+                        "[${:04X}] = ${:02X} [reads={}, writes={}]",
+                        idx, cell.value, cell.reads, cell.writes
+                    );
+                } else {
+                    println!(
+                        "  [${:02X}] = ${:02X} [reads={}, writes={}]",
+                        idx, cell.value, cell.reads, cell.writes
+                    );
+                }
             }
         }
     }

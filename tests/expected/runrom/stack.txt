@@ -35,10 +35,10 @@ rts		PC: $8003, cycles: 72, registers: [a: $00, x: $00, y: $00, sp: $FD], status
 
 == Memory dump ==
 
-[$2F7] = $36 [reads=1, writes=1]
-[$2F8] = $00 [reads=1, writes=1]
-[$2F9] = $00 [reads=1, writes=1]
-[$2FA] = $00 [reads=1, writes=1]
-[$2FB] = $34 [reads=1, writes=1]
-[$2FC] = $02 [reads=1, writes=1]
-[$2FD] = $80 [reads=1, writes=1]
+[$02F7] = $36 [reads=1, writes=1]
+[$02F8] = $00 [reads=1, writes=1]
+[$02F9] = $00 [reads=1, writes=1]
+[$02FA] = $00 [reads=1, writes=1]
+[$02FB] = $34 [reads=1, writes=1]
+[$02FC] = $02 [reads=1, writes=1]
+[$02FD] = $80 [reads=1, writes=1]

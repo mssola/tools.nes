@@ -521,5 +521,5 @@ rts		PC: $8004, cycles: 1306, registers: [a: $00, x: $00, y: $00, sp: $FD], stat
 
 == Memory dump ==
 
-[$2FC] = $02 [reads=1, writes=1]
-[$2FD] = $80 [reads=1, writes=1]
+[$02FC] = $02 [reads=1, writes=1]
+[$02FD] = $80 [reads=1, writes=1]

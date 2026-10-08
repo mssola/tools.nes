@@ -15,4 +15,4 @@ rts		PC: $8017, cycles: 44, registers: [a: $FF, x: $00, y: $00, sp: $FD], status
 
 == Memory dump ==
 
-[$0] = $01 [reads=6, writes=2]
+  [$00] = $01 [reads=6, writes=2]
