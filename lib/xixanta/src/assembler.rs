@@ -199,6 +199,14 @@ struct Assembler<'a> {
     // (e.g. a proc's name), the address which can be used as the 'end' for a
     // Range object.
     address_ends: HashMap<String, usize>,
+
+    // Map that identifies the tentative end for a set of raw data indexed at a
+    // given simple label. This is different than 'address_ends' as the computed
+    // 'end' of the range is not guaranteed (i.e. there's no closing
+    // '.endproc'), and the given integer could not be computed via addresses,
+    // but as a difference of "offsets". Thus, the value for each key is
+    // actually the distance in bytes from the start to the end.
+    hinted_ends: HashMap<String, usize>,
 }
 
 /// The result to be given at the end of `assembler::assemble` and
@@ -490,6 +498,7 @@ impl<'a> Assembler<'a> {
             last_proc: String::new(),
             last_address: None,
             address_ends: HashMap::new(),
+            hinted_ends: HashMap::new(),
         }
     }
 
@@ -900,14 +909,15 @@ impl<'a> Assembler<'a> {
     // 'node' and taking 'object_type' as its type, unless the node value is
     // empty (i.e. anonymous label). In either case, the computed label will be
     // pushed into the context's list of known labels with the current segment
-    // offset.
+    // offset. On success, it returns the offset that has been applied.
     fn apply_segment_offset_to_label(
         &mut self,
         node: &PNode,
         object_type: ObjectType,
-    ) -> Result<(), Error> {
+    ) -> Result<usize, Error> {
         let segment = &self.mappings[self.current_mapping].segments[self.current_segment];
-        let value = segment.offset.to_le_bytes();
+        let offset = segment.offset;
+        let value = offset.to_le_bytes();
         let object = Object {
             bundle: Bundle {
                 bytes: [value[0], value[1], value[2]],
@@ -945,12 +955,18 @@ impl<'a> Assembler<'a> {
         }
         self.context.add_label(&object);
 
-        Ok(())
+        Ok(offset)
     }
 
     fn bundle(&mut self, nodes: &'a [PNode]) -> Result<(), Vec<Error>> {
         let mut errors = Vec::new();
         let mut next_ignore = false;
+
+        // Variables for hinting at the end of data that is being indexed by a
+        // raw 'ObjectType::Address'.
+        let mut byte_seen = false;
+        let mut offset: Option<usize> = None;
+        let mut last_label = String::from("");
 
         self.stage = Stage::Bundling;
 
@@ -959,12 +975,27 @@ impl<'a> Assembler<'a> {
 
             match &node.node_type {
                 // Initialize the label to the offset address of the current
-                // segment. Note that this is only the offset from the beginning
-                // of the offset, the effective address will only be available
-                // after calling `Context::get_variable`
+                // segment. Note that this is only from the beginning of the
+                // offset, the effective address will only be available after
+                // calling `Context::get_variable`
                 NodeType::Label(_) => {
-                    if let Err(e) = self.apply_segment_offset_to_label(node, ObjectType::Address) {
-                        errors.push(e);
+                    match self.apply_segment_offset_to_label(node, ObjectType::Address) {
+                        Ok(o) => {
+                            // On success, grab the offset and the full name for
+                            // this label. This will be used on the hinting of
+                            // the end of the data that this address might be
+                            // pointing at.
+                            let context_name = self.context.name();
+                            let name = node.value.value.clone();
+                            last_label = if context_name == GLOBAL_CONTEXT {
+                                name.clone()
+                            } else {
+                                format!("{context_name}::{}", name)
+                            };
+                            offset = Some(o);
+                            byte_seen = true;
+                        }
+                        Err(e) => errors.push(e),
                     }
                 }
                 // Same as with labels but with the addition that ".proc"
@@ -1040,6 +1071,12 @@ impl<'a> Assembler<'a> {
                     // On control statements which modify the context, there are
                     // some further evaluating to do.
                     match control_type {
+                        ControlType::Byte => {
+                            byte_seen = true;
+                        }
+                        ControlType::Addr | ControlType::Word | ControlType::BigEndianWord => {
+                            byte_seen = true;
+                        }
                         ControlType::Echo(t) => self.evaluate_echo(node, t)?,
                         ControlType::StartRepeat => {
                             self.evaluate_repeat_statement(node)?;
@@ -1108,6 +1145,42 @@ impl<'a> Assembler<'a> {
                     });
                 }
                 _ => {}
+            }
+
+            // If a ".byte/.word"-like statement has been found, do nothing with
+            // the offset detection and just turn it off so the next iteration
+            // might need to set it again in case there are more
+            // ".byte/.word"-like statements.
+            if byte_seen {
+                byte_seen = false;
+            } else if let Some(off) = offset {
+                // A ".byte/.word"-like statement has not been found, and we had
+                // a previous raw label. Hence, we are at the scenario in which
+                // we hint to a tentative "end" offset for a bunch of indexed
+                // data.
+
+                // The 'hinted_ends' structure only wants an offset delta
+                // between the start and the end of the data. Thus, subtract the
+                // current segment's offset with the 'off' start one. There are
+                // two things to note:
+                //
+                //  1. If this is the first thing right after the label, then
+                //     the offset delta might just be zero. Skip this case.
+                //  2. Unless this is the last statement, we are at the
+                //     "next" instruction. Hence, subtract its size to this
+                //     delta as well.
+                let segment = &self.mappings[self.current_mapping].segments[self.current_segment];
+                if segment.offset > off {
+                    let mut res = segment.offset - off;
+                    if let Some(bundle) = segment.bundles.last() {
+                        res -= bundle.size as usize;
+                    }
+                    self.hinted_ends.insert(last_label, res);
+                }
+
+                // And reset the variables involved in this mechanism.
+                offset = None;
+                last_label = String::from("");
             }
 
             // Keep 'self.asan_next_safe' to false if possible.
@@ -1480,7 +1553,16 @@ impl<'a> Assembler<'a> {
                         // push the address.
                         let end = match self.address_ends.get(&full_name) {
                             Some(v) => v,
-                            None => &val,
+                            None => {
+                                // If this is not a clearly defined block of
+                                // code, it might be raw data indexed by a
+                                // label. Try to fetch it from the 'hinted_ends'
+                                // structure, which holds just an offset.
+                                &match self.hinted_ends.get(&full_name) {
+                                    Some(offset) => val + offset,
+                                    None => val,
+                                }
+                            },
                         };
                         let range = Range {
                             range: (val..*end),
