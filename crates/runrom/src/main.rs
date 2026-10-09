@@ -364,17 +364,8 @@ fn fetch_memory_addresses(nasm: Option<PathBuf>) -> Result<(Vec<Range>, Option<u
     Ok((memories, stack))
 }
 
-fn run(
-    file: &Path,
-    start: u16,
-    end: u16,
-    assume_function: bool,
-    halt_on_brk: bool,
-    cycle_limit: Option<usize>,
-    nasm: Option<PathBuf>,
-    dump_memory: bool,
-) -> Result<(), String> {
-    let (addresses, stack) = fetch_memory_addresses(nasm)?;
+fn run(file: &Path, start: u16, args: Args) -> Result<(), String> {
+    let (addresses, stack) = fetch_memory_addresses(args.nasm)?;
 
     let mut policy = MemoryPolicy::default();
     if let Some(stack) = stack {
@@ -383,14 +374,14 @@ fn run(
 
     let mut machine = Machine::from(file, start, policy)?;
     machine.verbose = true;
-    machine.run_function_mode = assume_function;
-    machine.halt_on_brk = halt_on_brk;
-    machine.cycle_limit = cycle_limit;
+    machine.run_function_mode = args.assume_function;
+    machine.halt_on_brk = args.halt_on_brk;
+    machine.cycle_limit = args.cycle_limit;
     machine.addresses = addresses;
 
-    machine.until_address(end)?;
+    machine.until_address(args.until_address)?;
 
-    if dump_memory {
+    if args.dump_memory {
         let mut title = false;
 
         for (idx, cell) in machine.ram.iter().enumerate() {
@@ -426,16 +417,7 @@ fn main() {
     };
     let file = PathBuf::from(args.file.clone());
 
-    match run(
-        &file,
-        start,
-        args.until_address,
-        args.assume_function,
-        args.halt_on_brk,
-        args.cycle_limit,
-        args.nasm,
-        args.dump_memory,
-    ) {
+    match run(&file, start, args) {
         Ok(m) => m,
         Err(e) => {
             die(e);
