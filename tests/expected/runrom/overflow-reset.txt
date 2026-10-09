@@ -1,0 +1,8 @@
+<start>		PC: $8000, cycles: 7, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----I--
+ldx #$00	PC: $8002, cycles: 9, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----IZ-
+lda $00, x	PC: $8004, cycles: 13, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----IZ-
+dex		PC: $8005, cycles: 15, registers: [a: $00, x: $FF, y: $00, sp: $FD], status: ----I--
+
+@:
+lda $00, x	PC: $8005, cycles: 15, registers: [a: $00, x: $FF, y: $00, sp: $FD], status: ----I--
+error: out of bounds: indexed access to $00FF falls out of 'zp_buffer' ($00-$10; bounded inclusively below and exclusively above)

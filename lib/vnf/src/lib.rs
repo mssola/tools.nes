@@ -400,6 +400,11 @@ pub struct Machine {
     /// The maximum amount of cycles that the machine should reach before
     /// halting.
     pub cycle_limit: Option<usize>,
+
+    /// List of addresses for which we have information on their upper and lower
+    /// bounds. This is used to detect overflows/underflows and any kind of bad
+    /// indexed access.
+    pub addresses: Vec<xixanta::assembler::Range>,
 }
 
 // On success, returns a vector of MemoryCell representing the RAM for a
@@ -516,6 +521,7 @@ impl Machine {
             joypads: [Joypad::default(), Joypad::default()],
             halt_on_brk: true,
             cycle_limit: None,
+            addresses: vec![],
         })
     }
 
@@ -768,7 +774,13 @@ impl Machine {
     /// Run until the program counter reaches the given 'address'.
     pub fn until_address(&mut self, address: u16) -> Result<(), String> {
         while self.pc != address as usize && self.active {
-            self.next_iteration()?;
+            if let Err(e) = self.next_iteration() {
+                if self.verbose {
+                    println!("\n@:");
+                    self.report();
+                }
+                return Err(e);
+            }
         }
 
         Ok(())
@@ -833,7 +845,7 @@ impl Machine {
 
         // And update the stack pointer if possible.
         self.s -= 1;
-        if self.s == self.policy.minimum_stack_value {
+        if self.s < self.policy.minimum_stack_value {
             return Err("stack underflow!".to_string());
         }
 
@@ -1422,6 +1434,51 @@ impl Machine {
         Ok(byte)
     }
 
+    // Given an address, try to fetch its range as it may appear in
+    // 'self.addresses'. This function will make a best effort to pick a Range
+    // if two or more appear to overlap.
+    fn fetch_address_range(&mut self, address: usize) -> Option<&xixanta::assembler::Range> {
+        let mut ret: Option<&xixanta::assembler::Range> = None;
+
+        for mr in &self.addresses {
+            if mr.range.contains(&address) {
+                if let Some(existing) = ret {
+                    // If there is already a range that was picked, discard
+                    // whichever is furthest from the start. Typically this
+                    // happens in subroutines with data labels within it. In
+                    // this case both the subroutine and the data label will
+                    // overlap, but if the address is closest to the data label,
+                    // then we can safely assume that it's the data label being
+                    // referenced.
+                    if existing.range.start > mr.range.start {
+                        continue;
+                    }
+                }
+                ret = Some(mr);
+            }
+        }
+        ret
+    }
+
+    // Returns the address pointed by the current instruction's value plus the
+    // given index while making sure that the final address does not reach out
+    // of bounds if it's a known address range.
+    fn safe_indexed_address(&mut self, index: usize) -> Result<usize, String> {
+        let base = self.current_instruction.value();
+        let target = base + index;
+
+        if let Some(range) = self.fetch_address_range(base)
+            && !range.range.contains(&target)
+        {
+            return Err(format!(
+                "out of bounds: indexed access to ${:04X} falls out of '{}' \
+                     (${:02X}-${:02X}; bounded inclusively below and exclusively above)",
+                target, range.name, range.range.start, range.range.end
+            ));
+        }
+        Ok(target)
+    }
+
     // Returns the effective address which the current instruction is
     // targetting.
     fn target_address(&mut self) -> Result<usize, String> {
@@ -1430,10 +1487,10 @@ impl Machine {
                 Ok(self.current_instruction.value())
             }
             AddressingMode::ZeropageIndexedX | AddressingMode::IndexedX => {
-                Ok(self.current_instruction.value() + self.x as usize)
+                self.safe_indexed_address(self.x as usize)
             }
             AddressingMode::ZeropageIndexedY | AddressingMode::IndexedY => {
-                Ok(self.current_instruction.value() + self.y as usize)
+                self.safe_indexed_address(self.y as usize)
             }
             AddressingMode::IndirectY => {
                 let ptr = self.current_instruction.value() as u16;

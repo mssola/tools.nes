@@ -1,0 +1,10 @@
+<start>		PC: $801B, cycles: 7, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----I--
+ldx #$00	PC: $801D, cycles: 9, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----IZ-
+lda $8028, x	PC: $8020, cycles: 13, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----IZ-
+clc		PC: $8021, cycles: 15, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----IZ-
+adc #$04	PC: $8023, cycles: 17, registers: [a: $04, x: $00, y: $00, sp: $FD], status: ----I--
+tax		PC: $8024, cycles: 19, registers: [a: $04, x: $04, y: $00, sp: $FD], status: ----I--
+
+@:
+lda $8028, x	PC: $8024, cycles: 19, registers: [a: $04, x: $04, y: $00, sp: $FD], status: ----I--
+error: out of bounds: indexed access to $802C falls out of 'bad_rom_data_indexing::data' ($8028-$802C; bounded inclusively below and exclusively above)

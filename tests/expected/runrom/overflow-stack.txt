@@ -1,0 +1,6 @@
+<start>		PC: $8016, cycles: 7, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----I--
+lda #$00	PC: $8018, cycles: 9, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----IZ-
+
+@:
+pha		PC: $8018, cycles: 9, registers: [a: $00, x: $00, y: $00, sp: $FC], status: ----IZ-
+error: stack underflow!

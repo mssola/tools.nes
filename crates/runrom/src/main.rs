@@ -4,6 +4,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, ErrorKind, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use vnf::{Machine, MemoryPolicy};
+use xixanta::assembler::Range;
 
 /// Version for this program.
 const VERSION: &str = "0.1.0";
@@ -300,6 +301,69 @@ fn start_from_reset_vector(file: &String) -> u16 {
     ((buf[1] as u16) << 8) + buf[0] as u16
 }
 
+fn fetch_memory_addresses(nasm: Option<PathBuf>) -> Result<(Vec<Range>, Option<usize>), String> {
+    let mut memories = vec![];
+    let mut stack = None;
+
+    let Some(path) = nasm else {
+        return Ok((memories, stack));
+    };
+
+    if let Ok(file) = File::open(path.clone().join("memory.txt")) {
+        let reader = BufReader::new(file);
+        for line in reader.lines() {
+            let line = line.map_err(|e| e.to_string())?;
+            if line.is_empty() || line.starts_with("---") {
+                break;
+            }
+
+            let (left, right) = line.split_once(':').unwrap();
+            let (start, end) = match left.trim().split_once('-') {
+                Some((start, end)) => (
+                    usize::from_str_radix(start.get(1..).unwrap(), 16).unwrap(),
+                    usize::from_str_radix(end.get(1..).unwrap(), 16).unwrap() + 1,
+                ),
+                None => (
+                    usize::from_str_radix(left.get(1..).unwrap(), 16).unwrap(),
+                    usize::from_str_radix(left.get(1..).unwrap(), 16).unwrap() + 1,
+                ),
+            };
+
+            let name = right.trim().to_string();
+            if name == "<stack>" {
+                stack = Some(start);
+            }
+
+            memories.push(Range {
+                range: std::ops::Range { start, end },
+                name,
+            });
+        }
+    }
+
+    if let Ok(file) = File::open(path.join("addresses.txt")) {
+        let reader = BufReader::new(file);
+        for line in reader.lines() {
+            let line = line.map_err(|e| e.to_string())?;
+            let columns: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+            if columns.len() != 3 {
+                return Err("badly formatted address file".to_string());
+            }
+
+            let start = usize::from_str_radix(columns[1], 16)
+                .map_err(|_| format!("invalid hex value: '{}'", columns[1]))?;
+            let end = usize::from_str_radix(columns[2], 16)
+                .map_err(|_| format!("invalid hex value: '{}'", columns[2]))?;
+            memories.push(Range {
+                range: std::ops::Range { start, end },
+                name: columns[0].to_string(),
+            });
+        }
+    }
+
+    Ok((memories, stack))
+}
+
 fn run(
     file: &Path,
     start: u16,
@@ -307,14 +371,22 @@ fn run(
     assume_function: bool,
     halt_on_brk: bool,
     cycle_limit: Option<usize>,
+    nasm: Option<PathBuf>,
     dump_memory: bool,
 ) -> Result<(), String> {
-    let mut machine = Machine::from(file, start, MemoryPolicy::default())?;
+    let (addresses, stack) = fetch_memory_addresses(nasm)?;
 
+    let mut policy = MemoryPolicy::default();
+    if let Some(stack) = stack {
+        policy.minimum_stack_value = stack as u8;
+    }
+
+    let mut machine = Machine::from(file, start, policy)?;
     machine.verbose = true;
     machine.run_function_mode = assume_function;
     machine.halt_on_brk = halt_on_brk;
     machine.cycle_limit = cycle_limit;
+    machine.addresses = addresses;
 
     machine.until_address(end)?;
 
@@ -361,6 +433,7 @@ fn main() {
         args.assume_function,
         args.halt_on_brk,
         args.cycle_limit,
+        args.nasm,
         args.dump_memory,
     ) {
         Ok(m) => m,

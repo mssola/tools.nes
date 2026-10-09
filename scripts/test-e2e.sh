@@ -351,6 +351,25 @@ exit_code=$((exit_code + $?))
 diff tests/out/misc-foo.txt tests/expected/runrom/misc-foo.txt
 exit_code=$((exit_code + $?))
 
+echo "test: runrom => overflows.nes"
+./target/debug/nasm -Werror --asan --write-info --out tests/out/overflows.nes tests/runrom/overflows.s
+
+./target/debug/runrom --nasm .nasm/ --dump-memory --function tests/out/overflows.nes &> tests/out/overflow-reset.txt
+diff tests/out/overflow-reset.txt tests/expected/runrom/overflow-reset.txt
+exit_code=$((exit_code + $?))
+
+./target/debug/runrom --nasm .nasm/ --dump-memory --function --start overflow_on_arithmetics tests/out/overflows.nes &> tests/out/overflow-arithmetics.txt
+diff tests/out/overflow-arithmetics.txt tests/expected/runrom/overflow-arithmetics.txt
+exit_code=$((exit_code + $?))
+
+./target/debug/runrom --nasm .nasm/ --dump-memory --function --start stack_underflow tests/out/overflows.nes &> tests/out/overflow-stack.txt
+diff tests/out/overflow-stack.txt tests/expected/runrom/overflow-stack.txt
+exit_code=$((exit_code + $?))
+
+./target/debug/runrom --nasm .nasm/ --dump-memory --function --start bad_rom_data_indexing tests/out/overflows.nes &> tests/out/overflow-data-indexing.txt
+diff tests/out/overflow-data-indexing.txt tests/expected/runrom/overflow-data-indexing.txt
+exit_code=$((exit_code + $?))
+
 ##
 # vnf-tests
 
