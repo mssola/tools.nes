@@ -548,6 +548,16 @@ impl Context {
         }
     }
 
+    /// Returns the full name of the given variable 'name'. That is, it prepends
+    /// the name of the context unless the variable resides in the global
+    /// context.
+    pub fn full_name(&self, name: &str) -> String {
+        match self.stack.last() {
+            Some(context_name) => format!("{context_name}::{name}"),
+            None => name.to_string(),
+        }
+    }
+
     /// Returns true if we are in the global scope.
     pub fn is_global(&self) -> bool {
         self.stack.is_empty()

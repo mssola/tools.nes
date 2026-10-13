@@ -985,13 +985,8 @@ impl<'a> Assembler<'a> {
                             // this label. This will be used on the hinting of
                             // the end of the data that this address might be
                             // pointing at.
-                            let context_name = self.context.name();
-                            let name = node.value.value.clone();
-                            last_label = if context_name == GLOBAL_CONTEXT {
-                                name.clone()
-                            } else {
-                                format!("{context_name}::{}", name)
-                            };
+                            let name = &node.value.value;
+                            last_label = self.context.full_name(name);
                             offset = Some(o);
                             byte_seen = true;
                         }
@@ -1088,12 +1083,7 @@ impl<'a> Assembler<'a> {
                             // evaluate_control_statement() call the context
                             // will be the right one.
 
-                            let context_name = self.context.name();
-                            let full_name = if context_name == GLOBAL_CONTEXT {
-                                self.last_proc.clone()
-                            } else {
-                                format!("{context_name}::{}", self.last_proc)
-                            };
+                            let full_name = self.context.full_name(&self.last_proc);
                             if let Some(last_address) = self.last_address {
                                 self.address_ends.insert(full_name, last_address);
                             }
