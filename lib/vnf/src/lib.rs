@@ -25,9 +25,9 @@ use header::Header;
 use std::assert_matches;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{ErrorKind, Read};
+use std::io::{BufRead, BufReader, ErrorKind, Read};
 use std::ops::Range;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use xixanta::opcodes::AddressingMode;
 use xixanta::opcodes::{Instruction, InstructionIdentifier, OPCODES};
 
@@ -1571,4 +1571,69 @@ impl Machine {
 
         Ok(())
     }
+}
+
+/// Given the 'path' to a .nasm/ directory, fetch all the addresses that might
+/// be relevant for a Machine run. The addresses are given as a vector of
+/// xixanta::assembler::Range, with an optional usize return value which
+/// contains the minimum value for the stack.
+pub fn fetch_nasm_addresses(
+    path: PathBuf,
+) -> Result<(Vec<xixanta::assembler::Range>, Option<usize>), String> {
+    let mut memories = vec![];
+    let mut stack = None;
+
+    if let Ok(file) = File::open(path.clone().join("memory.txt")) {
+        let reader = BufReader::new(file);
+        for line in reader.lines() {
+            let line = line.map_err(|e| e.to_string())?;
+            if line.is_empty() || line.starts_with("---") {
+                break;
+            }
+
+            let (left, right) = line.split_once(':').unwrap();
+            let (start, end) = match left.trim().split_once('-') {
+                Some((start, end)) => (
+                    usize::from_str_radix(start.get(1..).unwrap(), 16).unwrap(),
+                    usize::from_str_radix(end.get(1..).unwrap(), 16).unwrap() + 1,
+                ),
+                None => (
+                    usize::from_str_radix(left.get(1..).unwrap(), 16).unwrap(),
+                    usize::from_str_radix(left.get(1..).unwrap(), 16).unwrap() + 1,
+                ),
+            };
+
+            let name = right.trim().to_string();
+            if name == "<stack>" {
+                stack = Some(start);
+            }
+
+            memories.push(xixanta::assembler::Range {
+                range: std::ops::Range { start, end },
+                name,
+            });
+        }
+    }
+
+    if let Ok(file) = File::open(path.join("addresses.txt")) {
+        let reader = BufReader::new(file);
+        for line in reader.lines() {
+            let line = line.map_err(|e| e.to_string())?;
+            let columns: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+            if columns.len() != 3 {
+                return Err("badly formatted address file".to_string());
+            }
+
+            let start = usize::from_str_radix(columns[1], 16)
+                .map_err(|_| format!("invalid hex value: '{}'", columns[1]))?;
+            let end = usize::from_str_radix(columns[2], 16)
+                .map_err(|_| format!("invalid hex value: '{}'", columns[2]))?;
+            memories.push(xixanta::assembler::Range {
+                range: std::ops::Range { start, end },
+                name: columns[0].to_string(),
+            });
+        }
+    }
+
+    Ok((memories, stack))
 }
