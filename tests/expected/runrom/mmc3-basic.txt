@@ -1,0 +1,94 @@
+<start>		PC: $E045, cycles: 7, registers: [a: $00, x: $00, y: $00, sp: $FD], status: ----I--
+		[STACK]: 47 E0 00 00 
+jsr $E000	PC: $E000, cycles: 13, registers: [a: $00, x: $00, y: $00, sp: $FB], status: ----I--
+bit $2002	PC: $E003, cycles: 17, registers: [a: $00, x: $00, y: $00, sp: $FB], status: N---IZ-
+lda #$00	PC: $E005, cycles: 19, registers: [a: $00, x: $00, y: $00, sp: $FB], status: ----IZ-
+sta $2006	PC: $E008, cycles: 23, registers: [a: $00, x: $00, y: $00, sp: $FB], status: ----IZ-
+		[PPU] Control: $00, Mask: $00, Status: $80, Scroll: $00, Address: $00, Data: $00, OAM addr: $00, OAM DMA: $00
+
+sta $2006	PC: $E00B, cycles: 27, registers: [a: $00, x: $00, y: $00, sp: $FB], status: ----IZ-
+		[PPU] Control: $00, Mask: $00, Status: $80, Scroll: $00, Address: $00, Data: $00, OAM addr: $00, OAM DMA: $00
+
+lda #$10	PC: $E00D, cycles: 29, registers: [a: $10, x: $00, y: $00, sp: $FB], status: ----I--
+sta $2006	PC: $E010, cycles: 33, registers: [a: $10, x: $00, y: $00, sp: $FB], status: ----I--
+		[PPU] Control: $00, Mask: $00, Status: $80, Scroll: $00, Address: $10, Data: $00, OAM addr: $00, OAM DMA: $00
+
+sta $2006	PC: $E013, cycles: 37, registers: [a: $10, x: $00, y: $00, sp: $FB], status: ----I--
+		[PPU] Control: $00, Mask: $00, Status: $80, Scroll: $00, Address: $10, Data: $00, OAM addr: $00, OAM DMA: $00
+
+lda #$00	PC: $E015, cycles: 39, registers: [a: $00, x: $00, y: $00, sp: $FB], status: ----IZ-
+sta $2006	PC: $E018, cycles: 43, registers: [a: $00, x: $00, y: $00, sp: $FB], status: ----IZ-
+		[PPU] Control: $00, Mask: $00, Status: $80, Scroll: $00, Address: $00, Data: $00, OAM addr: $00, OAM DMA: $00
+
+sta $2006	PC: $E01B, cycles: 47, registers: [a: $00, x: $00, y: $00, sp: $FB], status: ----IZ-
+		[PPU] Control: $00, Mask: $00, Status: $80, Scroll: $00, Address: $00, Data: $00, OAM addr: $00, OAM DMA: $00
+
+lda #$10	PC: $E01D, cycles: 49, registers: [a: $10, x: $00, y: $00, sp: $FB], status: ----I--
+sta $2006	PC: $E020, cycles: 53, registers: [a: $10, x: $00, y: $00, sp: $FB], status: ----I--
+		[PPU] Control: $00, Mask: $00, Status: $80, Scroll: $00, Address: $10, Data: $00, OAM addr: $00, OAM DMA: $00
+
+sta $2006	PC: $E023, cycles: 57, registers: [a: $10, x: $00, y: $00, sp: $FB], status: ----I--
+		[PPU] Control: $00, Mask: $00, Status: $80, Scroll: $00, Address: $10, Data: $00, OAM addr: $00, OAM DMA: $00
+
+lda #$00	PC: $E025, cycles: 59, registers: [a: $00, x: $00, y: $00, sp: $FB], status: ----IZ-
+sta $A000	PC: $E028, cycles: 63, registers: [a: $00, x: $00, y: $00, sp: $FB], status: ----IZ-
+		[MMC3] PRG ROM mode: 0, R6: 0, R7: 1, PRG RAM enabled, writes allowed
+
+sta $E000	PC: $E02B, cycles: 67, registers: [a: $00, x: $00, y: $00, sp: $FB], status: ----IZ-
+		[MMC3] PRG ROM mode: 0, R6: 0, R7: 1, PRG RAM enabled, writes allowed
+
+lda #$80	PC: $E02D, cycles: 69, registers: [a: $80, x: $00, y: $00, sp: $FB], status: N---I--
+sta $A001	PC: $E030, cycles: 73, registers: [a: $80, x: $00, y: $00, sp: $FB], status: N---I--
+		[MMC3] PRG ROM mode: 0, R6: 0, R7: 1, PRG RAM enabled, writes allowed
+
+lda #$06	PC: $E032, cycles: 75, registers: [a: $06, x: $00, y: $00, sp: $FB], status: ----I--
+sta $8000	PC: $E035, cycles: 79, registers: [a: $06, x: $00, y: $00, sp: $FB], status: ----I--
+		[MMC3] PRG ROM mode: 0, R6: 0, R7: 1, PRG RAM enabled, writes allowed
+
+lda #$00	PC: $E037, cycles: 81, registers: [a: $00, x: $00, y: $00, sp: $FB], status: ----IZ-
+sta $8001	PC: $E03A, cycles: 85, registers: [a: $00, x: $00, y: $00, sp: $FB], status: ----IZ-
+		[MMC3] PRG ROM mode: 0, R6: 0, R7: 1, PRG RAM enabled, writes allowed
+
+lda #$07	PC: $E03C, cycles: 87, registers: [a: $07, x: $00, y: $00, sp: $FB], status: ----I--
+sta $8000	PC: $E03F, cycles: 91, registers: [a: $07, x: $00, y: $00, sp: $FB], status: ----I--
+		[MMC3] PRG ROM mode: 0, R6: 0, R7: 1, PRG RAM enabled, writes allowed
+
+lda #$01	PC: $E041, cycles: 93, registers: [a: $01, x: $00, y: $00, sp: $FB], status: ----I--
+sta $8001	PC: $E044, cycles: 97, registers: [a: $01, x: $00, y: $00, sp: $FB], status: ----I--
+		[MMC3] PRG ROM mode: 0, R6: 0, R7: 1, PRG RAM enabled, writes allowed
+
+		[STACK]: 00 00 
+rts		PC: $E048, cycles: 103, registers: [a: $01, x: $00, y: $00, sp: $FD], status: ----I--
+		[STACK]: 4A E0 00 00 
+jsr $8000	PC: $8000, cycles: 109, registers: [a: $01, x: $00, y: $00, sp: $FB], status: ----I--
+clc		PC: $8001, cycles: 111, registers: [a: $01, x: $00, y: $00, sp: $FB], status: ----I--
+adc $6000	PC: $8004, cycles: 115, registers: [a: $01, x: $00, y: $00, sp: $FB], status: ----I--
+sta $6000	PC: $8007, cycles: 119, registers: [a: $01, x: $00, y: $00, sp: $FB], status: ----I--
+		[STACK]: 00 00 
+rts		PC: $E04B, cycles: 125, registers: [a: $01, x: $00, y: $00, sp: $FD], status: ----I--
+lda #$06	PC: $E04D, cycles: 127, registers: [a: $06, x: $00, y: $00, sp: $FD], status: ----I--
+sta $8000	PC: $E050, cycles: 131, registers: [a: $06, x: $00, y: $00, sp: $FD], status: ----I--
+		[MMC3] PRG ROM mode: 0, R6: 0, R7: 1, PRG RAM enabled, writes allowed
+
+lda #$01	PC: $E052, cycles: 133, registers: [a: $01, x: $00, y: $00, sp: $FD], status: ----I--
+sta $8001	PC: $E055, cycles: 137, registers: [a: $01, x: $00, y: $00, sp: $FD], status: ----I--
+		[MMC3] PRG ROM mode: 0, R6: 1, R7: 1, PRG RAM enabled, writes allowed
+
+		[STACK]: 57 E0 00 00 
+jsr $8000	PC: $8000, cycles: 143, registers: [a: $01, x: $00, y: $00, sp: $FB], status: ----I--
+inc $6000	PC: $8003, cycles: 149, registers: [a: $01, x: $00, y: $00, sp: $FB], status: ----I--
+		[STACK]: 00 00 
+rts		PC: $E058, cycles: 155, registers: [a: $01, x: $00, y: $00, sp: $FD], status: ----I--
+		[STACK]: 5A E0 00 00 
+jsr $8000	PC: $8000, cycles: 161, registers: [a: $01, x: $00, y: $00, sp: $FB], status: ----I--
+inc $6000	PC: $8003, cycles: 167, registers: [a: $01, x: $00, y: $00, sp: $FB], status: ----I--
+		[STACK]: 00 00 
+rts		PC: $E05B, cycles: 173, registers: [a: $01, x: $00, y: $00, sp: $FD], status: ----I--
+rts		PC: $E05C, cycles: 179, registers: [a: $01, x: $00, y: $00, sp: $FD], status: ----I--
+<end>
+
+== Memory dump ==
+
+[$02FC] = $5A [reads=4, writes=4]
+[$02FD] = $E0 [reads=4, writes=4]
+[$6000] = $03 [reads=3, writes=3]

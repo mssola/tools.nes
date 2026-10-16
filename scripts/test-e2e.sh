@@ -370,6 +370,21 @@ exit_code=$((exit_code + $?))
 diff tests/out/overflow-data-indexing.txt tests/expected/runrom/overflow-data-indexing.txt
 exit_code=$((exit_code + $?))
 
+echo "test: runrom => mmc3/basic.nes"
+./target/debug/nasm -Werror --asan --write-info -c tests/runrom/mmc3/mmc3.cfg -o tests/out/mmc3.nes -w tests/runrom/mmc3/basic.s
+
+./target/debug/runrom --nasm .nasm/ --dump-memory --function --start basic --mmc "kind=mmc3; prg_rom_mode=0; prg_ram_enabled=1; prg_ram_writes_allowed=1; r6=0; r7=1" tests/out/mmc3.nes &> tests/out/mmc3-basic.txt
+diff tests/out/mmc3-basic.txt tests/expected/runrom/mmc3-basic.txt
+exit_code=$((exit_code + $?))
+
+./target/debug/runrom --nasm .nasm/ --dump-memory --function --start no_writes_allowed --mmc "kind=mmc3; prg_rom_mode=0; prg_ram_enabled=1; prg_ram_writes_allowed=1; r6=0; r7=1" tests/out/mmc3.nes &> tests/out/mmc3-no-writes.txt
+diff tests/out/mmc3-no-writes.txt tests/expected/runrom/mmc3-no-writes.txt
+exit_code=$((exit_code + $?))
+
+./target/debug/runrom --nasm .nasm/ --dump-memory --function --start no_wram --mmc "kind=mmc3; prg_rom_mode=0; prg_ram_enabled=1; prg_ram_writes_allowed=1; r6=0; r7=1" tests/out/mmc3.nes &> tests/out/mmc3-no-wram.txt
+diff tests/out/mmc3-no-wram.txt tests/expected/runrom/mmc3-no-wram.txt
+exit_code=$((exit_code + $?))
+
 ##
 # vnf-tests
 

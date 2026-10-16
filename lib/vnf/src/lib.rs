@@ -300,6 +300,63 @@ impl Joypad {
     }
 }
 
+/// The banking mode for the MMC3 mapper chip (i.e. bit D6 on the 'Bank select'
+/// register).
+#[derive(Debug)]
+pub enum Mmc3BankMode {
+    FirstSwappable,
+    SecondSwappable,
+}
+
+/// All the needed info to run the 'Machine' with the MMC3 chip.
+#[derive(Debug)]
+pub struct Mmc3 {
+    pub prg_rom_mode: Mmc3BankMode,
+    pub next_register_update: usize,
+    pub r6: usize,
+    pub r7: usize,
+    pub prg_ram_enabled: bool,
+    pub prg_ram_writes_allowed: bool,
+}
+
+impl std::fmt::Display for Mmc3 {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let mode = match self.prg_rom_mode {
+            Mmc3BankMode::FirstSwappable => 0,
+            Mmc3BankMode::SecondSwappable => 1,
+        };
+        let enabled = if self.prg_ram_enabled {
+            "enabled"
+        } else {
+            "disabled"
+        };
+        let allowed = if self.prg_ram_writes_allowed {
+            "allowed"
+        } else {
+            "disallowed"
+        };
+        write!(
+            f,
+            "[MMC3] PRG ROM mode: {}, R6: {}, R7: {}, PRG RAM {}, writes {}",
+            mode, self.r6, self.r7, enabled, allowed
+        )
+    }
+}
+
+/// Supported memory mapper chips.
+#[derive(Debug)]
+pub enum MemoryMapperChip {
+    Mmc3(Mmc3),
+}
+
+impl std::fmt::Display for MemoryMapperChip {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            MemoryMapperChip::Mmc3(mmc3) => write!(f, "{}", mmc3),
+        }
+    }
+}
+
 /// The core structure for the virtual machine. Use this structure to read and
 /// run a ROM file. At each step it will hold the current status of the machine
 /// so it can be inspected programatically in full detail.
@@ -350,6 +407,10 @@ pub struct Machine {
     /// read/write policies and statistics.
     pub ram: Vec<MemoryCell>,
 
+    /// The Working RAM for this machine. You should either provide it yourself,
+    /// or let the flow of configuring a memory chip to handle it.
+    pub working_ram: Vec<MemoryCell>,
+
     /// The 'a' register.
     pub a: u8,
 
@@ -382,6 +443,12 @@ pub struct Machine {
     /// detects a change on the PPU.
     should_report_ppu: bool,
 
+    /// When 'verbose' is true, whether the memory mapper should also be
+    /// included into the output. This is enabled/disabled automatically
+    /// whenever the machine detects a change on one of the registers from the
+    /// memory mapper (if any).
+    should_report_mmc: bool,
+
     /// The initial value for the stack register. Used to detect stack
     /// under/over flows.
     initial_stack_value: u8,
@@ -405,6 +472,14 @@ pub struct Machine {
     /// bounds. This is used to detect overflows/underflows and any kind of bad
     /// indexed access.
     pub addresses: Vec<xixanta::assembler::Range>,
+
+    /// Memory mapper chip currently enabled for the Machine. If None, then an
+    /// NROM cartridge is assumed.
+    pub mapper_chip: Option<MemoryMapperChip>,
+
+    /// Chunks with which PRG ROM space is structured on a given memory mapper
+    /// chip.
+    chunks: Vec<[u8; 8192]>,
 }
 
 // On success, returns a vector of MemoryCell representing the RAM for a
@@ -511,17 +586,21 @@ impl Machine {
             s: 0xFD, // NOTE: as per 6502 initialization process.
             initial_stack_value: 0xFD,
             ram: init_memory(&policy)?,
+            working_ram: vec![],
             status_register: StatusRegister::default(),
             apu: APU::default(),
             ppu: PPU::default(),
             verbose: false,
             should_report_apu: false,
             should_report_ppu: false,
+            should_report_mmc: false,
             policy,
             joypads: [Joypad::default(), Joypad::default()],
             halt_on_brk: true,
             cycle_limit: None,
             addresses: vec![],
+            mapper_chip: None,
+            chunks: vec![],
         })
     }
 
@@ -604,6 +683,9 @@ impl Machine {
                 self.ppu.oam_dma,
             );
             self.should_report_ppu = false;
+        } else if self.should_report_mmc {
+            println!("\t\t{}\n", self.mapper_chip.as_ref().unwrap());
+            self.should_report_mmc = false;
         }
 
         if !self.active {
@@ -684,6 +766,74 @@ impl Machine {
         Ok(())
     }
 
+    // Translate the given 'address' to the proper location inside of
+    // 'self.prg_rom'. This will also take care of translating addresses
+    // depending on the current configuration of memory mappers.
+    //
+    // Returns three bytes, containing the byte for the actual translated
+    // address in ROM space, plus two consecutive bytes if possible (otherwise
+    // we zero-pad the returned byte). It's up to the caller to decide how many
+    // bytes are expected and if it makes sense to use them all or not.
+    fn translate_rom_address(&mut self, address: usize) -> Result<[u8; 3], String> {
+        assert!((0x8000..=0xFFFF).contains(&address));
+
+        let translated_address = match &mut self.mapper_chip {
+            Some(MemoryMapperChip::Mmc3(m)) => {
+                // If we haven't already, let's divide the PRG ROM space into
+                // 8KB chunks, which is how regions are mapped.
+                if self.chunks.is_empty() {
+                    let (chunks, remainder) = self.prg_rom.as_chunks::<{ 8 * 1024 }>();
+                    if !remainder.is_empty() {
+                        return Err(
+                            "malformed ROM file: PRG ROM size is not a multiple of 8KB".to_string()
+                        );
+                    }
+                    self.chunks = chunks.to_vec();
+                }
+
+                // And now, depending on the address and the PRG ROM mapping
+                // mode, let's translate the address into an 'in_chunk_address',
+                // and then apply bank data value from the proper register.
+                match address {
+                    0x8000..0xA000 => {
+                        let in_chunk_address = address - 0x8000;
+                        match m.prg_rom_mode {
+                            Mmc3BankMode::FirstSwappable => in_chunk_address + (m.r6 * 8192),
+                            Mmc3BankMode::SecondSwappable => {
+                                in_chunk_address + ((self.chunks.len() - 2) * 8192)
+                            }
+                        }
+                    }
+                    0xA000..0xC000 => {
+                        let in_chunk_address = address - 0xA000;
+                        in_chunk_address + (m.r7 * 8192)
+                    }
+                    0xC000..0xE000 => {
+                        let in_chunk_address = address - 0xC000;
+                        match m.prg_rom_mode {
+                            Mmc3BankMode::FirstSwappable => {
+                                in_chunk_address + ((self.chunks.len() - 2) * 8192)
+                            }
+                            Mmc3BankMode::SecondSwappable => in_chunk_address + (m.r6 * 8192),
+                        }
+                    }
+                    _ => {
+                        // The last bank is always fixed to the last 8KB region.
+                        let in_chunk_address = address - 0xE000;
+                        in_chunk_address + ((self.chunks.len() - 1) * 8192)
+                    }
+                }
+            }
+            None => address - 0x8000,
+        };
+
+        Ok([
+            *self.prg_rom.get(translated_address).unwrap_or(&0),
+            *self.prg_rom.get(translated_address + 1).unwrap_or(&0),
+            *self.prg_rom.get(translated_address + 2).unwrap_or(&0),
+        ])
+    }
+
     /// Step the execution of the machine by one instruction. It will return an
     /// error if the execution fails for whatever reason, but also if this
     /// machine is no longer active. Hence, if the machine has been deactivated
@@ -740,15 +890,16 @@ impl Machine {
             return Err("out of bounds: program counter is pointing below ROM space".to_string());
         }
 
-        // Fetch the next instruction.
-        let address = self.pc - 0x8000;
-        let opcode = self.prg_rom.get(address).unwrap();
-        self.current_instruction = match OPCODES.get(opcode) {
+        // Fetch the next instruction. Picking from the current PC, the opcode
+        // will be the first byte, and the tentative arguments will be placed
+        // afterwards.
+        let bytes = self.translate_rom_address(self.pc)?;
+        self.current_instruction = match OPCODES.get(&bytes[0]) {
             Some(instr) => instr.clone(),
             None => {
                 return Err(format!(
                     "could not find instruction with opcode <{:02X}>",
-                    opcode
+                    bytes[0]
                 ));
             }
         };
@@ -756,12 +907,12 @@ impl Machine {
         // Fetch the bytes for the current instruction.
         match self.current_instruction.size {
             2 => {
-                self.current_instruction.bytes[0] = *self.prg_rom.get(address + 1).unwrap();
+                self.current_instruction.bytes[0] = bytes[1];
                 self.current_instruction.bytes[1] = 0;
             }
             3 => {
-                self.current_instruction.bytes[0] = *self.prg_rom.get(address + 1).unwrap();
-                self.current_instruction.bytes[1] = *self.prg_rom.get(address + 2).unwrap();
+                self.current_instruction.bytes[0] = bytes[1];
+                self.current_instruction.bytes[1] = bytes[2];
             }
             _ => {
                 self.current_instruction.bytes = [0, 0];
@@ -790,7 +941,22 @@ impl Machine {
     // if you want this read to be accounted on the statistics of reads of the
     // given address, false otherwise.
     fn read_memory(&mut self, address: u16, account_read: bool) -> Result<u8, String> {
-        let cell = self.ram.get_mut(address as usize).unwrap();
+        // Get the memory cell from the given address. Whether this is working
+        // RAM or normal RAM is decided based on the actual address.
+        let cell = if (0x6000..0x8000).contains(&address) {
+            if self.working_ram.is_empty() {
+                return Err(format!(
+                    "reading was not allowed on address '${:04X}'",
+                    address
+                ));
+            }
+            self.working_ram.get_mut(address as usize - 0x6000).unwrap()
+        } else {
+            // NOTE: 0x0800 until 0x2000 are simply mirrors of the first
+            // 2KB. Let's mask out the upper bits.
+            let real = address & 0x07FF;
+            self.ram.get_mut(real as usize).unwrap()
+        };
 
         if !cell.read_allowed {
             return Err(format!(
@@ -807,7 +973,22 @@ impl Machine {
 
     // Perform a write to the given memory 'address' with the given 'value'.
     fn write_memory(&mut self, address: u16, value: u8) -> Result<(), String> {
-        let cell = self.ram.get_mut(address as usize).unwrap();
+        // Get the memory cell from the given address. Whether this is working
+        // RAM or normal RAM is decided based on the actual address.
+        let cell = if (0x6000..0x8000).contains(&address) {
+            if self.working_ram.is_empty() {
+                return Err(format!(
+                    "writing was not allowed on address '${:04X}'",
+                    address
+                ));
+            }
+            self.working_ram.get_mut(address as usize - 0x6000).unwrap()
+        } else {
+            // NOTE: 0x0800 until 0x2000 are simply mirrors of the first
+            // 2KB. Let's mask out the upper bits.
+            let real = address & 0x07FF;
+            self.ram.get_mut(real as usize).unwrap()
+        };
 
         if !cell.write_allowed {
             return Err(format!(
@@ -1395,6 +1576,7 @@ impl Machine {
             let address = self.target_address()?;
 
             match address {
+                0x00..0x2000 => self.read_memory(address as u16, true)?,
                 0x2000 => self.ppu.control,
                 0x2001 => self.ppu.mask,
                 0x2002 => {
@@ -1409,21 +1591,13 @@ impl Machine {
                 0x2007 => self.ppu.data,
                 0x4010 => self.apu.dmc,
                 0x4014 => self.ppu.oam_dma, // TODO: maybe read fault
-                0x00..0x2000 => {
-                    // NOTE: 0x0800 until 0x2000 are simply mirrors of the first
-                    // 2KB. Let's mask out the upper bits.
-                    let real = address & 0x07FF;
-                    self.read_memory(real as u16, true)?
-                }
-                0x8000..=0xFFFF => {
-                    let real = address - 0x8000;
-                    *self.prg_rom.get(real).unwrap()
-                }
                 0x4016 => self.joypad_read(0)?,
                 // NOTE: the joypad 2 and the APU frame counter share the same
                 // address, but read is only reserved for joypad 2.
                 0x4017 => self.joypad_read(1)?,
-                _ => todo!(),
+                0x6000..0x8000 => self.read_memory(address as u16, true)?,
+                0x8000..=0xFFFF => self.translate_rom_address(address)?[0],
+                _ => return Err(format!("unallowed read at address ${:04X}", address)),
             }
         };
 
@@ -1511,6 +1685,9 @@ impl Machine {
         let address = self.target_address()?;
 
         match address {
+            0x00..0x2000 => {
+                self.write_memory(address as u16, value)?;
+            }
             0x2000 => {
                 self.ppu.control = value;
                 self.should_report_ppu = self.verbose;
@@ -1557,18 +1734,99 @@ impl Machine {
 
                 self.joypad_write(1, value)?;
             }
-            0x00..0x2000 => {
-                // NOTE: 0x0800 until 0x2000 are simply mirrors of the first
-                // 2KB. Let's mask out the upper bits.
-                let real = address & 0x07FF;
-                self.write_memory(real as u16, value)?;
-            }
-            _ => {
-                self.report();
-                todo!()
-            }
+            0x6000..0x8000 => self.write_memory(address as u16, value)?,
+            _ => match &mut self.mapper_chip {
+                Some(MemoryMapperChip::Mmc3(_)) => self.handle_mmc3_store(address as u16, value)?,
+                None => return Err(format!("unallowed write to address ${:04X}", address)),
+            },
         };
 
+        Ok(())
+    }
+
+    // Handle a store operation onto one if the registers from the MMC3 chip.
+    fn handle_mmc3_store(&mut self, address: u16, value: u8) -> Result<(), String> {
+        // The MMC3 has a total of eight registers. These registers are selected
+        // from bits 0, 13 and 14 of the address. Another way to express it is
+        // that they are selected based on bits 13 and 14 on even vs odd ranges
+        // from the address (i.e. this is how it's described on the NESDev
+        // wiki).
+        let select = address & 0x6001;
+        let MemoryMapperChip::Mmc3(chip) = self.mapper_chip.as_mut().unwrap();
+
+        match select {
+            0x0000 => {
+                chip.next_register_update = (value & 0x07) as usize;
+
+                if (value & 0x40) == 0x00 {
+                    chip.prg_rom_mode = Mmc3BankMode::FirstSwappable;
+                } else {
+                    chip.prg_rom_mode = Mmc3BankMode::SecondSwappable;
+                }
+            }
+            0x0001 => {
+                if chip.next_register_update == 6 {
+                    chip.r6 = value as usize;
+                } else if chip.next_register_update == 7 {
+                    chip.r7 = value as usize;
+                }
+                // NOTE: other registers are ignored.
+            }
+            0x2000 => {
+                // NOTE: nametable arrangement. Since this is a headless
+                // emulator, this is blatantly ignored.
+            }
+            0x2001 => {
+                let before = chip.prg_ram_writes_allowed;
+
+                chip.prg_ram_enabled = (value & 0x80) == 0x80;
+                chip.prg_ram_writes_allowed = (value & 0x40) == 0x00;
+
+                if chip.prg_ram_enabled {
+                    // Initialize the working RAM if it's empty. Otherwise, if
+                    // it's not empty, check if we need to update the write
+                    // permission.
+                    if self.working_ram.is_empty() {
+                        let cell = MemoryCell {
+                            value: match self.policy.initial_value {
+                                MemoryInitialValue::Fixed(n) => n,
+                                MemoryInitialValue::Random => rand::random(),
+                            },
+                            write_allowed: chip.prg_ram_writes_allowed,
+                            read_allowed: true,
+                            reads: 0,
+                            writes: 0,
+                        };
+                        self.working_ram = vec![cell; 0x2000];
+                    } else if before != chip.prg_ram_writes_allowed {
+                        for i in 0..0x2000 {
+                            self.working_ram[i].write_allowed = chip.prg_ram_writes_allowed;
+                        }
+                    }
+                } else {
+                    self.working_ram = vec![];
+                }
+            }
+            0x4000 => {
+                // NOTE: IRQ handling is not supported for now.
+            }
+            0x4001 => {
+                // NOTE: IRQ handling is not supported for now.
+            }
+            0x6000 => {
+                // NOTE: IRQ handling is not supported for now.
+            }
+            0x6001 => {
+                // NOTE: IRQ handling is not supported for now.
+            }
+            _ => {
+                return Err(format!(
+                    "bad address write for the MMC3 chip (${:04X})",
+                    address
+                ));
+            }
+        }
+        self.should_report_mmc = true;
         Ok(())
     }
 }

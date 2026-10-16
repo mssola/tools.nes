@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, ErrorKind, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use vnf::{Machine, MemoryPolicy, fetch_nasm_addresses};
+use vnf::{Machine, MemoryMapperChip, MemoryPolicy, Mmc3, Mmc3BankMode, fetch_nasm_addresses};
 
 /// Version for this program.
 const VERSION: &str = "0.1.0";
@@ -18,6 +18,7 @@ struct Args {
     until_address: u16,
     halt_on_brk: bool,
     cycle_limit: Option<usize>,
+    mmc: Option<MemoryMapperChip>,
 }
 
 fn print_help() {
@@ -30,6 +31,7 @@ fn print_help() {
     println!("  -d, --dump-memory\t\tShow the memory that has changed after a run.");
     println!("  -f, --function\t\tRun the code by assuming it's a function.");
     println!("  -h, --help\t\t\tPrint this message and quit.");
+    println!("  --mmc <CONFIG>\t\tProvide the configuration for a memory mapper chip.");
     println!("  -n, --nasm-directory <PATH>\tPath to the .nasm/ directory.");
     println!("  --no-halting-brk\t\tDo not halt execution after a brk instruction.");
     println!("  -s, --start\t\t\tAddress from where to start (default: reset vector).");
@@ -145,6 +147,44 @@ fn parse_hex_or_reference(
     }
 }
 
+fn parse_mmc(line: &str) -> MemoryMapperChip {
+    let map: HashMap<String, String> = line
+        .split(';')
+        .filter_map(|pair| pair.split_once('='))
+        .map(|(k, v)| (k.trim().to_lowercase(), v.trim().to_lowercase()))
+        .collect();
+
+    match map.get("kind").map(|s| s.as_str()) {
+        Some("mmc3") => {
+            let parse_field = |key: &str| -> usize {
+                map.get(key)
+                    .unwrap_or_else(|| {
+                        die(format!("missing required field '{key}' in '--mmc' flag"))
+                    })
+                    .parse::<usize>()
+                    .unwrap_or_else(|_| die(format!("invalid integer for '{key}' in '--mmc' flag")))
+            };
+
+            MemoryMapperChip::Mmc3(Mmc3 {
+                prg_rom_mode: if parse_field("prg_rom_mode") == 0 {
+                    Mmc3BankMode::FirstSwappable
+                } else {
+                    Mmc3BankMode::SecondSwappable
+                },
+                r6: parse_field("r6"),
+                r7: parse_field("r7"),
+                prg_ram_enabled: parse_field("prg_ram_enabled") == 1,
+                prg_ram_writes_allowed: parse_field("prg_ram_writes_allowed") == 1,
+                next_register_update: 0,
+            })
+        }
+        Some(mmc) => die(format!(
+            "unknown memory mapper kind '{mmc}' in the '--mmc' flag"
+        )),
+        None => die("you need to specify the 'kind' in the '--mmc' flag".to_string()),
+    }
+}
+
 fn parse_arguments() -> Args {
     let mut args = std::env::args();
     let mut res = Args::default();
@@ -193,6 +233,10 @@ fn parse_arguments() -> Args {
             "-f" | "--function" => {
                 res.assume_function = true;
             }
+            "--mmc" => match args.next() {
+                Some(c) => res.mmc = Some(parse_mmc(&c)),
+                None => die("you need to specify a configuration for the '--mmc' flag".to_string()),
+            },
             "-n" | "--nasm" => match args.next() {
                 Some(a) => {
                     let pb = PathBuf::from(a.clone());
@@ -318,6 +362,7 @@ fn run(file: &Path, start: u16, args: Args) -> Result<(), String> {
     machine.halt_on_brk = args.halt_on_brk;
     machine.cycle_limit = args.cycle_limit;
     machine.addresses = addresses;
+    machine.mapper_chip = args.mmc;
 
     machine.until_address(args.until_address)?;
 
@@ -342,6 +387,22 @@ fn run(file: &Path, start: u16, args: Args) -> Result<(), String> {
                         idx, cell.value, cell.reads, cell.writes
                     );
                 }
+            }
+        }
+        for (idx, cell) in machine.working_ram.iter().enumerate() {
+            if cell.reads > 0 || cell.writes > 0 {
+                if !title {
+                    println!("\n== Memory dump ==\n");
+                    title = true;
+                }
+
+                println!(
+                    "[${:04X}] = ${:02X} [reads={}, writes={}]",
+                    idx + 0x6000,
+                    cell.value,
+                    cell.reads,
+                    cell.writes
+                );
             }
         }
     }
