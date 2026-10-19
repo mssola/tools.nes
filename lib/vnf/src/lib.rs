@@ -1765,12 +1765,22 @@ impl Machine {
                 }
             }
             0x0001 => {
+                // Registers 6 and 7 ignore the two most significant bits, as
+                // the MMC3 has only 6 PRG ROM address lines. This then allows
+                // for 64 banks of 8KB, and hence the MMC3's limit of 512KB for
+                // PRG ROM.
+                let val = value & 0x3F;
+
                 if chip.next_register_update == 6 {
-                    chip.r6 = value as usize;
+                    chip.r6 = val as usize;
                 } else if chip.next_register_update == 7 {
-                    chip.r7 = value as usize;
+                    chip.r7 = val as usize;
                 }
-                // NOTE: other registers are ignored.
+                // NOTE: no further checks are done. If the programmer is
+                // referencing out of ROM's capacity, translate_rom_address()
+                // will just return zeroes and make the whole run to fail
+                // organically.
+                // NOTE: all the other registers are ignored.
             }
             0x2000 => {
                 // NOTE: nametable arrangement. Since this is a headless
