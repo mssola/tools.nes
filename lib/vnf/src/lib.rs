@@ -1456,21 +1456,16 @@ impl Machine {
 
                 // The break mark is basically the byte which is in current PC +
                 // 1. If that's not possible, then we have a 'brk' as the last
-                // instruction with no break mark or something like that, which
-                // is just nonsense.
-                self.status_register.break_mark = Some(
-                    *self
-                        .prg_rom
-                        .get(self.pc - 0x8000 + 1)
-                        .expect("you need to reserve a byte for the break mark"),
-                );
+                // instruction with no break mark or something like that. In
+                // this case translate_rom_address() will give us a zero value,
+                // which is good enough.
+                self.status_register.break_mark = Some(self.translate_rom_address(self.pc + 1)?[0]);
 
-                // TODO: the next PC is the advertized IRQ one. This one is
-                // picked as the last byte from PRG-ROM, but depending on how
-                // bank mapping is done, this is not necessarily true.
+                // The next PC is the advertized IRQ one. This one is picked as
+                // the last word from PRG-ROM.
                 let len = self.prg_rom.len();
-                let high = &(self.prg_rom[len - 1] as usize) << 8;
-                let low = &(self.prg_rom[len - 2] as usize);
+                let high = &(*self.prg_rom.get(len - 1).unwrap_or(&0) as usize) << 8;
+                let low = &(*self.prg_rom.get(len - 2).unwrap_or(&0) as usize);
                 self.pc = high + low;
                 self.skip_pc = true;
 
