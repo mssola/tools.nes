@@ -70,3 +70,23 @@ fine:
 ```
 $ runrom --start init-loop --until-address end-loop --nasm <path to .nasm/> game.nes
 ```
+
+## Mappers
+
+Both `vnf` and `runrom` have support for memory mapper chips even if, for now,
+they only bring support for the MMC3 chip. If you want to run ROM files with
+this mapper chip in mind, then you have to pass the `--mmc` flag, which works in
+a very similar way as with `readrom`. As an example, check this command:
+
+```
+$ runrom -f --mmc "kind=mmc3; prg_rom_mode=0; prg_ram_enabled=1; prg_ram_writes_allowed=1; r6=0; r7=1" -n .nasm/ -s foo game.nes
+```
+
+This will load the `game.nes` ROM, start it from the `foo` address as described
+in the `.nasm/` directory, and it will stop whenever a top-level `rts`/`rti`
+instruction is found. The configuration from the MMC3 chip is as follows:
+
+- `kind`: identifier for the MMC to be used (only 'mmc3' is supported).
+- `prg_rom_mode`: initial value for `$8000.D6` (see the [PRG Banks](https://www.nesdev.org/wiki/MMC3) section).
+- `prg_ram_enabled`/`prg_ram_writes_allowed`: whether PRG RAM is available and writes enabled.
+- `r6`/`r7`: initial bank data for these two registers.
