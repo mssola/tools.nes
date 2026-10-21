@@ -661,12 +661,28 @@ fn main() {
     // memory mapper chip configuration. If that's the case, then 'bytes' might
     // need to be re-constructed with the given mapper configuration. Otherwise,
     // we remove the header part from the ROM, as it's no longer needed.
-    bytes = match &args.mmc {
-        Some(MemoryMapperChip::Mmc3(m)) => match reconstruct_from_mmc3(&header, m, &bytes) {
-            Ok(b) => b,
-            Err(e) => die(e),
-        },
-        None => bytes.get(0x10..).unwrap_or(&[]).to_vec(),
+    bytes = match header.mapper {
+        header::Mapper::Mmc3Acc
+        | header::Mapper::Mmc3Nec
+        | header::Mapper::Mmc3Sharp
+        | header::Mapper::Mmc3T9552
+        | header::Mapper::Mmc3c => {
+            // If the --mmc option was provided, use it. Otherwise assume a
+            // default configuration.
+            let mmc = match args.mmc {
+                Some(MemoryMapperChip::Mmc3(ref m)) => m,
+                None => &Mmc3 {
+                    prg_rom_mode: false,
+                    r6: 0,
+                    r7: 0,
+                },
+            };
+            match reconstruct_from_mmc3(&header, mmc, &bytes) {
+                Ok(b) => b,
+                Err(e) => die(e),
+            }
+        }
+        _ => bytes.get(0x10..).unwrap_or(&[]).to_vec(),
     };
 
     // Check whether the user wanted to disassemble something.
