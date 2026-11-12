@@ -1804,8 +1804,8 @@ impl Machine {
                         };
                         self.working_ram = vec![cell; 0x2000];
                     } else if before != chip.prg_ram_writes_allowed {
-                        for i in 0..0x2000 {
-                            self.working_ram[i].write_allowed = chip.prg_ram_writes_allowed;
+                        for cell in self.working_ram.iter_mut().take(0x2000) {
+                            cell.write_allowed = chip.prg_ram_writes_allowed;
                         }
                     }
                 } else {
